@@ -1,0 +1,12 @@
+.env
+.venv
+/node_modules/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.development
+.env.test
+
+__pycache__/
+data/

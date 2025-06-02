@@ -4,4 +4,23 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "amazon-textract-textractor>=1.9.2",
+    "colorama>=0.4.6",
+    "docker>=7.1.0",
+    "ipykernel>=6.29.5",
+    "lightgbm>=4.6.0",
+    "llm-sandbox>=0.2.4",
+    "numpy>=2.2.5",
+    "openai>=1.78.1",
+    "optuna>=4.3.0",
+    "pandas>=2.2.3",
+    "pdf2image>=1.17.0",
+    "pydantic-ai-slim[mcp,openai]>=0.2.3",
+    "rich>=14.0.0",
+    "scikit-learn>=1.6.1",
+    "structlog>=25.3.0",
+    "torch>=2.7.0",
+    "ucimlrepo>=0.0.7",
+    "xgboost>=3.0.2",
+]
