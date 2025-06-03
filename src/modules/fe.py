@@ -173,6 +173,9 @@ iterate on FEATURE ENGINEERING strategies for a binary‑classification dataset 
 Users will provide you with a summary of the dataset and the current features, along with \
 results from the previous feature engineering iteration when applicable.
 
+Users will also provide a narrative description of the dataset which may also include \
+additional instructions on what to focus on, or specific requirements for the feature engineering.
+
 You have deep knowledge of:
 - Domain-specific feature engineering techniques
 - Statistical transformations and aggregations
@@ -1169,21 +1172,23 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         self._is_fitted = True
         return self
 
-    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+    def transform(self, X: pd.DataFrame, convert_categorical_to_integer: bool = False) -> pd.DataFrame:
         """
-        Apply the LLM‐generated feature code (self.code) to a new DataFrame X.
+        Apply the LLM‐generated feature code (self.full_code) to a new DataFrame X.
 
         Parameters
         ----------
         X : pd.DataFrame
             Must contain the same original feature columns that were present when fit() was called.
             Does NOT include the target column.
+        convert_categorical_to_integer : bool, default=False
+            If True, convert categorical columns to integer.
 
         Returns
         -------
         pd.DataFrame
             A new DataFrame containing the original columns plus any new columns created by running
-            `run_llm_code(self.code, ...)`.  If the code references columns not present, you'll get
+            `run_llm_code(self.full_code, ...)`.  If the code references columns not present, you'll get
             an error.  Conversely, if new categories appear, they will appear in the output.
 
         Raises
@@ -1199,10 +1204,10 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         # Make a copy so we don't overwrite the user's X
         df_in = X.copy()
         try:
-            df_out = run_llm_code(self.code, df_in, convert_categorical_to_integer=True)
+            df_out = run_llm_code(self.full_code, df_in, convert_categorical_to_integer=convert_categorical_to_integer)
         except Exception as e:
             self.logger.error(
-                f"Error applying self.code in transform: {type(e).__name__}: {e}"
+                f"Error applying self.full_code in transform: {type(e).__name__}: {e}"
             )
             raise
 
@@ -1213,7 +1218,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         Save self.full_code to disk as either a .py or .md.
 
         - If filepath ends in '.py', writes raw Python code.
-        - If filepath ends in '.md', wraps self.code in a triple‐backtick fence labeled 'python'.
+        - If filepath ends in '.md', wraps self.full_code in a triple‐backtick fence labeled 'python'.
 
         After writing, logs the location to self.logger.
         """

@@ -11,6 +11,7 @@ dependencies = [
     "ipykernel>=6.29.5",
     "lightgbm>=4.6.0",
     "llm-sandbox>=0.2.4",
+    "matplotlib>=3.10.3",
     "numpy>=2.2.5",
     "openai>=1.78.1",
     "optuna>=4.3.0",
