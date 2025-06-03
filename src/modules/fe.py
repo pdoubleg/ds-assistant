@@ -1,5 +1,4 @@
 import ast
-import copy
 import logging
 import time
 import warnings
@@ -745,6 +744,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
 
         # Cost tracking
         self.usages: List[Usage] = []
+        
 
     def fit(
         self,
@@ -753,6 +753,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         dataset_description: Optional[str] = None,
         load_code_path: Optional[str] = None,
         show_prompts: bool = False,
+        **kwargs,
     ) -> "CAAFETransformer":
         """
         Fit the transformer with comprehensive structured logging.

@@ -259,10 +259,10 @@ def tune_xgb_model(
         clf,
         search_space,
         scoring=metric_result.output.metric,
-        n_candidates=500,
+        n_candidates=100,
         cv=5,
-        min_resources="exhaust",
-        factor=2,
+        min_resources="smallest",
+        factor=3,
         verbose=0,
     ).fit(X, y)
 
