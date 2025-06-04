@@ -1,8 +1,9 @@
+import math
 import os
 import ast
 import warnings
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Union
 
 import pandas as pd
 import scipy
@@ -13,9 +14,10 @@ from pydantic_ai.models.openai import OpenAIModel
 from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyClassifier
 from sklearn.experimental import enable_halving_search_cv  # noqa: F401
-from sklearn.metrics import check_scoring
+from sklearn.metrics import check_scoring, make_scorer, precision_score
 from sklearn.model_selection import HalvingRandomSearchCV
 
+from .fe import metric_ppv
 from src.utils import exploratory_data_analysis, format_eda_for_llm
 
 # Comprehensive warning suppression for XGBoost
@@ -24,7 +26,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
 warnings.filterwarnings("ignore", category=FutureWarning, module="xgboost")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="xgboost")
 
-os.environ['PYTHONWARNINGS'] = 'ignore'
+os.environ["PYTHONWARNINGS"] = "ignore"
 
 OPENAI_MODEL = OpenAIModel("gpt-4.1")
 
@@ -35,17 +37,29 @@ OPENAI_MODEL = OpenAIModel("gpt-4.1")
 
 DEFAULT_TASK_DESCRIPTION = """\
 The classification problem under investigation is based on insurance claims data. \
-Ultimately, we are interested in optimizing for PPV (Positive Predictive Value).
+More specifically, the goal is to predict whether a given claim will be high severity. \
+Ultimately, we are interested in optimizing for PPV (Positive Predictive Value) at the top 5% of predicted probabilities.
 """
 
 SYSTEM_PROMPT = """
-You are a senior data scientist tasked with guiding the use of an AutoML tool  
-to discover the best XGBoost model configurations for a given binary classification dataset. 
-Your role involves understanding the dataset characteristics, proposing suitable metrics, 
+You are a senior data scientist tasked with guiding the use of an AutoML tool  \
+to discover the best XGBoost model configurations for a given binary classification dataset. \
+Your role involves understanding the dataset characteristics, proposing suitable \
 hyperparameters, and their search spaces, analyzing results, and iterating on configurations.
 
 Use the dataset characteristics tool to carefully analyze the dataset before responding to the user's question.
 """
+
+
+def get_analysis_and_recommendations_prompt(
+    task_description: str = DEFAULT_TASK_DESCRIPTION,
+) -> str:
+    prompt = f"""{task_description}
+For this specific inquiry, you are tasked with supporting hyperparameter optimization for a XGBoost model. \
+Given the problem context and dataset characteristics, provide analysis and recommendations to guide downstream iterative HPO.
+"""
+    return prompt.strip()
+
 
 INITIAL_SEARCH_SPACE_PROMPT = """\
 Given your understanding of XGBoost and general best practices in machine learning, along with the \
@@ -81,61 +95,65 @@ search space written in python code.
 """
 
 
-def get_metric_prompt(task_description: str = DEFAULT_TASK_DESCRIPTION) -> str:
-    prompt = f"""{task_description}
-For this specific inquiry, you are tasked with recommending a suitable hyperparameter optimization \
-metric for training a XGBoost model. \
-Given the problem context and dataset characteristics, suggest only the name of one of the built-in \
-metrics using the MetricResult output type.
-"""
-    return prompt.strip()
-
-
 def get_refine_search_space_prompt(
-    top_n: str, last_run_best_score: float, all_time_best_score: float, all_time_best_configs: str | None = None
+    top_n: str,
+    last_run_best_score: float,
+    all_time_best_score: float,
+    all_time_best_configs: str | None = None,
+    iteration: int | None = None,
+    max_iterations: int | None = None,
 ) -> str:
     """
     Generate a prompt for refining the search space based on results.
-    
+
     Args:
         top_n (str): Top configurations from the last run
         last_run_best_score (float): Best score from the last run
         all_time_best_score (float): Best score across all runs
         all_time_best_configs (str | None): Top configurations across all runs (optional)
-    
+        iteration (int | None): Current iteration number (optional)
+        max_iterations (int | None): Maximum number of iterations (optional)
+        
     Returns:
         str: The formatted prompt for search space refinement
     """
-    prompt_parts = [
-        "Given your previously suggested search space, the obtained top configurations from the last run with their test scores:",
-        top_n,
-        ""
-    ]
     
+    if iteration is not None and max_iterations is not None:
+        prompt_parts = [
+            f"--- Iteration {iteration + 1}/{max_iterations} ---",
+            "",
+        ]
+    else:
+        prompt_parts = [
+            "Given your previously suggested search space, the obtained top configurations from the last run with their test scores:",
+            top_n,
+            "",
+        ]
+
     # Add all-time best configs section if provided (only meaningful after first run)
     if all_time_best_configs:
-        prompt_parts.extend([
-            "Top configurations across ALL runs so far:",
-            all_time_best_configs,
-            ""
-        ])
-    
-    prompt_parts.extend([
-        f"The best score from the last run was {last_run_best_score}, while the best score ever achieved in all previous runs is {all_time_best_score}",
-        "",
-        "Remember, tunable hyperparameters are: n_estimators, max_depth, min_child_samples, gamma, scale_pos_weight, learning_rate, subsample, colsample_bylevel, colsample_bytree, reg_alpha, and reg_lambda.",
-        "",
-        "Given the insights from the search history, your expertise in ML, and the need to further explore the search space, please suggest refinements for the search space in the next optimization round. Consider both narrowing and expanding the search space for hyperparameters where appropriate.",
-        "",
-        "For each recommendation, please:",
-        "1. Explicitly tie back to any general best practices or patterns you are aware of regarding XGBoost tuning",
-        "2. Then, relate to the insights from the search history and explain how they align or deviate from these practices or patterns.",
-        "3. If suggesting an expansion of the search space, please provide a rationale for why a broader range could be beneficial.",
-        "",
-        "",
-        "Briefly summarize your reasoning for the refinements and then present the adjusted configurations. Enclose your refined configurations between python code fences, and assign your configuration to a variable named search_space."
-    ])
-    
+        prompt_parts.extend(
+            ["Top configurations across ALL runs so far:", all_time_best_configs, ""]
+        )
+
+    prompt_parts.extend(
+        [
+            f"The best score from the last run was {last_run_best_score}, while the best score ever achieved in all previous runs is {all_time_best_score}",
+            "",
+            "Remember, tunable hyperparameters are: n_estimators, max_depth, min_child_samples, gamma, scale_pos_weight, learning_rate, subsample, colsample_bylevel, colsample_bytree, reg_alpha, and reg_lambda.",
+            "",
+            "Given the insights from the search history, your expertise in ML, and the need to further explore the search space, please suggest refinements for the search space in the next optimization round. Consider both narrowing and expanding the search space for hyperparameters where appropriate.",
+            "",
+            "For each recommendation, please:",
+            "1. Explicitly tie back to any general best practices or patterns you are aware of regarding XGBoost tuning",
+            "2. Then, relate to the insights from the search history and explain how they align or deviate from these practices or patterns.",
+            "3. If suggesting an expansion of the search space, please provide a rationale for why a broader range could be beneficial.",
+            "",
+            "",
+            "Briefly summarize your reasoning for the refinements and then present the adjusted configurations. Enclose your refined configurations between python code fences, and assign your configuration to a variable named search_space.",
+        ]
+    )
+
     return "\n".join(prompt_parts)
 
 
@@ -144,30 +162,18 @@ def get_refine_search_space_prompt(
 # ============================================================================
 
 
-class MetricResult(BaseModel):
-    explanation: str = Field(
-        description="An explanation of the metric choice based on best practices and the dataset characteristics."
+class AnalysisAndRecommendations(BaseModel):
+    """A summary analysis and recommendations for downstream HPO."""
+
+    domain_analysis: str = Field(
+        description="Analysis and recommendations based on real world domain knowledge about the data and the problem at hand."
     )
-    metric: str = Field(
-        description="The name of the metric to optimize. Must be a valid scikit-learn callable scoring metric."
+    dataset_analysis: str = Field(
+        description="Analysis and recommendations based on the dataset characteristics."
     )
 
-    @field_validator("metric", mode="after")
-    @classmethod
-    def validate_metric(cls, value: Any):
-        try:
-            # Use a dummy estimator for validation
-            dummy_estimator = DummyClassifier()
-
-            # Try to create a scorer from the string
-            _ = check_scoring(dummy_estimator, scoring=value)
-
-            return value
-
-        except (ValueError, TypeError, AttributeError):
-            raise ValueError(
-                f"Invalid scoring metric: {value}. Please use a valid scikit-learn callable scoring metric."
-            )
+    def __str__(self) -> str:
+        return f"Analysis and Recommendations:\n{self.domain_analysis}\n{self.dataset_analysis}"
 
 
 class PythonCode(BaseModel):
@@ -257,35 +263,33 @@ def extract_logs(search_results: BaseEstimator, top_n: int = 5):
 def format_best_configs_across_runs(best_configs: list[dict]) -> str:
     """
     Format the best configurations across all runs for inclusion in prompts.
-    
+
     Args:
         best_configs (list[dict]): List of best config dictionaries with 'score', 'config', and 'iteration' keys
-        
+
     Returns:
         str: Formatted string showing the top configurations across all runs
     """
     if not best_configs:
         return "No configurations available yet."
-    
+
     config_strings = []
     for index, config_info in enumerate(best_configs):
-        config = config_info['config']
-        score = config_info['score']
-        iteration = config_info['iteration']
-        
+        config = config_info["config"]
+        score = config_info["score"]
+        iteration = config_info["iteration"]
+
         # Format the hyperparameters similar to extract_logs
         config_str = ", ".join([f"{key}: {value}" for key, value in config.items()])
-        
+
         config_strings.append(
             f"Configuration {index + 1} ({score:.4f} test score, from iteration {iteration}): {config_str}"
         )
-    
+
     return "\n".join(config_strings)
 
 
-def tune_xgb_model(
-    search_space: dict, metric_result: MetricResult, X: pd.DataFrame, y: pd.Series
-) -> BaseEstimator:
+def tune_xgb_model(search_space: dict, X: pd.DataFrame, y: pd.Series) -> BaseEstimator:
     """
     Tune an XGBoost model using the given search space and metric.
     """
@@ -295,17 +299,33 @@ def tune_xgb_model(
         eval_metric="logloss",
         n_jobs=-1,
         use_label_encoder=False,
-        verbosity=0  # Set to silent mode (0 = silent, 1 = warning, 2 = info, 3 = debug)
+        verbosity=0,
     )
 
+    # search = HalvingRandomSearchCV(
+    #     clf,
+    #     search_space,
+    #     scoring=metric_result.output.metric,
+    #     n_candidates=500,
+    #     cv=5,
+    #     min_resources="smallest",
+    #     factor=2,
+    #     verbose=0,
+    # ).fit(X, y)
+    
+
+    precision_scorer = make_scorer(precision_score, pos_label=1)
+    
     search = HalvingRandomSearchCV(
         clf,
         search_space,
-        scoring=metric_result.output.metric,
-        n_candidates=500,
-        cv=5,
-        min_resources="exhaust",
+        scoring=precision_scorer,
         factor=2,
+        n_candidates=500,
+        min_resources="smallest",
+        random_state=42,
+        n_jobs=-1,
+        cv=5,
         verbose=0,
     ).fit(X, y)
 
@@ -333,10 +353,10 @@ async def get_dataset_characteristics(ctx: RunContext[AutoMLDependencies]) -> st
     return summary_string
 
 
-metric_agent = Agent(
+analysis_and_recommendations_agent = Agent(
     model=OPENAI_MODEL,
     deps_type=AutoMLDependencies,
-    output_type=MetricResult,
+    output_type=AnalysisAndRecommendations,
     output_retries=3,
     retries=3,
     tools=[Tool(get_dataset_characteristics, takes_ctx=True, max_retries=5)],
@@ -380,6 +400,7 @@ class XGBoostTuner:
         target: str,
         task_description: str = DEFAULT_TASK_DESCRIPTION,
         top_n_configs: int = 5,
+        max_consecutive_no_improvement: int = 3,
     ):
         """
         Initialize the XGBoost tuner.
@@ -389,14 +410,15 @@ class XGBoostTuner:
             target (str): The target column name
             task_description (str): Description of the task for context
             top_n_configs (int): Number of top configurations to retain (default: 5)
+            max_consecutive_no_improvement (int): Maximum number of consecutive runs without improvement (default: 3)
         """
         self.dataset = dataset
         self.target = target
         self.task_description = task_description
         self.top_n_configs = top_n_configs
-
+        self.max_consecutive_no_improvement = max_consecutive_no_improvement
         self.deps = AutoMLDependencies(dataset=dataset, target=target)
-        self.metric_agent = metric_agent
+        self.analysis_and_recommendations_agent = analysis_and_recommendations_agent
         self.initial_search_space_agent = initial_search_space_agent
         self.refine_search_space_agent = refine_search_space_agent
 
@@ -408,31 +430,30 @@ class XGBoostTuner:
     def _update_best_configs(self, score: float, config: dict, iteration: int) -> bool:
         """
         Update the list of best configurations with a new score and config.
-        
+
         Args:
             score (float): The score achieved by this configuration
             config (dict): The hyperparameter configuration
             iteration (int): The iteration number when this config was found
-            
+
         Returns:
             bool: True if this config made it into the top n, False otherwise
         """
-        new_entry = {
-            'score': score,
-            'config': config.copy(),
-            'iteration': iteration
-        }
-        
+        new_entry = {"score": score, "config": config.copy(), "iteration": iteration}
+
         # Add the new entry
         self.best_configs.append(new_entry)
-        
+
         # Sort by score in descending order (higher scores are better)
-        self.best_configs.sort(key=lambda x: x['score'], reverse=True)
-        
+        self.best_configs.sort(key=lambda x: x["score"], reverse=True)
+
         # Keep only the top n configurations
-        was_in_top_n = len(self.best_configs) <= self.top_n_configs or new_entry in self.best_configs[:self.top_n_configs]
-        self.best_configs = self.best_configs[:self.top_n_configs]
-        
+        was_in_top_n = (
+            len(self.best_configs) <= self.top_n_configs
+            or new_entry in self.best_configs[: self.top_n_configs]
+        )
+        self.best_configs = self.best_configs[: self.top_n_configs]
+
         return was_in_top_n
 
     def tune(self, max_iterations: int = 10):
@@ -447,20 +468,26 @@ class XGBoostTuner:
         y = self.dataset[self.target]
 
         # Get the metric to optimize
-        metric_prompt = get_metric_prompt(self.task_description)
-        metric_result = self.metric_agent.run_sync(metric_prompt, deps=self.deps)
-        print(f"Metric Explanation: {metric_result.output.explanation}")
-        print(f"Metric: {metric_result.output.metric}")
+        analysis_and_recommendations_prompt = get_analysis_and_recommendations_prompt(
+            self.task_description
+        )
+        analysis_and_recommendations_result = (
+            self.analysis_and_recommendations_agent.run_sync(
+                analysis_and_recommendations_prompt, deps=self.deps
+            )
+        )
+        print(f"{str(analysis_and_recommendations_result.output)}")
 
         # Generate initial search space
         initial_search_space = self.initial_search_space_agent.run_sync(
-            INITIAL_SEARCH_SPACE_PROMPT, message_history=metric_result.all_messages()
+            INITIAL_SEARCH_SPACE_PROMPT,
+            message_history=analysis_and_recommendations_result.all_messages(),
         )
         print(f"Initial Search Space: {initial_search_space.output.reasoning}")
 
         # Initialize tracking variables
         consecutive_no_improvement = 0
-        max_consecutive_no_improvement = 3
+        max_consecutive_no_improvement = self.max_consecutive_no_improvement
         current_search_space_code = initial_search_space.output.code
         last_message_history = initial_search_space.all_messages()
 
@@ -472,7 +499,7 @@ class XGBoostTuner:
             search_space = generate_search_space_from_code(current_search_space_code)
 
             # Run hyperparameter tuning
-            search_results = tune_xgb_model(search_space, metric_result, X, y)
+            search_results = tune_xgb_model(search_space, X, y)
 
             # Extract results
             top_config_summary, last_run_best_score = extract_logs(search_results)
@@ -484,27 +511,34 @@ class XGBoostTuner:
 
             # Update best configurations
             was_improvement = self._update_best_configs(
-                last_run_best_score, 
-                search_results.best_params_, 
-                iteration + 1
+                last_run_best_score, search_results.best_params_, iteration + 1
             )
 
             # Check if this improved our top configurations
-            if was_improvement and (len(self.best_configs) == 1 or last_run_best_score > self.best_configs[1]['score']):
+            if was_improvement and (
+                len(self.best_configs) == 1
+                or last_run_best_score > self.best_configs[1]["score"]
+            ):
                 print(f"New best score: {last_run_best_score}")
                 consecutive_no_improvement = 0
             else:
                 consecutive_no_improvement += 1
-                print(f"No improvement. Consecutive runs without improvement: {consecutive_no_improvement}")
+                print(
+                    f"No improvement. Consecutive runs without improvement: {consecutive_no_improvement}"
+                )
 
             # Print current top configurations
             print(f"\nCurrent top {len(self.best_configs)} configurations:")
             for i, config_info in enumerate(self.best_configs):
-                print(f"  {i+1}. Score: {config_info['score']:.4f} (Iteration {config_info['iteration']})")
+                print(
+                    f"  {i + 1}. Score: {config_info['score']:.4f} (Iteration {config_info['iteration']})"
+                )
 
             # Check early stopping criteria
             if consecutive_no_improvement >= max_consecutive_no_improvement:
-                print(f"Early stopping: No improvement for {max_consecutive_no_improvement} consecutive runs")
+                print(
+                    f"Early stopping: No improvement for {max_consecutive_no_improvement} consecutive runs"
+                )
                 break
 
             # If this is the last iteration, don't refine search space
@@ -514,20 +548,30 @@ class XGBoostTuner:
 
             # Refine search space for next iteration
             # Use the overall best score for refinement logic
-            all_time_best_score = self.best_configs[0]['score'] if self.best_configs else last_run_best_score
-            
+            all_time_best_score = (
+                self.best_configs[0]["score"]
+                if self.best_configs
+                else last_run_best_score
+            )
+
             # Only include all-time best configs if we're past the first iteration (otherwise they're the same as last run)
             all_time_best_configs = None
-            if iteration > 0:  # After first iteration, all-time configs become meaningful
-                all_time_best_configs = format_best_configs_across_runs(self.best_configs)
-            
+            if (
+                iteration > 0
+            ):  # After first iteration, all-time configs become meaningful
+                all_time_best_configs = format_best_configs_across_runs(
+                    self.best_configs
+                )
+
             refine_search_space_prompt = get_refine_search_space_prompt(
                 top_config_summary,
                 self.last_run_best_score[-1],
                 all_time_best_score,
                 all_time_best_configs,
+                iteration=iteration,
+                max_iterations=max_iterations,
             )
-            
+
             print(f"Refine Search Space Prompt:\n\n{refine_search_space_prompt}\n\n")
 
             refine_search_space_result = self.refine_search_space_agent.run_sync(
@@ -535,7 +579,9 @@ class XGBoostTuner:
                 message_history=last_message_history,
             )
 
-            print(f"\nRefined Search Space Reasoning:\n{refine_search_space_result.output.reasoning}")
+            print(
+                f"\nRefined Search Space Reasoning:\n{refine_search_space_result.output.reasoning}"
+            )
 
             # Update for next iteration
             current_search_space_code = refine_search_space_result.output.code
@@ -546,7 +592,9 @@ class XGBoostTuner:
             print(f"Best score achieved: {self.best_configs[0]['score']}")
             print(f"Top {len(self.best_configs)} configurations found:")
             for i, config_info in enumerate(self.best_configs):
-                print(f"  {i+1}. Score: {config_info['score']:.4f} (Iteration {config_info['iteration']})")
+                print(
+                    f"  {i + 1}. Score: {config_info['score']:.4f} (Iteration {config_info['iteration']})"
+                )
         print(f"Score progression: {self.last_run_best_score}")
 
     def get_best_config(self) -> dict | None:
@@ -556,7 +604,7 @@ class XGBoostTuner:
         Returns:
             dict | None: The best hyperparameter configuration, or None if tuning hasn't been run yet
         """
-        return self.best_configs[0]['config'] if self.best_configs else None
+        return self.best_configs[0]["config"] if self.best_configs else None
 
     def get_best_configs(self, n: int | None = None) -> list[dict]:
         """
@@ -580,13 +628,15 @@ class XGBoostTuner:
             dict: Summary of tuning results
         """
         return {
-            "best_score": self.best_configs[0]['score'] if self.best_configs else None,
-            "best_config": self.best_configs[0]['config'] if self.best_configs else None,
+            "best_score": self.best_configs[0]["score"] if self.best_configs else None,
+            "best_config": self.best_configs[0]["config"]
+            if self.best_configs
+            else None,
             "top_configs": self.best_configs.copy(),
             "total_iterations": len(self.last_run_best_score),
             "score_progression": self.last_run_best_score.copy(),
             "improvement_over_baseline": (
-                self.best_configs[0]['score'] - self.last_run_best_score[0]
+                self.best_configs[0]["score"] - self.last_run_best_score[0]
                 if len(self.last_run_best_score) > 0 and self.best_configs
                 else None
             ),

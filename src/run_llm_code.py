@@ -179,7 +179,7 @@ def check_ast(node: ast.AST) -> None:
         ast.alias,
     }
 
-    allowed_packages = {"numpy", "pandas", "sklearn", "scipy"}
+    allowed_packages = {"numpy", "pandas", "sklearn", "scipy", "re"}
 
     allowed_funcs = {
         "sum": sum,
