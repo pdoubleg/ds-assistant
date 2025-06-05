@@ -578,7 +578,7 @@ class AutoTuneLLM:
         top_n_configs: int = 5,
         max_consecutive_no_improvement: int = 3,
         n_candidates: int = 500,
-        min_resources: str = "smallest",
+        min_resources: str | int= "smallest",
         random_state: int = 42,
         n_jobs: int = -1,
         cv: int = 5,
@@ -597,7 +597,7 @@ class AutoTuneLLM:
             top_n_configs (int): Number of top configurations to retain
             max_consecutive_no_improvement (int): Maximum consecutive runs without improvement
             n_candidates (int): Number of candidates to evaluate
-            min_resources (str): Minimum resources to use
+            min_resources (str | int): Minimum resources to use
             random_state (int): Random state for reproducibility
             n_jobs (int): Number of jobs to run in parallel
             cv (int): Number of cross-validation folds
