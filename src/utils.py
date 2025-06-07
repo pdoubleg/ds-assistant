@@ -2,7 +2,7 @@ import io
 import json
 import logging
 import re
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, Tuple
 
 import numpy as np
 import pandas as pd
@@ -1546,48 +1546,98 @@ def make_df_numeric(
 
 def make_dataset_numeric(
     df_train: pd.DataFrame,
-    df_test: pd.DataFrame = None,
-    target_column: str = None,
-    categorical_cols: list = None,
+    df_test: Optional[pd.DataFrame] = None,
+    target_column: Optional[str] = None,
+    categorical_cols: Optional[List[str]] = None,
     return_encoder: bool = False,
-):
+) -> Union[Tuple[pd.DataFrame, pd.DataFrame], Tuple[pd.DataFrame, pd.DataFrame, OrdinalEncoder]]:
     """
-    Converts categorical columns to integer codes using sklearn's OrdinalEncoder,
-    handling unknowns as -1.
+    Convert categorical columns in train/test datasets to numeric values.
+    
+    This function automatically handles:
+    - Pandas categorical columns
+    - Object/string columns
+    - Missing values
+    - Unknown categories in test set
+    
+    Args:
+        df_train (pd.DataFrame): Training dataset
+        df_test (Optional[pd.DataFrame]): Test dataset (optional)
+        target_column (Optional[str]): Target column name to exclude from encoding
+        categorical_cols (Optional[List[str]]): Specific columns to encode
+        return_encoder (bool): Whether to return the fitted encoder
+        
+    Returns:
+        Union[Tuple[pd.DataFrame, pd.DataFrame], Tuple[pd.DataFrame, pd.DataFrame, OrdinalEncoder]]:
+            Processed training and test datasets, optionally with encoder
+            
+    Example:
+        >>> train = pd.DataFrame({'cat': ['A', 'B'], 'num': [1, 2], 'target': [0, 1]})
+        >>> test = pd.DataFrame({'cat': ['A', 'C'], 'num': [3, 4], 'target': [1, 0]})
+        >>> train_proc, test_proc = make_dataset_numeric(train, test, 'target')
+        >>> print(train_proc['cat'].values, test_proc['cat'].values)
+        [0 1] [0 2]
     """
-
-    # If no categorical cols specified, autodetect
+    # Create copies to avoid modifying original dataframes
+    df_train_processed = df_train.copy()
+    df_test_processed = df_test.copy() if df_test is not None else None
+    
+    # Identify categorical columns if not provided
     if categorical_cols is None:
-        categorical_cols = [
-            col
-            for col in df_train.columns
-            if (
-                df_train[col].dtype == "object"
-                or pd.api.types.is_categorical_dtype(df_train[col])
-            )
-            and col != target_column
-        ]
-
-    # Prepare encoder
-    encoder = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
-
-    # Fit only on train set
-    df_train_cats = df_train[categorical_cols].astype(str)
-    encoder.fit(df_train_cats)
-
-    # Transform train and test
-    df_train_enc = df_train.copy()
-    df_train_enc[categorical_cols] = encoder.transform(df_train_cats)
-
-    df_test_enc = None
-    if df_test is not None:
-        df_test_cats = df_test[categorical_cols].astype(str)
-        df_test_enc = df_test.copy()
-        df_test_enc[categorical_cols] = encoder.transform(df_test_cats)
-
+        categorical_cols = df_train_processed.select_dtypes(include=['object', 'category']).columns.tolist()
+        if target_column and target_column in categorical_cols:
+            categorical_cols.remove(target_column)
+    
+    if not categorical_cols:
+        if return_encoder:
+            return df_train_processed, df_test_processed, None
+        return df_train_processed, df_test_processed
+    
+    # Initialize encoder
+    encoder = OrdinalEncoder(
+        handle_unknown='use_encoded_value',
+        unknown_value=-1,
+        dtype=np.int32
+    )
+    
+    # Process categorical columns
+    for col in categorical_cols:
+        # Handle pandas categorical columns
+        if pd.api.types.is_categorical_dtype(df_train_processed[col]):
+            # Add 'missing' category if not present
+            if 'missing' not in df_train_processed[col].cat.categories:
+                df_train_processed[col] = df_train_processed[col].cat.add_categories('missing')
+            # Fill missing values
+            df_train_processed[col] = df_train_processed[col].fillna('missing')
+            
+            if df_test_processed is not None:
+                # Ensure test set has same categories as train set
+                test_categories = set(df_test_processed[col].cat.categories)
+                train_categories = set(df_train_processed[col].cat.categories)
+                missing_categories = train_categories - test_categories
+                
+                if missing_categories:
+                    df_test_processed[col] = df_test_processed[col].cat.add_categories(list(missing_categories))
+                df_test_processed[col] = df_test_processed[col].fillna('missing')
+        
+        # Handle object/string columns
+        else:
+            # Convert to string and fill missing values
+            df_train_processed[col] = df_train_processed[col].astype(str).fillna('missing')
+            if df_test_processed is not None:
+                df_test_processed[col] = df_test_processed[col].astype(str).fillna('missing')
+    
+    # Fit encoder on training data
+    encoder.fit(df_train_processed[categorical_cols])
+    
+    # Transform both datasets
+    df_train_processed[categorical_cols] = encoder.transform(df_train_processed[categorical_cols])
+    if df_test_processed is not None:
+        df_test_processed[categorical_cols] = encoder.transform(df_test_processed[categorical_cols])
+    
     if return_encoder:
-        return df_train_enc, df_test_enc, encoder
-    return df_train_enc, df_test_enc
+        return df_train_processed, df_test_processed, encoder
+    return df_train_processed, df_test_processed
 
 
 def auc_metric(target, pred, multi_class="ovo", numpy=False):

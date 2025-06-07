@@ -1,0 +1,56 @@
+[global]
+
+# Streamlit app configuration for AutoML Demo
+
+# Data frame configuration
+dataFrameSerialization = "legacy"
+
+[server]
+
+# Server settings
+headless = false
+runOnSave = true
+port = 8501
+address = "localhost"
+
+# File watcher settings
+fileWatcherType = "auto"
+
+# CORS and trusted origins
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+
+# Browser settings
+serverAddress = "localhost"
+gatherUsageStats = false
+serverPort = 8501
+
+[theme]
+
+# App theme configuration
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+font = "sans serif"
+
+[client]
+
+# Client-side settings
+toolbarMode = "auto"
+showErrorDetails = true
+
+[runner]
+
+# Code execution settings
+magicEnabled = true
+installTracer = false
+fixMatplotlib = true
+
+[logger]
+
+# Logging configuration
+level = "info"
+messageFormat = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" 
