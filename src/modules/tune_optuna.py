@@ -117,7 +117,7 @@ complexity (max_depth, n_estimators), learning_rate, sampling (subsample), class
 Given your understanding of {estimator_type} and general best practices,
 along with dataset characteristics (if available), please do the following:
 
-1. Explain your reasoning for an **initial** search space. Focus on casting a sufficiently wide/diverse search space that we will refine in subsequent iterations.
+1. Explain your reasoning for an **initial** search space. Focus on casting a sufficiently wide search space that we will refine in subsequent iterations.
 2. Then OUTPUT ONLY a Python function with this exact signature:
 
     def define_search_space(trial):
@@ -172,8 +172,7 @@ For each recommendation, please:
 2. Then, relate to the insights from the search history and explain how they align or deviate from these practices or patterns.
 3. If suggesting an expansion of the search space, please provide a rationale for why a broader range could be beneficial.
 
-Briefly summarize your reasoning for the refinements and then present the adjusted configurations. Enclose your \
-refined configurations between python code fences, and name the refined function `define_search_space`.
+Briefly summarize your reasoning for the refinements and then present the adjusted configurations.
 """
     return body.strip()
 
@@ -216,6 +215,10 @@ class PythonCode(BaseModel):
             return v
         except Exception as e:
             raise ValueError(f"Code is not executable: {e}")
+        
+    @property
+    def code_markdown(self) -> str:
+        return f"```python\n{self.code}\n```"
 
 
 # -----------------------------------------------------------------------------
