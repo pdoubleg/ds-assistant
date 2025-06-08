@@ -1,6 +1,6 @@
 # /// script
 # dependencies = [
-#   "openai>=1.63.0", 
+#   "openai>=1.63.0",
 #   "streamlit>=1.31.0",
 #   "pydantic>=2.0.0",
 #   "pydantic-ai",
@@ -11,29 +11,25 @@
 # ]
 # ///
 
-import streamlit as st
-import ast
-import seaborn as sns
-import math
+import os
 import time
 import warnings
-import os
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
-from typing_extensions import TypeAlias
 
 import numpy as np
 import pandas as pd
+import streamlit as st
 import xgboost as xgb
-from pydantic import BaseModel, Field, field_validator
+from datamodels import AutoMLDependencies, FeatureGenerationResult
+from pydantic import BaseModel, Field
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.usage import Usage
-from pydantic_ai.messages import ModelMessage
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_selection import mutual_info_classif
 from sklearn.model_selection import RepeatedKFold, train_test_split
+from typing_extensions import TypeAlias
 
-from run_llm_code import check_ast, run_llm_code
+from run_llm_code import run_llm_code
 from utils import (
     accuracy_metric,
     auc_metric,
@@ -41,181 +37,11 @@ from utils import (
     get_X_y,
     make_dataset_numeric,
     make_df_numeric,
+    metric_ppv,
     to_code_markdown,
 )
 
-# Suppress warnings for cleaner logs
 warnings.filterwarnings("ignore")
-
-
-def metric_ppv(
-    y_true: Union[list, pd.Series], 
-    y_pred: Union[list, pd.Series], 
-    top_p: float
-) -> float:
-    """
-    Computes PPV (Positive Predictive Value) at the top p% predicted probability scores.
-
-    This metric calculates precision among the samples with the highest predicted probabilities,
-    which is useful for scenarios where you care about precision in your most confident predictions.
-
-    Args:
-        y_true (Union[list, pd.Series]): Ground truth binary labels (0 or 1).
-        y_pred (Union[list, pd.Series]): Predicted probabilities (not hard labels).
-        top_p (float): Fraction (0 < top_p <= 1) of samples to include in the top predictions.
-
-    Returns:
-        float: Precision/PPV in the top_p most confident predictions.
-
-    Raises:
-        ValueError: If top_p is not between 0 and 1, or if y_true and y_pred have different lengths.
-
-    Example:
-        >>> y_true = [0, 1, 1, 0, 1]
-        >>> y_pred = [0.1, 0.9, 0.8, 0.2, 0.7]
-        >>> metric_ppv(y_true, y_pred, top_p=0.4)  # Top 40% (2 samples)
-        1.0  # Both top predictions were correct positives
-    """
-    if not (0 < top_p <= 1):
-        raise ValueError("top_p must be between 0 and 1.")
-
-    if len(y_true) != len(y_pred):
-        raise ValueError("y_true and y_pred must be the same length.")
-
-    top_num = max(1, math.ceil(len(y_true) * top_p))
-
-    ranked = pd.DataFrame({
-        "label": pd.Series(y_true).values,
-        "predicted_prob": pd.Series(y_pred).values,
-    })
-
-    top_ranked = ranked.sort_values("predicted_prob", ascending=False).head(top_num)
-    ppv = top_ranked["label"].value_counts(normalize=True).get(1, 0.0)
-
-    return ppv
-
-
-class PythonCode(BaseModel):
-    """A valid python code block and its reasoning"""
-
-    reasoning: str = Field(description="Reasoning for why this code is useful")
-    name: str = Field(description="Feature name")
-    code: str = Field(description="Python code ready to modify the df")
-
-    @field_validator("code", mode="after")
-    def validate_code_syntax(cls, v: Any) -> str:
-        """Validate that the code has proper Python syntax."""
-        import ast
-
-        try:
-            # Check if it's valid Python
-            ast.parse(v, mode="exec")
-            return v
-        except SyntaxError as e:
-            # logger.error(f"Invalid Python syntax: {e}")
-            raise ValueError(f"Invalid Python syntax: {e}")
-
-    @field_validator("code", mode="after")
-    def validate_code_ast(cls, v: Any) -> str:
-        """Validate that the code has proper AST based on the allowed specifications."""
-        try:
-            check_ast(ast.parse(v, mode="exec"))
-        except Exception as e:
-            # logger.error(f"Invalid AST: {e}")
-            raise ValueError(f"Invalid AST: {e}")
-        return v
-
-    @field_validator("code", mode="after")
-    def validate_code_add_to_df(cls, v: Any) -> str:
-        """Validate that the code adds the feature to the df"""
-        if "df" not in v:
-            # logger.error("Code must operate on a pandas DataFrame called 'df'")
-            raise ValueError("Code must operate on a pandas DataFrame called 'df'")
-        return v
-
-
-class DroppedColumns(BaseModel):
-    """Represents dropped column(s)."""
-
-    reasoning: str = Field(description="Reason for dropping the column(s)")
-    column_names: List[str] = Field(
-        description="List of column names to drop", default_factory=list
-    )
-
-
-class FeatureGenerationResult(BaseModel):
-    """Result from feature generation including multiple features and/or dropped columns."""
-
-    reasoning: str = Field(
-        description="Overall reasoning for the feature engineering decisions"
-    )
-    new_features: List[PythonCode] = Field(
-        description="List of features written in python code", default_factory=list
-    )
-    dropped_columns: Optional[DroppedColumns] = Field(
-        default=None,
-        description="Column name(s) to drop",
-    )
-
-    @property
-    def code_to_run(self) -> str:
-        """Code to run the feature engineering result."""
-        code_lines = []
-        for feature in self.new_features:
-            code_lines.append(feature.code)
-            code_lines.append("")
-        # Add column dropping code
-        if self.dropped_columns:
-            for col in self.dropped_columns.column_names:
-                code_lines.append(f"df.drop(columns=['{col}'], inplace=True)")
-            code_lines.append("")
-        return "\n".join(code_lines)
-
-    @property
-    def feature_count(self) -> int:
-        """Count the number of features in the result."""
-        return len(self.new_features)
-
-    @property
-    def dropped_count(self) -> int:
-        """Count the number of columns dropped in the result."""
-        if self.dropped_columns:
-            return len(self.dropped_columns.column_names)
-        return 0
-
-    def to_code(self) -> str:
-        """Convert the feature generation result to Python code with comments."""
-        code_lines = []
-
-        # Add feature generation code
-        for feature in self.new_features:
-            code_lines.append(f"# {feature.name}: {feature.reasoning}")
-            code_lines.append(feature.code)
-            code_lines.append("")
-
-        # Add column dropping code
-        if self.dropped_columns:
-            code_lines.append(f"# Dropping columns: {self.dropped_columns.reasoning}")
-            for col in self.dropped_columns.column_names:
-                code_lines.append(f"df.drop(columns=['{col}'], inplace=True)")
-            code_lines.append("")
-
-        return "\n".join(code_lines)
-
-
-@dataclass
-class FeatureEngineeringDependencies:
-    """Dependencies for feature engineering agents."""
-
-    original_dataset: pd.DataFrame
-    dataset: pd.DataFrame
-    target_name: str
-    dataset_description: str
-    current_features: List[str]
-    agent_notepad: List[str]
-    error_log: List[str]
-    tool_output_log: List[str]
-    prompt_log: List[str]
 
 
 # ============================================================================
@@ -313,7 +139,7 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
     feature_generation_agent = Agent(
         model=model,
-        deps_type=FeatureEngineeringDependencies,
+        deps_type=AutoMLDependencies,
         output_type=FeatureGenerationResult,
         retries=5,
         system_prompt=SYSTEM_PROMPT,
@@ -321,7 +147,7 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
     @feature_generation_agent.output_validator
     def is_executable(
-        ctx: RunContext[FeatureEngineeringDependencies], result: FeatureGenerationResult
+        ctx: RunContext[AutoMLDependencies], result: FeatureGenerationResult
     ) -> FeatureGenerationResult:
         """Validate that the generated code is executable."""
 
@@ -341,7 +167,7 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
     @feature_generation_agent.tool
     async def get_column_statistics(
-        ctx: RunContext[FeatureEngineeringDependencies],
+        ctx: RunContext[AutoMLDependencies],
         reasoning: str,
         column_names: List[str],
     ) -> str:
@@ -356,7 +182,9 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
         """
         st.write(f"\n🤖 Agent: {reasoning}")
-        st.write(f"\n🛠️ Tool Call: `get_column_statistics(column_names={column_names})`\n")
+        st.write(
+            f"\n🛠️ Tool Call: `get_column_statistics(column_names={column_names})`\n"
+        )
 
         df = ctx.deps.dataset
         valid_columns = [col for col in column_names if col in df.columns]
@@ -408,7 +236,9 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
         # Join summaries with a separator for readability
         summary_str = "\n---\n".join(summaries)
-        tool_log_entry = f"```python\nget_column_statistics(column_names={column_names})\n```\n"
+        tool_log_entry = (
+            f"```python\nget_column_statistics(column_names={column_names})\n```\n"
+        )
         ctx.deps.tool_output_log.append(tool_log_entry + "\n" + summary_str)
         with st.expander("Tool Details"):
             st.markdown(tool_log_entry)
@@ -418,7 +248,7 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
     @feature_generation_agent.tool
     async def get_feature_target_correlations(
-        ctx: RunContext[FeatureEngineeringDependencies],
+        ctx: RunContext[AutoMLDependencies],
         reasoning: str,
         columns: Optional[List[str]] = None,
     ) -> str:
@@ -432,7 +262,9 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
             String summary of the correlation matrix
         """
         st.write(f"\n🤖 Agent: {reasoning}")
-        st.write(f"\n🛠️ Tool Call: `get_feature_target_correlations(columns={columns})`\n")
+        st.write(
+            f"\n🛠️ Tool Call: `get_feature_target_correlations(columns={columns})`\n"
+        )
 
         df = ctx.deps.dataset
         target_name = ctx.deps.target_name
@@ -468,8 +300,12 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
             .sort_values(ascending=False)
             .round(4)
         )
-        tool_log_entry = f"```python\nget_feature_target_correlations(columns={columns})\n```\n"
-        ctx.deps.tool_output_log.append(tool_log_entry + "\n" + correlations.to_string())
+        tool_log_entry = (
+            f"```python\nget_feature_target_correlations(columns={columns})\n```\n"
+        )
+        ctx.deps.tool_output_log.append(
+            tool_log_entry + "\n" + correlations.to_string()
+        )
         with st.expander("Tool Details"):
             st.markdown(tool_log_entry)
             st.code(correlations.to_string())
@@ -478,7 +314,7 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
     @feature_generation_agent.tool
     async def get_correlation_pairs_summary(
-        ctx: RunContext[FeatureEngineeringDependencies],
+        ctx: RunContext[AutoMLDependencies],
         reasoning: str,
         columns: Optional[List[str]] = None,
     ) -> str:
@@ -522,7 +358,9 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
         output_string = high_corr_pairs.sort_values(
             by="Correlation", ascending=False
         ).to_string(index=False)
-        tool_log_entry = f"```python\nget_correlation_pairs_summary(columns={columns})\n```\n"
+        tool_log_entry = (
+            f"```python\nget_correlation_pairs_summary(columns={columns})\n```\n"
+        )
         ctx.deps.tool_output_log.append(tool_log_entry + "\n" + output_string)
         with st.expander("Tool Details"):
             st.markdown(tool_log_entry)
@@ -532,7 +370,7 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
     @feature_generation_agent.tool
     async def check_for_outliers(
-        ctx: RunContext[FeatureEngineeringDependencies], reasoning: str
+        ctx: RunContext[AutoMLDependencies], reasoning: str
     ) -> str:
         """Detect outliers in numeric columns using IQR method.
 
@@ -586,7 +424,7 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
 
     @feature_generation_agent.tool
     async def get_mutual_information_summary(
-        ctx: RunContext[FeatureEngineeringDependencies],
+        ctx: RunContext[AutoMLDependencies],
         reasoning: str,
         columns: Optional[List[str]] = None,
     ) -> str:
@@ -600,7 +438,9 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
             String summary of the mutual information
         """
         st.write(f"\n🤖 Agent: {reasoning}")
-        st.write(f"\n🛠️ Tool Call: `get_mutual_information_summary(columns={columns})`\n")
+        st.write(
+            f"\n🛠️ Tool Call: `get_mutual_information_summary(columns={columns})`\n"
+        )
 
         df = ctx.deps.dataset
         target = ctx.deps.target_name
@@ -628,7 +468,9 @@ def get_feature_generation_agent(model: str = "openai:gpt-4.1") -> Agent:
         output_string = (
             f"Mutual Information with target '{target}':\n" + mi_series.to_string()
         )
-        tool_log_entry = f"```python\nget_mutual_information_summary(columns={columns})\n```\n"
+        tool_log_entry = (
+            f"```python\nget_mutual_information_summary(columns={columns})\n```\n"
+        )
         ctx.deps.tool_output_log.append(tool_log_entry + "\n" + output_string)
         with st.expander("Tool Details"):
             st.markdown(tool_log_entry)
@@ -644,7 +486,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
     A scikit-learn–compatible transformer that uses an LLM (e.g. GPT-4o)
     to iteratively generate new features (CAAFE algorithm), evaluating each batch
     via RepeatedKFold and keeping only those that show improvement.
-    
+
     Supports:
 
     - Logging (no direct prints/displays)
@@ -666,7 +508,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
 
     base_classifier : Optional[object], default=None
         A scikit-learn–compatible classifier used during fold-based evaluation.
-        If None, defaults to XGBClassifier(use_label_encoder=False, eval_metric="logloss").
+        If None, defaults to XGBClassifier(eval_metric="logloss").
         Note: The transformer does *not* fit this classifier for final predictions;
         it only uses it to compute fold‐by‐fold metrics when evaluating new features.
 
@@ -757,11 +599,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         self.dataset_description = dataset_description or ""
         self.max_features = max_features
         self.optimization_metric = optimization_metric.lower()
-        
+
         # Validate optimization metric
         if self.optimization_metric not in ["accuracy", "auc", "ppv"]:
-            raise ValueError("optimization_metric must be one of: 'accuracy', 'auc', 'ppv'")
-            
+            raise ValueError(
+                "optimization_metric must be one of: 'accuracy', 'auc', 'ppv'"
+            )
+
         self.iterations = iterations
         self.llm_model = llm_model
         self.n_splits = n_splits
@@ -775,7 +619,6 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         if base_classifier is None:
             self.base_classifier = xgb.XGBClassifier(
                 objective="binary:logistic",
-                use_label_encoder=False,
                 eval_metric="logloss",
                 enable_categorical=False,
                 random_state=self.random_state,
@@ -783,7 +626,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         else:
             self.base_classifier = base_classifier
 
-        self.deps: FeatureEngineeringDependencies = None
+        self.deps: AutoMLDependencies = None
         self.feature_agent = get_feature_generation_agent(model=self.llm_model)
 
         # Will store the final code (concatenated accepted iterations)
@@ -824,7 +667,6 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
 
         # Cost tracking
         self.usages: List[Usage] = []
-        
 
     def fit(
         self,
@@ -866,7 +708,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         combined[self.target_name] = y.values
         combined_df = combined
 
-        self.deps = FeatureEngineeringDependencies(
+        self.deps = AutoMLDependencies(
             original_dataset=combined_df,
             dataset=combined_df,
             target_name=self.target_name,
@@ -894,9 +736,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
 
         # If load_code_path is provided, read code from disk, skip iteration loop
         if load_code_path:
-            st.write(
-                f"Loading existing feature-generation code from {load_code_path}"
-            )
+            st.write(f"Loading existing feature-generation code from {load_code_path}")
             try:
                 with open(load_code_path, "r", encoding="utf-8") as f:
                     raw = f.read()
@@ -927,18 +767,14 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                 )
                 return self
             except Exception as e:
-                st.write(
-                    f"Failed to load code from {load_code_path}: {e}"
-                )
+                st.write(f"Failed to load code from {load_code_path}: {e}")
                 raise IOError(f"Failed to load code from {load_code_path}: {e}")
 
         # Otherwise, run full iterative feature-engineering process
         st.write("Starting iterative feature engineering process...")
 
         # 1) Evaluate baseline stats (no new features)
-        st.write(
-            "\n\n→ Evaluating baseline performance (no added features)...\n"
-        )
+        st.write("\n\n→ Evaluating baseline performance (no added features)...\n")
         baseline_scores, baseline_stats = self.evaluate_features(
             full_code="",
             code="",
@@ -969,7 +805,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
             self.baseline_auc
             if self.optimization_metric == "auc"
             else self.baseline_acc
-            if self.optimization_metric == "accuracy" 
+            if self.optimization_metric == "accuracy"
             else self.baseline_ppv
         )
         st.info(
@@ -1030,7 +866,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
 
             if show_prompts:
                 st.write(f"\n\nPrompt for iteration {itr + 1}:\n{prompt}\n")
-            self.deps.prompt_log.append(f"\n\nPrompt for iteration {itr + 1}:\n{prompt}\n")
+            self.deps.prompt_log.append(
+                f"\n\nPrompt for iteration {itr + 1}:\n{prompt}\n"
+            )
             try:
                 # 2) Ask the LLM agent to propose new features
                 llm_start_time = time.time()
@@ -1104,11 +942,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                     improvement_ppv = np.nanmean(new_results["ppv"]) - np.nanmean(
                         old_results["ppv"]
                     )
-                    
+
                     # Determine significance based on the primary optimization metric
                     primary_improvement = (
-                        improvement_roc if self.optimization_metric == "auc"
-                        else improvement_acc if self.optimization_metric == "accuracy"
+                        improvement_roc
+                        if self.optimization_metric == "auc"
+                        else improvement_acc
+                        if self.optimization_metric == "accuracy"
                         else improvement_ppv
                     )
                     is_significant = primary_improvement > 0
@@ -1293,7 +1133,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         self._is_fitted = True
         return self
 
-    def transform(self, X: pd.DataFrame, convert_categorical_to_integer: bool = False) -> pd.DataFrame:
+    def transform(
+        self, X: pd.DataFrame, convert_categorical_to_integer: bool = False
+    ) -> pd.DataFrame:
         """
         Apply the LLM‐generated feature code (self.full_code) to a new DataFrame X.
 
@@ -1325,7 +1167,11 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         # Make a copy so we don't overwrite the user's X
         df_in = X.copy()
         try:
-            df_out = run_llm_code(self.full_code, df_in, convert_categorical_to_integer=convert_categorical_to_integer)
+            df_out = run_llm_code(
+                self.full_code,
+                df_in,
+                convert_categorical_to_integer=convert_categorical_to_integer,
+            )
         except Exception as e:
             st.warning(
                 f"Error applying self.full_code in transform: {type(e).__name__}: {e}"
@@ -1360,15 +1206,11 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                     f.write("```python\n")
                     f.write(self.full_code)
                     f.write("\n```")
-                st.write(
-                    f"Feature-generation code saved (as Markdown) to {filepath}"
-                )
+                st.write(f"Feature-generation code saved (as Markdown) to {filepath}")
             except Exception as e:
                 st.write(f"Failed to save code to {filepath}: {e}")
         else:
-            st.write(
-                "Unrecognized extension for save_code: use '.py' or '.md'."
-            )
+            st.write("Unrecognized extension for save_code: use '.py' or '.md'.")
 
     def evaluate_features(
         self,
@@ -1420,9 +1262,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                 )
 
             except Exception as e:
-                st.write(
-                    f"Error during fold evaluation: {type(e).__name__}: {e}"
-                )
+                st.write(f"Error during fold evaluation: {type(e).__name__}: {e}")
                 continue
             # Add the target column back to df_train
             df_train[self.target_name] = target_train
@@ -1446,13 +1286,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
     ):
         """Evaluates model performance on train and test datasets.
 
-        This method takes training and test dataframes, preprocesses them by converting categorical 
+        This method takes training and test dataframes, preprocesses them by converting categorical
         features to numeric, trains the base classifier, and evaluates performance using accuracy
         and AUC metrics.
 
         Args:
             df_train (pd.DataFrame): Training data including features and target
-            df_test (pd.DataFrame): Test data including features and target  
+            df_test (pd.DataFrame): Test data including features and target
             target_name (str): Name of target column in dataframes
 
         Returns:
@@ -1484,13 +1324,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         probs = self.base_classifier.predict_proba(test_x)
         acc = float(accuracy_metric(test_y, probs))
         auc = float(auc_metric(test_y, probs))
-        
+
         # Compute PPV at top_p% - extract positive class probabilities
         if probs.shape[1] == 2:  # Binary classification
             positive_probs = probs[:, 1]  # Probabilities for positive class
         else:  # Single class (should not happen in binary classification)
             positive_probs = probs.flatten()
-            
+
         ppv = float(metric_ppv(test_y, positive_probs, top_p=self.top_p))
 
         return {"accuracy": acc, "auc": auc, "ppv": ppv}
@@ -1544,60 +1384,65 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
 def get_demo_datasets() -> Dict[str, Tuple[pd.DataFrame, str]]:
     """
     Get a collection of popular binary classification datasets for demonstration.
-    
+
     Returns:
-        Dict[str, Tuple[pd.DataFrame, str]]: Dictionary mapping dataset names to 
+        Dict[str, Tuple[pd.DataFrame, str]]: Dictionary mapping dataset names to
         (DataFrame, target_column_name) tuples.
     """
-    import pandas as pd
     import numpy as np
+    import pandas as pd
+    import seaborn as sns
     from sklearn.datasets import (
+        fetch_california_housing,
         load_breast_cancer,
         load_wine,
-        fetch_california_housing,
-        make_classification
+        make_classification,
     )
-    from sklearn.preprocessing import KBinsDiscretizer
-    import seaborn as sns
-    
+
     demo_datasets = {}
-    
+
     # Breast Cancer Dataset
     data = load_breast_cancer()
     df = pd.DataFrame(data.data, columns=data.feature_names)
-    df['target'] = data.target
-    demo_datasets['Breast Cancer'] = (df, 'target')
-    
+    df["target"] = data.target
+    demo_datasets["Breast Cancer"] = (df, "target")
+
     # Wine Dataset (converted to binary classification)
     data = load_wine()
     df = pd.DataFrame(data.data, columns=data.feature_names)
-    df['target'] = (data.target > 0).astype(int)  # Convert to binary
-    demo_datasets['Wine Quality'] = (df, 'target')
-    
+    df["target"] = (data.target > 0).astype(int)  # Convert to binary
+    demo_datasets["Wine Quality"] = (df, "target")
+
     # California Housing (converted to binary classification)
     data = fetch_california_housing()
     df = pd.DataFrame(data.data, columns=data.feature_names)
     # Convert continuous target to binary using median split
-    df['target'] = (data.target > np.median(data.target)).astype(int)
-    demo_datasets['California Housing'] = (df, 'target')
-    
+    df["target"] = (data.target > np.median(data.target)).astype(int)
+    demo_datasets["California Housing"] = (df, "target")
+
     # Titanic Dataset
     try:
-        titanic_df = sns.load_dataset('titanic')
+        titanic_df = sns.load_dataset("titanic")
         # Clean and prepare the dataset
-        titanic_df = titanic_df.drop(['deck', 'embark_town'], axis=1)  # Drop columns with too many missing values
-        titanic_df['age'] = titanic_df['age'].fillna(titanic_df['age'].median())
-        titanic_df['embarked'] = titanic_df['embarked'].fillna(titanic_df['embarked'].mode()[0])
+        titanic_df = titanic_df.drop(
+            ["deck", "embark_town"], axis=1
+        )  # Drop columns with too many missing values
+        titanic_df["age"] = titanic_df["age"].fillna(titanic_df["age"].median())
+        titanic_df["embarked"] = titanic_df["embarked"].fillna(
+            titanic_df["embarked"].mode()[0]
+        )
         # Convert categorical variables to numeric
-        titanic_df['sex'] = titanic_df['sex'].map({'male': 0, 'female': 1})
-        titanic_df['embarked'] = titanic_df['embarked'].map({'C': 0, 'Q': 1, 'S': 2})
-        titanic_df['class'] = titanic_df['class'].map({'First': 0, 'Second': 1, 'Third': 2})
+        titanic_df["sex"] = titanic_df["sex"].map({"male": 0, "female": 1})
+        titanic_df["embarked"] = titanic_df["embarked"].map({"C": 0, "Q": 1, "S": 2})
+        titanic_df["class"] = titanic_df["class"].map(
+            {"First": 0, "Second": 1, "Third": 2}
+        )
         # Rename target column
-        titanic_df = titanic_df.rename(columns={'survived': 'target'})
-        demo_datasets['Titanic Survival'] = (titanic_df, 'target')
+        titanic_df = titanic_df.rename(columns={"survived": "target"})
+        demo_datasets["Titanic Survival"] = (titanic_df, "target")
     except Exception as e:
         st.warning(f"Could not load Titanic dataset: {str(e)}")
-    
+
     # Synthetic Classification Dataset
     X, y = make_classification(
         n_samples=1000,
@@ -1606,19 +1451,20 @@ def get_demo_datasets() -> Dict[str, Tuple[pd.DataFrame, str]]:
         n_redundant=5,
         n_classes=2,
         weights=[0.7, 0.3],
-        random_state=42
+        random_state=42,
     )
-    feature_names = [f'feature_{i}' for i in range(X.shape[1])]
+    feature_names = [f"feature_{i}" for i in range(X.shape[1])]
     df = pd.DataFrame(X, columns=feature_names)
-    df['target'] = y
-    demo_datasets['Synthetic Classification'] = (df, 'target')
-    
+    df["target"] = y
+    demo_datasets["Synthetic Classification"] = (df, "target")
+
     return demo_datasets
+
 
 def get_available_datasets() -> Dict[str, Union[str, Tuple[pd.DataFrame, str]]]:
     """
     Get all available datasets, including both local files and demo datasets.
-    
+
     Returns:
         Dict[str, Union[str, Tuple[pd.DataFrame, str]]]: Dictionary mapping dataset names to either
         file paths (for local datasets) or (DataFrame, target_column_name) tuples (for demo datasets).
@@ -1626,10 +1472,10 @@ def get_available_datasets() -> Dict[str, Union[str, Tuple[pd.DataFrame, str]]]:
     # Get local datasets
     data_dir = "data"
     dataset_files = {}
-    
+
     # Supported file extensions
-    supported_extensions = {'.csv', '.xlsx', '.xls', '.json', '.parquet'}
-    
+    supported_extensions = {".csv", ".xlsx", ".xls", ".json", ".parquet"}
+
     try:
         for file in os.listdir(data_dir):
             file_path = os.path.join(data_dir, file)
@@ -1639,25 +1485,28 @@ def get_available_datasets() -> Dict[str, Union[str, Tuple[pd.DataFrame, str]]]:
                 if ext.lower() in supported_extensions:
                     # Create a nice display name from the filename
                     # Remove extension and replace underscores with spaces
-                    display_name = os.path.splitext(file)[0].replace('_', ' ').title()
+                    display_name = os.path.splitext(file)[0].replace("_", " ").title()
                     dataset_files[display_name] = file_path
     except Exception as e:
         st.error(f"Error scanning data directory: {str(e)}")
-    
+
     # Add demo datasets
     demo_datasets = get_demo_datasets()
     dataset_files.update(demo_datasets)
-    
+
     return dataset_files
 
-def load_dataset(file_path: Union[str, Tuple[pd.DataFrame, str]]) -> Optional[pd.DataFrame]:
+
+def load_dataset(
+    file_path: Union[str, Tuple[pd.DataFrame, str]],
+) -> Optional[pd.DataFrame]:
     """
     Load a dataset from file or use a demo dataset.
-    
+
     Args:
         file_path (Union[str, Tuple[pd.DataFrame, str]]): Either a path to a dataset file
             or a tuple of (DataFrame, target_column_name) for demo datasets.
-        
+
     Returns:
         Optional[pd.DataFrame]: Loaded dataframe or None if loading fails
     """
@@ -1669,52 +1518,73 @@ def load_dataset(file_path: Union[str, Tuple[pd.DataFrame, str]]) -> Optional[pd
             # This is a file path
             _, ext = os.path.splitext(file_path)
             ext = ext.lower()
-            
-            if ext == '.csv':
+
+            if ext == ".csv":
                 return pd.read_csv(file_path)
-            elif ext in ['.xlsx', '.xls']:
+            elif ext in [".xlsx", ".xls"]:
                 return pd.read_excel(file_path)
-            elif ext == '.json':
+            elif ext == ".json":
                 return pd.read_json(file_path)
-            elif ext == '.parquet':
+            elif ext == ".parquet":
                 return pd.read_parquet(file_path)
             else:
                 st.error(f"Unsupported file format: {ext}")
                 return None
-                
+
     except Exception as e:
         st.error(f"Error loading dataset: {str(e)}")
         return None
-    
-    
+
+
 class CAAFEInputAdapter(BaseModel):
     """
     Input adapter for CAAFE - Context-Aware Automated Feature Engineering.
     """
+
     dataset_description: str = Field("A description of the dataset.")
     target_name: str = Field("The name of the target column.")
-    optimization_metric: str = Field("The metric to optimize. One of 'accuracy', 'auc', 'ppv'.")
-    max_features: int = Field(description="The maximum number of features to create.", gt=0, le=10)
+    optimization_metric: str = Field(
+        "The metric to optimize. One of 'accuracy', 'auc', 'ppv'."
+    )
+    max_features: int = Field(
+        description="The maximum number of features to create.", gt=0, le=10
+    )
     iterations: int = Field(description="The number of iterations to run.", gt=0, le=10)
-    n_splits: int = Field(default=3, description="The number of splits to use for cross-validation.", gt=0, le=10)
-    n_repeats: int = Field(default=2, description="The number of times to repeat the cross-validation.", gt=0, le=10)
-    top_p: Optional[float] = Field(default=0.05, description="The top p value for the PPV metric. Only used if optimization_metric is 'ppv'.")
-    
-    
+    n_splits: int = Field(
+        default=3,
+        description="The number of splits to use for cross-validation.",
+        gt=0,
+        le=10,
+    )
+    n_repeats: int = Field(
+        default=2,
+        description="The number of times to repeat the cross-validation.",
+        gt=0,
+        le=10,
+    )
+    top_p: Optional[float] = Field(
+        default=0.05,
+        description="The top p value for the PPV metric. Only used if optimization_metric is 'ppv'.",
+    )
+
+
 class NeedMoreInfo(BaseModel):
     """Use when the user needs to provide more information."""
-    
-    message: str = Field("A conversational follow up message &/or question to the user.")
-    
-    
+
+    message: str = Field(
+        "A conversational follow up message &/or question to the user."
+    )
+
+
 AdapterResponse: TypeAlias = Union[CAAFEInputAdapter, NeedMoreInfo]
+
 
 def main():
     """Streamlit app main function"""
-    
+
     if st.session_state.get("message_history", None) is None:
         st.session_state["message_history"] = []
-    
+
     agent = Agent(
         model="openai:gpt-4.1",
         result_type=AdapterResponse,
@@ -1729,45 +1599,36 @@ def main():
         - max_features: The maximum number of features to create.
         - iterations: The number of iterations to run.
         
-        If users give a simple greeting, reply with a friendly greeting, explain that you are CAAFE and tell them the information you need.
-        Try to get as much info as possible but don't be too pushy.
-        """
+        If users give a simple greeting, introduce yourself as CAAFE and reply with a friendly greeting, explain that you are CAAFE and tell them the information you need.
+        Give users an example of what you need based on the classic titanic classification dataset.
+        ```
+
+        """,
     )
-    
-    # fe = CAAFETransformer(
-    #     llm_model='gpt-4.1-mini',
-    #     optimization_metric="accuracy",
-    #     top_p=0.05,
-    #     target_name="claim_status",
-    #     dataset_description="",
-    #     max_features=5,
-    #     iterations=2,
-    #     n_splits=3,
-    #     n_repeats=2,
-    #     random_state=123,
-    # )
-    
+
     st.title("CAAFE - Context-Aware Automated Feature Engineering")
-    st.markdown("Inspired by the paper: [CAAFE: Context-Aware Automated Feature Engineering](https://arxiv.org/pdf/2305.03403)")
-    
+    st.markdown(
+        "Inspired by the paper: [CAAFE: Context-Aware Automated Feature Engineering](https://arxiv.org/pdf/2305.03403)"
+    )
+
     # Sidebar for configuration
     st.sidebar.header("Configuration")
-    
+
     # Dataset selection
     st.sidebar.subheader("Dataset Selection")
-    
+
     # Get available datasets dynamically
     available_datasets = get_available_datasets()
-    
+
     if not available_datasets:
-        st.sidebar.warning("No datasets found in the data folder. Please add some datasets.")
+        st.sidebar.warning(
+            "No datasets found in the data folder. Please add some datasets."
+        )
     else:
         selected_dataset = st.sidebar.selectbox(
-            "Choose a dataset",
-            options=list(available_datasets.keys()),
-            index=0
+            "Choose a dataset", options=list(available_datasets.keys()), index=0
         )
-        
+
         # Load the selected dataset
         dataset_info = available_datasets[selected_dataset]
         if isinstance(dataset_info, tuple):
@@ -1778,29 +1639,31 @@ def main():
             # This is a file path
             df = load_dataset(dataset_info)
             target_name = "claim_status"  # Default target name for local datasets
-        
+
         if df is not None:
             st.sidebar.success(f"Successfully loaded {selected_dataset}")
-            
+
             # Display dataset info in sidebar
             st.sidebar.subheader("Dataset Info")
             st.sidebar.write(f"Shape: {df.shape}")
             st.sidebar.write(f"Target column: {target_name}")
-            
+
             # Show column types and sample values
             with st.sidebar.expander("Dataset Preview"):
                 st.dataframe(df.head(10))
-            
+
             # Store the loaded dataframe in session state
-            st.session_state['df'] = df
-            st.session_state['target_name'] = target_name
-               
+            st.session_state["df"] = df
+            st.session_state["target_name"] = target_name
+
     if user_prompt := st.chat_input("Enter your query", accept_file=True):
         with st.chat_message("user"):
             st.write(user_prompt.text)
-        response = agent.run_sync(user_prompt.text, message_history=st.session_state["message_history"])
+        response = agent.run_sync(
+            user_prompt.text, message_history=st.session_state["message_history"]
+        )
         st.session_state["message_history"] = response.all_messages()
-        
+
         if isinstance(response.output, NeedMoreInfo):
             with st.chat_message("assistant"):
                 st.write(response.output.message)
@@ -1811,17 +1674,17 @@ def main():
                     st.error("No dataset loaded. Please load a dataset first.")
                     return
                 X = df.drop(response.output.target_name, axis=1)
-                y = df[response.output.target_name] 
-                
+                y = df[response.output.target_name]
+
                 X_train, X_test, y_train, y_test = train_test_split(
-                    X, 
+                    X,
                     y,
                     test_size=0.2,
-                    random_state=42, # For reproducibility
-                    stratify=y # Maintain class distribution
+                    random_state=42,  # For reproducibility
+                    stratify=y,  # Maintain class distribution
                 )
                 fe = CAAFETransformer(
-                    llm_model='gpt-4.1-mini',
+                    llm_model="gpt-4.1-mini",
                     optimization_metric=response.output.optimization_metric,
                     top_p=response.output.top_p,
                     target_name=response.output.target_name,
@@ -1840,9 +1703,11 @@ def main():
                     st.code("\n\n".join(fe.deps.tool_output_log))
                 with st.expander("Prompt Log"):
                     st.code("\n\n".join(fe.deps.prompt_log))
-                    
+                with st.expander("Retry Errors:"):
+                    st.code("\n\n".join(fe.deps.error_log))
+
                 follow_up_response = agent.run_sync(
-                    f"Please summarize these results for the user:\n\n{fe.get_formatted_agent_notepad(n=-1)}", 
+                    f"Please summarize these results for the user:\n\n{fe.get_formatted_agent_notepad(n=-1)}",
                     message_history=st.session_state["message_history"],
                 )
                 st.session_state["message_history"] = follow_up_response.all_messages()
@@ -1850,6 +1715,7 @@ def main():
         else:
             with st.chat_message("assistant"):
                 st.write(response.output.message)
+
 
 if __name__ == "__main__":
     # See: https://bartbroere.eu/2023/06/17/adding-a-main-to-streamlit/

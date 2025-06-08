@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import math
 import re
 from typing import Any, Dict, List, Literal, Optional, Union, Tuple
 
@@ -1670,3 +1671,50 @@ def accuracy_metric(target, pred):
         return torch.tensor(accuracy_score(target, torch.argmax(pred, -1)))
     else:
         return torch.tensor(accuracy_score(target, pred[:, 1] > 0.5))
+
+
+def metric_ppv(
+    y_true: Union[list, pd.Series], 
+    y_pred: Union[list, pd.Series], 
+    top_p: float
+) -> float:
+    """
+    Computes PPV (Positive Predictive Value) at the top p% predicted probability scores.
+
+    This metric calculates precision among the samples with the highest predicted probabilities,
+    which is useful for scenarios where you care about precision in your most confident predictions.
+
+    Args:
+        y_true (Union[list, pd.Series]): Ground truth binary labels (0 or 1).
+        y_pred (Union[list, pd.Series]): Predicted probabilities (not hard labels).
+        top_p (float): Fraction (0 < top_p <= 1) of samples to include in the top predictions.
+
+    Returns:
+        float: Precision/PPV in the top_p most confident predictions.
+
+    Raises:
+        ValueError: If top_p is not between 0 and 1, or if y_true and y_pred have different lengths.
+
+    Example:
+        >>> y_true = [0, 1, 1, 0, 1]
+        >>> y_pred = [0.1, 0.9, 0.8, 0.2, 0.7]
+        >>> metric_ppv(y_true, y_pred, top_p=0.4)  # Top 40% (2 samples)
+        1.0  # Both top predictions were correct positives
+    """
+    if not (0 < top_p <= 1):
+        raise ValueError("top_p must be between 0 and 1.")
+
+    if len(y_true) != len(y_pred):
+        raise ValueError("y_true and y_pred must be the same length.")
+
+    top_num = max(1, math.ceil(len(y_true) * top_p))
+
+    ranked = pd.DataFrame({
+        "label": pd.Series(y_true).values,
+        "predicted_prob": pd.Series(y_pred).values,
+    })
+
+    top_ranked = ranked.sort_values("predicted_prob", ascending=False).head(top_num)
+    ppv = top_ranked["label"].value_counts(normalize=True).get(1, 0.0)
+
+    return ppv
