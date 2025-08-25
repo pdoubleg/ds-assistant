@@ -650,8 +650,11 @@ class AutoTuneLLM:
             iteration (int): The iteration number when this config was found
 
         Returns:
-            bool: True if this config made it into the top n, False otherwise
+            bool: True if this config is better than the previous best, False otherwise
         """
+        # Store the previous best score before adding the new entry
+        previous_best_score = self.best_configs[0]["score"] if self.best_configs else float("-inf")
+        
         new_entry = {"score": score, "config": config.copy(), "iteration": iteration}
 
         # Add the new entry
@@ -661,13 +664,10 @@ class AutoTuneLLM:
         self.best_configs.sort(key=lambda x: x["score"], reverse=True)
 
         # Keep only the top n configurations
-        was_in_top_n = (
-            len(self.best_configs) <= self.top_n_configs
-            or new_entry in self.best_configs[: self.top_n_configs]
-        )
         self.best_configs = self.best_configs[: self.top_n_configs]
 
-        return was_in_top_n
+        # Return True only if this score is actually better than the previous best
+        return score > previous_best_score
 
     def tune_with_dataset_analysis(self, max_iterations: int = 10) -> None:
         """
@@ -806,16 +806,13 @@ class AutoTuneLLM:
             )
 
             # Check if this improved our top configurations
-            if was_improvement and (
-                len(self.best_configs) == 1
-                or last_run_best_score > self.best_configs[1]["score"]
-            ):
-                print(f"New best score: {last_run_best_score}")
+            if was_improvement:
+                print(f"✅ New best score: {last_run_best_score}")
                 consecutive_no_improvement = 0
             else:
                 consecutive_no_improvement += 1
                 print(
-                    f"No improvement. Consecutive runs without improvement: {consecutive_no_improvement}"
+                    f"❌ No improvement. Consecutive runs without improvement: {consecutive_no_improvement}"
                 )
 
             # Print current top configurations

@@ -437,8 +437,11 @@ class XGBoostTuner:
             iteration (int): The iteration number when this config was found
 
         Returns:
-            bool: True if this config made it into the top n, False otherwise
+            bool: True if this config is better than the previous best, False otherwise
         """
+        # Store the previous best score before adding the new entry
+        previous_best_score = self.best_configs[0]["score"] if self.best_configs else float("-inf")
+        
         new_entry = {"score": score, "config": config.copy(), "iteration": iteration}
 
         # Add the new entry
@@ -448,13 +451,10 @@ class XGBoostTuner:
         self.best_configs.sort(key=lambda x: x["score"], reverse=True)
 
         # Keep only the top n configurations
-        was_in_top_n = (
-            len(self.best_configs) <= self.top_n_configs
-            or new_entry in self.best_configs[: self.top_n_configs]
-        )
         self.best_configs = self.best_configs[: self.top_n_configs]
 
-        return was_in_top_n
+        # Return True only if this score is actually better than the previous best
+        return score > previous_best_score
 
     def tune(self, max_iterations: int = 10):
         """

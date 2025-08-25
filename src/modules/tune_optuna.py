@@ -24,7 +24,7 @@ from sklearn.base import BaseEstimator
 from sklearn.metrics import accuracy_score, make_scorer, precision_score, roc_auc_score
 from sklearn.model_selection import RepeatedKFold, cross_val_score, train_test_split
 
-from src.utils import exploratory_data_analysis, format_eda_for_llm, metric_ppv
+from src.utils import metric_ppv, hpo_profile_from_dataframe
 
 # -----------------------------------------------------------------------------
 # Global settings
@@ -48,7 +48,7 @@ OPENAI_MODEL = OpenAIModel("gpt-4.1")
 SYSTEM_PROMPT = """
 You are a senior data scientist tasked with guiding the use of an AutoML tool to discover \
 the best model configurations for a given binary classification dataset. Your role involves \
-understanding the dataset characteristics (when available), proposing suitable hyperparameters \
+understanding the dataset characteristics tool (when available), proposing suitable hyperparameters \
 and their search spaces, analyzing results, and iterating on configurations.
 """
 
@@ -492,12 +492,14 @@ def extract_logs_from_study(study: optuna.Study, top_n: int = 5) -> Tuple[str, f
     return "\n".join(lines), best_value
 
 
-async def only_use_df_only_if_allowed(
+async def only_use_df_if_allowed(
     ctx: RunContext[AutoMLDependencies],
     tool_def: ToolDefinition,
 ) -> Union[ToolDefinition, None]:
     if ctx.deps.use_dataset_analysis:
         return tool_def
+    else:
+        return None
 
 
 # -----------------------------------------------------------------------------
@@ -512,21 +514,19 @@ analysis_and_recommendations_agent = Agent(
 )
 
 
-@analysis_and_recommendations_agent.tool(prepare=only_use_df_only_if_allowed)
+@analysis_and_recommendations_agent.tool(prepare=only_use_df_if_allowed)
 async def get_dataset_characteristics(ctx: RunContext[AutoMLDependencies]) -> str:
-    """Returns a summary of the user's dataset.
-
-    Args:
-        n_sample (int): The number of sample rows to capture for analysis.
+    """Get a summary of the user's dataset.
 
     Returns:
         str: A summary of the dataset.
     """
-    df_summary = exploratory_data_analysis(
-        ctx.deps.dataset, ctx.deps.target, n_sample=20
-    )
-    summary_string = format_eda_for_llm(df_summary)
-    return summary_string
+    print("Running get_dataset_characteristics for HPO...")
+    X = ctx.deps.dataset.drop(columns=[ctx.deps.target])
+    y = ctx.deps.dataset[ctx.deps.target]
+    profile = hpo_profile_from_dataframe(X, y, task=None, mode="thorough")
+
+    return profile.render_markdown_facts()
 
 
 initial_search_space_agent = Agent(
@@ -613,16 +613,32 @@ class AutoTuneLLM:
         self.studies: list[optuna.Study] = []
 
     def _update_best(self, value: float, params: dict, it: int) -> bool:
+        """
+        Update the list of best configurations with a new score and config.
+        
+        Args:
+            value (float): The score achieved by this configuration
+            params (dict): The hyperparameter configuration 
+            it (int): The iteration number when this config was found
+            
+        Returns:
+            bool: True if this config is better than the previous best, False otherwise
+        """
+        # Store the previous best score before adding the new entry
+        previous_best_score = self.best_configs[0]["score"] if self.best_configs else float("-inf")
+        
         entry = {"score": value, "config": params.copy(), "iteration": it}
         self.best_configs.append(entry)
         self.best_configs.sort(key=lambda x: x["score"], reverse=True)
         self.best_configs = self.best_configs[: self.top_n_configs]
-        return entry in self.best_configs
+        
+        # Return True only if this score is actually better than the previous best
+        return value > previous_best_score
 
     def tune_with_dataset_analysis(self, max_iterations: int = 5) -> None:
         if self.dataset is None or self.target is None:
             raise ValueError("Dataset and target are required")
-        self._run_loop(max_iterations, use_data=True)
+        self._run_loop(max_iterations)
 
     def tune_with_user_description(
         self, user_description: str, max_iterations: int = 5
@@ -630,9 +646,9 @@ class AutoTuneLLM:
         if self.dataset is None or self.target is None:
             raise ValueError("Dataset and target are required")
         self.task_description = user_description
-        self._run_loop(max_iterations, use_data=False)
+        self._run_loop(max_iterations)
 
-    def _run_loop(self, max_iters: int, use_data: bool) -> None:
+    def _run_loop(self, max_iters: int) -> None:
         X = self.dataset.drop(columns=[self.target])
         y = self.dataset[self.target]
 
@@ -670,15 +686,15 @@ class AutoTuneLLM:
         prompt = get_analysis_and_recommendations_prompt(
             self.task_description, self.estimator_type
         )
-        if not use_data:
+        #make sure LLM doesn't use dataset
+        if not self.use_dataset_analysis:
             self.deps.dataset = None
-            self.deps.use_dataset_analysis = False
-        else:
-            self.deps.use_dataset_analysis = True
+
         analysis = analysis_and_recommendations_agent.run_sync(prompt, deps=self.deps)
         print(analysis.output.domain_analysis)
         print(analysis.output.dataset_analysis)
-        if not use_data:
+        # Reset dataset to original
+        if not self.use_dataset_analysis:
             self.deps.dataset = self.dataset
 
         # 2) initial search-space

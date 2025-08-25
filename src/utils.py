@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import re
+from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Literal, Optional, Union, Tuple
 
 import numpy as np
@@ -1718,3 +1719,399 @@ def metric_ppv(
     ppv = top_ranked["label"].value_counts(normalize=True).get(1, 0.0)
 
     return ppv
+
+
+# ----------------------------
+# HPO Profile for LLM
+# ----------------------------
+
+TaskType = Literal["binary", "multiclass", "regression", "unknown"]
+ModeType = Literal["fast", "thorough"]
+
+
+# ----------------------------
+# Internal helpers (safe, vectorized)
+# ----------------------------
+
+def _safe_num_cols(X: pd.DataFrame, cat_cols: List[str]) -> List[str]:
+    return [c for c in X.columns if c not in set(cat_cols)]
+
+def _infer_categorical_like(X: pd.DataFrame, categorical_like: Optional[List[str]]) -> List[str]:
+    cats = set(categorical_like or [])
+    for c in X.columns:
+        dt = X[c].dtype
+        if getattr(dt, "name", str(dt)) in {"object", "category", "bool"}:
+            cats.add(c)
+    return [c for c in X.columns if c in cats]
+
+def _class_info(y: pd.Series) -> Dict[str, Any]:
+    vc = y.value_counts(dropna=False)
+    total = int(vc.sum())
+    probs = (vc / total).to_dict()
+    minority_frac = float(min(probs.values())) if len(probs) else None
+    entropy = float(-sum(p * np.log2(p) for p in probs.values() if p > 0)) if len(probs) else None
+    return {
+        "num_classes": int(len(probs)),
+        "class_frequencies": {str(k): int(v) for k, v in vc.to_dict().items()},
+        "class_probs": {str(k): float(v) for k, v in (vc / total).to_dict().items()},
+        "minority_class_fraction": minority_frac,
+        "target_entropy_bits": entropy,
+    }
+
+def _regression_moments(y: pd.Series) -> Dict[str, Any]:
+    yv = y.dropna().astype(float)
+    n = int(yv.shape[0])
+    mean = float(yv.mean()) if n else None
+    std = float(yv.std()) if n else None
+    skew = float(yv.skew()) if n else None
+    kurt = float(yv.kurt()) if n else None
+    out3 = float((np.abs((yv - mean) / (std + 1e-12)) > 3).mean()) if n else None
+    p = np.percentile(yv, [1, 5, 50, 95, 99]) if n else [None]*5
+    return {
+        "count_non_null": n,
+        "mean": mean, "std": std, "skew": skew, "kurtosis": kurt,
+        "outlier_rate_std_gt_3": out3,
+        "p01": float(p[0]) if n else None,
+        "p05": float(p[1]) if n else None,
+        "p50": float(p[2]) if n else None,
+        "p95": float(p[3]) if n else None,
+        "p99": float(p[4]) if n else None,
+    }
+
+def _numeric_zero_fraction(X: pd.DataFrame, num_cols: List[str]) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+    for c in num_cols:
+        s = pd.to_numeric(X[c], errors="coerce")
+        valid = s.notna()
+        denom = valid.sum()
+        if denom == 0:
+            out[c] = np.nan
+        else:
+            out[c] = float(((s[valid] == 0).sum()) / denom)
+    return out
+
+def _missing_by_col(X: pd.DataFrame) -> Dict[str, float]:
+    n = X.shape[0]
+    return {c: float(X[c].isna().sum() / max(1, n)) for c in X.columns}
+
+def _categorical_cardinality(X: pd.DataFrame, cat_cols: List[str]) -> Dict[str, int]:
+    out: Dict[str, int] = {}
+    for c in cat_cols:
+        out[c] = int(X[c].astype("category").cat.categories.size)
+    return out
+
+def _rare_category_rate(X: pd.DataFrame, cat_cols: List[str], cutoff: float = 0.01) -> float:
+    rates = []
+    for c in cat_cols:
+        s = X[c].astype("category")
+        vc = s.value_counts(dropna=True)
+        if vc.sum() == 0:
+            continue
+        rates.append(float((vc / vc.sum() < cutoff).mean()))
+    return float(np.mean(rates)) if rates else 0.0
+
+def _numeric_corr_snapshot(X: pd.DataFrame, num_cols: List[str], sample_cap: int, mode: ModeType, rng: np.random.Generator) -> Dict[str, Any]:
+    cols = num_cols
+    if len(cols) == 0:
+        return {"num_numeric_used": 0, "median_abs_corr": None, "q90_abs_corr": None, "max_abs_corr": None, "top_pairs": []}
+    if len(cols) > sample_cap:
+        cols = list(pd.Index(cols)[rng.choice(len(cols), size=sample_cap, replace=False)])
+    if len(cols) < 2:
+        return {"num_numeric_used": len(cols), "median_abs_corr": 0.0, "q90_abs_corr": 0.0, "max_abs_corr": 0.0, "top_pairs": []}
+
+    corr = X[cols].astype(float).corr().abs().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    # exclude diagonal
+    mask = ~np.eye(len(cols), dtype=bool)
+    vals = corr.where(mask).stack().values
+    med = float(np.median(vals))
+    q90 = float(np.quantile(vals, 0.90))
+    mx = float(np.max(vals))
+    result = {
+        "num_numeric_used": int(len(cols)),
+        "median_abs_corr": med,
+        "q90_abs_corr": q90,
+        "max_abs_corr": mx,
+        "top_pairs": [],
+    }
+    if mode == "thorough":
+        # top 10 correlated pairs (names & value)
+        tri = corr.where(np.triu(np.ones_like(corr, dtype=bool), k=1))
+        top = tri.stack().sort_values(ascending=False).head(10)
+        result["top_pairs"] = [{"feature_a": a, "feature_b": b, "abs_corr": float(v)} for (a, b), v in top.items()]
+    return result
+
+def _feature_scale_dispersion(X: pd.DataFrame, num_cols: List[str]) -> float:
+    stds = []
+    for c in num_cols:
+        s = pd.to_numeric(X[c], errors="coerce")
+        sd = float(s.std(skipna=True)) if s.notna().any() else np.nan
+        if np.isfinite(sd):
+            stds.append(sd)
+    if not stds:
+        return 0.0
+    stds = np.array(stds)
+    return float(np.std(stds) / (np.mean(stds) + 1e-12))
+
+
+# ----------------------------
+# Public profile structure
+# ----------------------------
+
+@dataclass
+class HPOProfile:
+    # Basic shape
+    n_samples: int
+    n_features: int
+
+    # Dtype breakdown
+    num_numeric: int
+    num_categorical: int
+    num_boolean: int
+    num_datetime: int
+
+    # Global rates
+    frac_missing_overall: float
+    frac_zero_overall_numeric: Optional[float]  # mean zero rate over numeric cols, None if no numeric
+
+    # Sparsity proxy & categorical rarity
+    sparsity_proxy: float                # higher => sparser (combines numeric density & rare-category rate)
+    rare_category_rate_mean: float       # average fraction of rare categories across categorical cols (<1% freq)
+
+    # Correlation snapshot (numeric only)
+    corr_num_used: int                   # number of numeric columns used for corr
+    corr_median_abs: Optional[float]
+    corr_q90_abs: Optional[float]
+    corr_max_abs: Optional[float]
+    corr_top_pairs: List[Dict[str, Union[str, float]]]  # only when mode='thorough'
+
+    # Feature scale dispersion (numeric)
+    feature_scale_cov: float
+
+    # Cardinality (categorical)
+    categorical_cardinality: Dict[str, int]
+    avg_categorical_cardinality: Optional[float]
+    high_cardinality_columns: List[str]  # heuristic: cardinality > min(100, 0.1 * n_samples)
+
+    # Missingness by column (top-N)
+    top_missing_columns: List[Tuple[str, float]]
+
+    # Zero-inflation by column (numeric, top-N)
+    top_zero_fraction_numeric: List[Tuple[str, float]]
+
+    # Target facts
+    task: TaskType
+    target_binary_multiclass: Optional[Dict[str, Any]]
+    target_regression: Optional[Dict[str, Any]]
+
+    def render_markdown_facts(self, max_list_items: int = 10) -> str:
+        """Concise, fact-only Markdown suitable for LLM input or a report."""
+        lines: List[str] = []
+        lines.append("# Dataset Facts (for initial HPO context)")
+        lines.append("")
+        lines.append("## Shape & Types")
+        lines.append(f"- Samples: {self.n_samples:,}")
+        lines.append(f"- Features: {self.n_features:,}")
+        lines.append(f"- Numeric: {self.num_numeric} | Categorical: {self.num_categorical} | Boolean: {self.num_boolean} | Datetime: {self.num_datetime}")
+        lines.append("")
+        lines.append("## Missingness & Sparsity")
+        lines.append(f"- Overall missing fraction: {self.frac_missing_overall:.4f}")
+        if self.frac_zero_overall_numeric is not None:
+            lines.append(f"- Mean zero fraction (numeric columns): {self.frac_zero_overall_numeric:.4f}")
+        lines.append(f"- Sparsity proxy (0 dense → 1 sparse): {self.sparsity_proxy:.3f}")
+        lines.append(f"- Mean rare-category rate (<1% freq across categoricals): {self.rare_category_rate_mean:.4f}")
+        if self.top_missing_columns:
+            lines.append("- Top columns by missing fraction:")
+            for col, rate in self.top_missing_columns[:max_list_items]:
+                lines.append(f"  - {col}: {rate:.4f}")
+        if self.top_zero_fraction_numeric:
+            lines.append("- Top numeric columns by zero fraction:")
+            for col, rate in self.top_zero_fraction_numeric[:max_list_items]:
+                lines.append(f"  - {col}: {rate:.4f}")
+        lines.append("")
+        lines.append("## Correlation Snapshot (numeric)")
+        lines.append(f"- Numeric columns used for correlation: {self.corr_num_used}")
+        if self.corr_median_abs is not None:
+            lines.append(f"- Median |corr|: {self.corr_median_abs:.4f}")
+            lines.append(f"- 90th percentile |corr|: {self.corr_q90_abs:.4f}")
+            lines.append(f"- Max |corr|: {self.corr_max_abs:.4f}")
+        if self.corr_top_pairs:
+            lines.append("- Top correlated pairs (|corr|):")
+            for row in self.corr_top_pairs[:max_list_items]:
+                lines.append(f"  - {row['feature_a']} ↔ {row['feature_b']}: {row['abs_corr']:.4f}")
+        lines.append("")
+        lines.append("## Feature Scale Dispersion (numeric)")
+        lines.append(f"- CoV of per-feature std (higher = more varied scales): {self.feature_scale_cov:.4f}")
+        lines.append("")
+        lines.append("## Categorical Cardinality")
+        lines.append(f"- Average cardinality: {self.avg_categorical_cardinality if self.avg_categorical_cardinality is not None else 'NA'}")
+        if self.categorical_cardinality:
+            # show top-k highest
+            top_card = sorted(self.categorical_cardinality.items(), key=lambda kv: kv[1], reverse=True)[:max_list_items]
+            lines.append("- Highest-cardinality categorical columns:")
+            for col, k in top_card:
+                lines.append(f"  - {col}: {k}")
+        if self.high_cardinality_columns:
+            lines.append(f"- High-cardinality columns (cardinality > min(100, 0.1*n_samples)): {len(self.high_cardinality_columns)}")
+            for col in self.high_cardinality_columns[:max_list_items]:
+                lines.append(f"  - {col}")
+        lines.append("")
+        lines.append("## Target")
+        lines.append(f"- Task: {self.task}")
+        if self.target_binary_multiclass is not None:
+            t = self.target_binary_multiclass
+            lines.append(f"- Classes: {t.get('num_classes')}")
+            lines.append("- Class counts: " + ", ".join([f"{k}={v}" for k, v in t.get("class_frequencies", {}).items()]))
+            lines.append("- Class probabilities: " + ", ".join([f"{k}={v:.4f}" for k, v in t.get("class_probs", {}).items()]))
+            lines.append(f"- Minority class fraction: {t.get('minority_class_fraction'):.4f}")
+            if t.get("target_entropy_bits") is not None:
+                lines.append(f"- Target entropy (bits): {t['target_entropy_bits']:.4f}")
+        if self.target_regression is not None:
+            t = self.target_regression
+            lines.append(f"- Non-null count: {t['count_non_null']}")
+            lines.append(f"- Mean={t['mean']:.6f} | Std={t['std']:.6f} | Skew={t['skew']:.6f} | Kurtosis={t['kurtosis']:.6f}")
+            lines.append(f"- Outlier rate (|z|>3): {t['outlier_rate_std_gt_3']:.4f}")
+            lines.append(f"- Percentiles: p01={t['p01']:.6f}, p05={t['p05']:.6f}, p50={t['p50']:.6f}, p95={t['p95']:.6f}, p99={t['p99']:.6f}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a JSON-serializable dict)."""
+        return asdict(self)
+
+
+def hpo_profile_from_dataframe(
+    X: pd.DataFrame,
+    y: Optional[Union[pd.Series, np.ndarray]] = None,
+    task: Optional[TaskType] = None,
+    categorical_like: Optional[List[str]] = None,
+    mode: ModeType = "fast",
+    corr_sample_cap: int = 200,
+    top_k_columns: int = 10,
+    random_state: int = 0,
+) -> HPOProfile:
+    """
+    Build a HPO profile from a dataframe (and optional target).
+
+    Parameters
+    ----------
+    X : DataFrame of features
+    y : Optional target
+    task : If None, inferred as:
+        - binary if 2 unique values
+        - multiclass if integer with <= 10 unique values
+        - regression otherwise
+    categorical_like : columns to force-treat as categorical
+    mode : 'fast' (default) or 'thorough' (adds top correlated pairs)
+    corr_sample_cap : max numeric columns used for correlation snapshot
+    top_k_columns : how many columns to show in top-missing / top-zero lists
+    random_state : RNG seed
+    """
+    rng = np.random.default_rng(random_state)
+    n_samples, n_features = X.shape
+
+    # Dtype buckets
+    cat_cols = _infer_categorical_like(X, categorical_like)
+    num_cols = _safe_num_cols(X, cat_cols)
+    bool_cols = [c for c in X.columns if X[c].dtype.kind == "b" and c not in cat_cols and c not in num_cols]
+    dt_cols = [c for c in X.columns if isinstance(X[c].dtype, np.dtype) and np.issubdtype(X[c].dtype, np.datetime64)]
+
+    # Basic counts
+    num_numeric = len(num_cols)
+    num_categorical = len(cat_cols)
+    num_boolean = len(bool_cols)
+    num_datetime = len(dt_cols)
+
+    # Missingness
+    frac_missing_overall = float(X.isna().sum().sum() / max(1, n_samples * n_features))
+    miss_by_col = _missing_by_col(X)
+    top_missing = sorted(miss_by_col.items(), key=lambda kv: kv[1], reverse=True)[:top_k_columns]
+
+    # Zero-inflation (numeric)
+    zero_frac_col = _numeric_zero_fraction(X, num_cols)
+    zero_overall = float(np.nanmean(list(zero_frac_col.values()))) if num_cols else None
+    top_zero = sorted(zero_frac_col.items(), key=lambda kv: (kv[1] if kv[1] is not None else -1), reverse=True)[:top_k_columns]
+
+    # Categorical cardinality & rarity
+    cat_card = _categorical_cardinality(X, cat_cols)
+    avg_cat_card = float(np.mean(list(cat_card.values()))) if cat_card else None
+    high_card_cols = [c for c, k in cat_card.items() if k > min(100, int(0.1 * n_samples))]
+    rare_rate = _rare_category_rate(X, cat_cols, cutoff=0.01)
+
+    # Sparsity proxy: combine numeric density & rare-category rate
+    if num_cols:
+        nz_density = []
+        for c in num_cols:
+            s = pd.to_numeric(X[c], errors="coerce")
+            valid = s.notna()
+            denom = valid.sum()
+            if denom == 0:
+                continue
+            nz = (s[valid] != 0).sum()
+            nz_density.append(nz / denom)
+        numeric_sparsity = 1.0 - float(np.mean(nz_density)) if nz_density else 0.0
+    else:
+        numeric_sparsity = 0.0
+    sparsity_proxy = float(np.clip(0.7 * numeric_sparsity + 0.3 * rare_rate, 0.0, 1.0))
+
+    # Correlation snapshot
+    corr_info = _numeric_corr_snapshot(X, num_cols, sample_cap=corr_sample_cap, mode=mode, rng=rng)
+
+    # Feature scale dispersion
+    feature_scale_cov = _feature_scale_dispersion(X, num_cols)
+
+    # Target facts
+    inferred_task: TaskType = "unknown"
+    target_clf: Optional[Dict[str, Any]] = None
+    target_reg: Optional[Dict[str, Any]] = None
+    if y is not None:
+        ys = pd.Series(y)
+        uniq = ys.dropna().unique()
+        if task is not None:
+            inferred_task = task
+        else:
+            if len(uniq) == 2:
+                inferred_task = "binary"
+            elif (ys.dtype.kind in "iu") and (len(uniq) <= 10):
+                inferred_task = "multiclass"
+            else:
+                inferred_task = "regression"
+        if inferred_task in {"binary", "multiclass"}:
+            target_clf = _class_info(ys)
+        elif inferred_task == "regression":
+            target_reg = _regression_moments(ys)
+
+    # Assemble
+    facts = HPOProfile(
+        n_samples=int(n_samples),
+        n_features=int(n_features),
+
+        num_numeric=int(num_numeric),
+        num_categorical=int(num_categorical),
+        num_boolean=int(num_boolean),
+        num_datetime=int(num_datetime),
+
+        frac_missing_overall=float(frac_missing_overall),
+        frac_zero_overall_numeric=(float(zero_overall) if zero_overall is not None else None),
+
+        sparsity_proxy=float(sparsity_proxy),
+        rare_category_rate_mean=float(rare_rate),
+
+        corr_num_used=int(corr_info["num_numeric_used"]),
+        corr_median_abs=(corr_info["median_abs_corr"] if corr_info["median_abs_corr"] is not None else None),
+        corr_q90_abs=(corr_info["q90_abs_corr"] if corr_info["q90_abs_corr"] is not None else None),
+        corr_max_abs=(corr_info["max_abs_corr"] if corr_info["max_abs_corr"] is not None else None),
+        corr_top_pairs=corr_info["top_pairs"],
+
+        feature_scale_cov=float(feature_scale_cov),
+
+        categorical_cardinality=cat_card,
+        avg_categorical_cardinality=(float(avg_cat_card) if avg_cat_card is not None else None),
+        high_cardinality_columns=high_card_cols,
+
+        top_missing_columns=top_missing,
+        top_zero_fraction_numeric=top_zero,
+
+        task=inferred_task if task is None else task,
+        target_binary_multiclass=target_clf,
+        target_regression=target_reg,
+    )
+    return facts
