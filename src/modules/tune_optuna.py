@@ -39,7 +39,13 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 os.environ["PYTHONWARNINGS"] = "ignore"
 
-OPENAI_MODEL = OpenAIModel("gpt-4.1")
+OPENAI_MODEL = OpenAIModel("gpt-4.1-mini")
+
+DEFAULT_TASK_DESCRIPTION = """\
+The classification problem under investigation is based on insurance claims data. \
+More specifically, the goal is to predict whether a given claim will be high severity. \
+Ultimately, we are interested in optimizing for PPV (Positive Predictive Value) at the top 5% of predicted probabilities.
+"""
 
 # -----------------------------------------------------------------------------
 # Prompt Templates
@@ -50,12 +56,6 @@ You are a senior data scientist tasked with guiding the use of an AutoML tool to
 the best model configurations for a given binary classification dataset. Your role involves \
 understanding the dataset characteristics tool (when available), proposing suitable hyperparameters \
 and their search spaces, analyzing results, and iterating on configurations.
-"""
-
-DEFAULT_TASK_DESCRIPTION = """\
-The classification problem under investigation is based on insurance claims data. \
-More specifically, the goal is to predict whether a given claim will be high severity. \
-Ultimately, we are interested in optimizing for PPV (Positive Predictive Value) at the top 5% of predicted probabilities.
 """
 
 
@@ -521,12 +521,15 @@ async def get_dataset_characteristics(ctx: RunContext[AutoMLDependencies]) -> st
     Returns:
         str: A summary of the dataset.
     """
-    print("Running get_dataset_characteristics for HPO...")
+    print("Calling get_dataset_characteristics tool...")
     X = ctx.deps.dataset.drop(columns=[ctx.deps.target])
     y = ctx.deps.dataset[ctx.deps.target]
     profile = hpo_profile_from_dataframe(X, y, task=None, mode="thorough")
-
-    return profile.render_markdown_facts()
+    output_string = profile.render_markdown_facts()
+    print("-------------TOOL CALL RESULT-------------------")
+    print(output_string)
+    print("-------------------------------------------------")
+    return output_string
 
 
 initial_search_space_agent = Agent(
@@ -561,6 +564,54 @@ refine_search_space_agent = Agent(
 
 
 class AutoTuneLLM:
+    """A class for automated hyperparameter tuning using Optuna and LLM guidance.
+
+    This class provides functionality to automatically tune machine learning models (XGBoost, LightGBM, or custom estimators)
+    using Optuna for optimization and LLM-guided search space refinement. It supports iterative tuning with automated
+    dataset analysis and search space adaptation based on previous results.
+
+    Args:
+        use_dataset_analysis (bool, optional): Whether to analyze dataset characteristics. Defaults to True.
+        estimator_type (str, optional): Type of estimator to tune ("xgboost", "lightgbm", or "custom"). Defaults to "xgboost".
+        custom_estimator (Optional[BaseEstimator], optional): Custom sklearn estimator if estimator_type is "custom". Defaults to None.
+        scoring (Union[str, Callable, None], optional): Scoring metric for optimization. Defaults to None.
+        dataset (Optional[pd.DataFrame], optional): Training dataset. Defaults to None.
+        target (Optional[str], optional): Name of target column in dataset. Defaults to None.
+        task_description (str, optional): Description of the ML task. Defaults to DEFAULT_TASK_DESCRIPTION.
+        top_p (float, optional): Top percentage of predictions for metric calculation. Defaults to 0.05.
+        top_n_configs (int, optional): Number of best configurations to track. Defaults to 5.
+        max_no_improve (int, optional): Maximum iterations without improvement before early stopping. Defaults to 3.
+        n_trials (int, optional): Number of trials per optimization iteration. Defaults to 100.
+        random_state (int, optional): Random seed for reproducibility. Defaults to 42.
+        n_jobs (int, optional): Number of parallel jobs. -1 means using all processors. Defaults to -1.
+        cv (int, optional): Number of cross-validation folds. Defaults to 5.
+        verbose (int, optional): Verbosity level. Defaults to 0.
+
+    Raises:
+        ValueError: If estimator_type is "custom" but no custom_estimator is provided,
+                   or if an unsupported estimator_type is specified.
+
+    Example:
+        >>> import pandas as pd
+        >>> from sklearn.ensemble import RandomForestClassifier
+        >>> 
+        >>> # Create a tuner for XGBoost
+        >>> tuner = AutoTuneLLM(
+        ...     dataset=df,
+        ...     target="target_column",
+        ...     estimator_type="xgboost",
+        ...     scoring="roc_auc"
+        ... )
+        >>> 
+        >>> # Create a tuner for a custom estimator
+        >>> custom_tuner = AutoTuneLLM(
+        ...     dataset=df,
+        ...     target="target_column",
+        ...     estimator_type="custom",
+        ...     custom_estimator=RandomForestClassifier(),
+        ...     scoring="accuracy"
+        ... )
+    """
     def __init__(
         self,
         use_dataset_analysis: bool = True,
@@ -611,6 +662,8 @@ class AutoTuneLLM:
         self.best_configs: list[dict] = []
         self.last_values: list[float] = []
         self.studies: list[optuna.Study] = []
+        self.baseline_metrics: Optional[dict] = None
+        self.final_metrics: Optional[dict] = None
 
     def _update_best(self, value: float, params: dict, it: int) -> bool:
         """
@@ -635,17 +688,44 @@ class AutoTuneLLM:
         # Return True only if this score is actually better than the previous best
         return value > previous_best_score
 
-    def tune_with_dataset_analysis(self, max_iterations: int = 5) -> None:
-        if self.dataset is None or self.target is None:
-            raise ValueError("Dataset and target are required")
-        self._run_loop(max_iterations)
-
-    def tune_with_user_description(
-        self, user_description: str, max_iterations: int = 5
+    def tune(
+        self, 
+        max_iterations: int = 5, 
+        user_description: Optional[str] = None
     ) -> None:
+        """
+        Tune the model using Optuna optimization with LLM-guided search space refinement.
+        
+        Args:
+            max_iterations (int): Maximum number of tuning iterations to perform.
+                Each iteration refines the search space based on previous results.
+                Defaults to 5.
+            user_description (Optional[str]): Custom description of the task/dataset
+                that will be used instead of the default task description. If None,
+                uses the task_description provided during initialization or performs
+                automated dataset analysis based on use_dataset_analysis setting.
+                
+        Raises:
+            ValueError: If dataset or target are not provided.
+            
+        Example:
+            >>> tuner = AutoTuneLLM(dataset=df, target="target_col")
+            >>> # Use default analysis
+            >>> tuner.tune(max_iterations=3)
+            >>> 
+            >>> # Use custom description
+            >>> tuner.tune(
+            ...     max_iterations=5, 
+            ...     user_description="Predict customer churn for telecom company"
+            ... )
+        """
         if self.dataset is None or self.target is None:
-            raise ValueError("Dataset and target are required")
-        self.task_description = user_description
+            raise ValueError("Dataset and target are required for tuning")
+            
+        # Update task description if provided
+        if user_description is not None:
+            self.task_description = user_description
+            
         self._run_loop(max_iterations)
 
     def _run_loop(self, max_iters: int) -> None:
@@ -671,7 +751,11 @@ class AutoTuneLLM:
             n_repeats=2,  # Number of CV repetitions
         )
 
+        # Store baseline metrics for comparison later
+        self.baseline_metrics = metrics.copy()
+        
         # Access CV metrics with standard deviations
+        print("Baseline metrics:")
         print(
             f"CV Accuracy: {metrics['cv_accuracy']:.3f} (±{metrics['cv_accuracy_std']:.3f})"
         )
@@ -686,7 +770,7 @@ class AutoTuneLLM:
         prompt = get_analysis_and_recommendations_prompt(
             self.task_description, self.estimator_type
         )
-        #make sure LLM doesn't use dataset
+        # Make sure LLM doesn't use dataset
         if not self.use_dataset_analysis:
             self.deps.dataset = None
 
@@ -793,9 +877,39 @@ class AutoTuneLLM:
             n_splits=5,  # Number of CV folds
             n_repeats=2,  # Number of CV repetitions
         )
-        print(f"Final accuracy: {final_results['cv_accuracy']:.4f}")
-        print(f"Final auc: {final_results['cv_auc']:.4f}")
-        print(f"Final ppv: {final_results['cv_ppv']:.4f}")
+        
+        # Store final metrics for later access
+        self.final_metrics = final_results.copy()
+        
+        # Print final metrics in same format as baseline
+        print("\nFinal tuned model metrics:")
+        print(
+            f"CV Accuracy: {final_results['cv_accuracy']:.3f} (±{final_results['cv_accuracy_std']:.3f})"
+        )
+        print(f"CV AUC: {final_results['cv_auc']:.3f} (±{final_results['cv_auc_std']:.3f})")
+        print(f"CV PPV: {final_results['cv_ppv']:.3f} (±{final_results['cv_ppv_std']:.3f})")
+        
+        # Test set metrics
+        print(f"Test Accuracy: {final_results['test_accuracy']:.3f}")
+        print(f"Test AUC: {final_results['test_auc']:.3f}")
+        print(f"Test PPV: {final_results['test_ppv']:.3f}")
+        
+        # Print improvement comparison
+        print("\n=== Improvement Summary ===")
+        cv_acc_improvement = final_results['cv_accuracy'] - self.baseline_metrics['cv_accuracy']
+        cv_auc_improvement = final_results['cv_auc'] - self.baseline_metrics['cv_auc']
+        cv_ppv_improvement = final_results['cv_ppv'] - self.baseline_metrics['cv_ppv']
+        
+        test_acc_improvement = final_results['test_accuracy'] - self.baseline_metrics['test_accuracy']
+        test_auc_improvement = final_results['test_auc'] - self.baseline_metrics['test_auc']
+        test_ppv_improvement = final_results['test_ppv'] - self.baseline_metrics['test_ppv']
+        
+        print(f"CV Accuracy improvement: {cv_acc_improvement:+.3f}")
+        print(f"CV AUC improvement: {cv_auc_improvement:+.3f}")
+        print(f"CV PPV improvement: {cv_ppv_improvement:+.3f}")
+        print(f"Test Accuracy improvement: {test_acc_improvement:+.3f}")
+        print(f"Test AUC improvement: {test_auc_improvement:+.3f}")
+        print(f"Test PPV improvement: {test_ppv_improvement:+.3f}")
 
     def get_best_config(self) -> Optional[dict]:
         return self.best_configs[0]["config"] if self.best_configs else None
@@ -804,10 +918,31 @@ class AutoTuneLLM:
         return self.best_configs if n is None else self.best_configs[:n]
 
     def get_tuning_summary(self) -> dict:
-        return {
+        """
+        Get a comprehensive summary of the tuning process and results.
+        
+        Returns:
+            dict: Dictionary containing tuning results, baseline/final metrics,
+                 and improvement calculations.
+        """
+        summary = {
             "best_score": self.best_configs[0]["score"] if self.best_configs else None,
             "best_config": self.get_best_config(),
             "top_configs": self.best_configs.copy(),
             "iterations": len(self.last_values),
             "progression": self.last_values.copy(),
+            "baseline_metrics": self.baseline_metrics.copy() if self.baseline_metrics else None,
+            "final_metrics": self.final_metrics.copy() if self.final_metrics else None,
         }
+        
+        # Calculate improvements if both baseline and final metrics are available
+        if self.baseline_metrics and self.final_metrics:
+            improvements = {}
+            for metric_name in ['cv_accuracy', 'cv_auc', 'cv_ppv', 'test_accuracy', 'test_auc', 'test_ppv']:
+                if metric_name in self.baseline_metrics and metric_name in self.final_metrics:
+                    improvements[f"{metric_name}_improvement"] = (
+                        self.final_metrics[metric_name] - self.baseline_metrics[metric_name]
+                    )
+            summary["improvements"] = improvements
+            
+        return summary
