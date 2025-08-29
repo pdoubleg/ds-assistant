@@ -706,7 +706,7 @@ class AutoTuneLLM:
                 automated dataset analysis based on use_dataset_analysis setting.
                 
         Raises:
-            ValueError: If dataset or target are not provided.
+            ValueError: If dataset or target are not provided. Needed for Optuna trials.
             
         Example:
             >>> tuner = AutoTuneLLM(dataset=df, target="target_col")
