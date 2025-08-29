@@ -1,0 +1,123 @@
+# AutoTuner Configuration File
+# This file contains all configurable parameters for the AutoTuner
+
+# Data Settings
+data:
+  path: "./data/insurance_claims_transformed.csv"  # Path to your CSV data file (e.g., "data/dataset.csv")
+  target: "claim_status"  # Name of the target column (e.g., "target" or "label")
+
+# General Settings
+general:
+  random_state: 42
+  verbose: 2
+  n_jobs: -1  # Use all available cores
+
+# Cross-validation settings
+cross_validation:
+  cv_folds: 5
+  n_repeats: 2
+  test_size: 0.2
+  stratify: true  # For classification tasks
+
+# Optuna optimization settings
+optuna:
+  n_trials: 100
+  max_iterations: 5
+  max_no_improve: 3
+  top_n_configs: 5
+  sampler: "TPESampler"  # Options: TPESampler, RandomSampler, CmaEsSampler
+  pruner: "MedianPruner"  # Options: MedianPruner, HyperbandPruner, null
+  direction: "maximize"  # maximize or minimize
+
+# LLM settings for search space generation
+llm:
+  model: "gpt-4.1-mini"
+  use_dataset_analysis: true
+
+# Default task description (can be overridden)
+task:
+  description: |
+    The machine learning problem under investigation involves predicting a target variable
+    using the provided features. The goal is to optimize model performance using automated
+    hyperparameter tuning with LLM-guided search space exploration.
+
+# Supported estimator types and their default hyperparameter ranges
+estimator_defaults:
+  xgboost:
+    n_estimators: [50, 1000]
+    max_depth: [3, 15]
+    min_child_weight: [1, 10]
+    gamma: [0.0, 1.0]
+    learning_rate: [0.01, 0.3]
+    subsample: [0.6, 1.0]
+    colsample_bytree: [0.6, 1.0]
+    reg_alpha: [0.0, 10.0]
+    reg_lambda: [0.0, 10.0]
+    
+  lightgbm:
+    n_estimators: [50, 1000]
+    max_depth: [3, 15]
+    min_child_samples: [10, 100]
+    min_split_gain: [0.0, 1.0]
+    learning_rate: [0.01, 0.3]
+    subsample: [0.6, 1.0]
+    colsample_bytree: [0.6, 1.0]
+    reg_alpha: [0.0, 10.0]
+    reg_lambda: [0.0, 10.0]
+    num_leaves: [10, 300]
+    
+  random_forest:
+    n_estimators: [50, 500]
+    max_depth: [3, 20]
+    min_samples_split: [2, 20]
+    min_samples_leaf: [1, 10]
+    max_features: ["sqrt", "log2", null]
+    bootstrap: [true, false]
+    
+  svm:
+    C: [0.001, 1000.0]
+    gamma: ["scale", "auto", 0.001, 0.01, 0.1, 1.0]
+    kernel: ["linear", "rbf", "poly", "sigmoid"]
+    degree: [2, 5]  # Only for poly kernel
+    
+  logistic_regression:
+    C: [0.001, 1000.0]
+    penalty: ["l1", "l2", "elasticnet", null]
+    solver: ["liblinear", "saga", "lbfgs"]
+    max_iter: [100, 1000]
+
+# Metric settings
+metrics:
+  # Classification metrics
+  classification:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "f1"
+    - "roc_auc"
+    - "average_precision"
+    - "balanced_accuracy"
+    - "neg_log_loss"
+  
+  # Regression metrics  
+  regression:
+    - "neg_mean_squared_error"
+    - "neg_mean_absolute_error"
+    - "r2"
+    - "neg_root_mean_squared_error"
+    - "neg_mean_absolute_percentage_error"
+
+# Console display settings
+display:
+  show_progress_bar: true
+  max_table_rows: 20
+  decimal_precision: 4
+  
+# File output settings
+output:
+  save_results: true
+  results_dir: "results"
+  save_study: true
+  save_best_model: true
+  export_json: true  # Export tuning summary as JSON
+  export_yaml: true  # Export tuning summary as YAML

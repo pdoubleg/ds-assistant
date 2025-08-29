@@ -24,6 +24,7 @@ dependencies = [
     "scikit-learn>=1.6.1",
     "streamlit>=1.45.1",
     "structlog>=25.3.0",
+    "textual>=5.3.0",
     "torch>=2.7.0",
     "ucimlrepo>=0.0.7",
     "xgboost>=3.0.2",
