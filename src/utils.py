@@ -559,30 +559,28 @@ def _get_variable_types(df: pd.DataFrame) -> dict[str, list[str]]:
 
 
 def exploratory_data_analysis(
-    df: pd.DataFrame, target: str, n_sample: int = 10
+    df: pd.DataFrame, target: str | None = None, n_sample: int = 10
 ) -> dict[str, Any]:
     """
     Performs extended exploratory data analysis on a dataset, including:
       - Basic shape/memory/dtypes/missing
       - Numeric, binary, and categorical stats
       - Correlation analysis
-      - **New**:
-        * target distribution or summary
-        * feature–target relationships (corr or mutual info)
-        * outlier counts (>3σ) & percentages for numeric only
-        * range & IQR for numeric features
-        * categorical cardinality & ratios
-        * binary feature analysis
-        * feature-to-sample ratio
-      - **Enhanced**:
-        * sample data capture
-        * comprehensive unique value analysis
-        * detailed DataFrame info
-        * memory usage breakdown
+      - target distribution or summary (if target provided)
+      - feature–target relationships (corr or mutual info) (if target provided)
+      - outlier counts (>3σ) & percentages for numeric only
+      - range & IQR for numeric features
+      - categorical cardinality & ratios
+      - binary feature analysis
+      - feature-to-sample ratio
+      - sample data capture
+      - comprehensive unique value analysis
+      - detailed DataFrame info
+      - memory usage breakdown
 
     Args:
         df: Input DataFrame to analyze
-        target: Name of the target column
+        target: Name of the target column. If None, target-related analysis is skipped. Defaults to None.
         n_sample: Number of sample rows to capture for analysis. Defaults to 10.
 
     Returns:
@@ -590,14 +588,20 @@ def exploratory_data_analysis(
 
     Example:
         >>> df = pd.read_csv('data.csv')
+        >>> # With target column
         >>> results = exploratory_data_analysis(df, 'target_column')
+        >>> summary = format_eda_for_llm(results)
+        >>> print(summary)
+        >>> 
+        >>> # Without target column (unsupervised analysis)
+        >>> results = exploratory_data_analysis(df)
         >>> summary = format_eda_for_llm(results)
         >>> print(summary)
     """
     logger.info("Performing exploratory data analysis on dataset")
     if df is None or df.empty:
         raise ValueError("No data found or empty dataset")
-    if target not in df.columns:
+    if target is not None and target not in df.columns:
         raise ValueError(f"Target column '{target}' not found in DataFrame")
 
     num_rows, num_cols = df.shape
@@ -763,95 +767,101 @@ def exploratory_data_analysis(
             }
         )
 
-    # ==== ENHANCED TARGET METRICS ====
+    # Determine target type more accurately (only if target is provided)
+    target_stats = None
+    target_is_binary = False
+    target_is_numeric = False
+    target_is_categorical = False
+    
+    if target is not None:
+        target_is_binary = target in binary_cols
+        target_is_numeric = target in numeric_cols
+        target_is_categorical = target in categorical_cols
 
-    # Determine target type more accurately
-    target_is_binary = target in binary_cols
-    target_is_numeric = target in numeric_cols
-    target_is_categorical = target in categorical_cols
-
-    if target_is_binary:
-        vc = df[target].value_counts()
-        proportions = (vc / num_rows * 100).round(2)
-        target_stats = {
-            "type": "binary",
-            "values": vc.index.tolist(),
-            "counts": vc.values.tolist(),
-            "proportions": proportions.tolist(),
-            "balance_ratio": min(proportions) / max(proportions)
-            if max(proportions) > 0
-            else 0,
-            "is_balanced": min(proportions) >= 30.0,
-        }
-    elif target_is_numeric:
-        tdesc = df[target].describe().to_dict()
-        t_iqr = float(df[target].quantile(0.75) - df[target].quantile(0.25))
-        target_stats = {"type": "numeric", "summary": tdesc, "IQR": t_iqr}
-    else:
-        vc = df[target].value_counts()
-        target_stats = {
-            "type": "categorical",
-            "counts": vc.to_dict(),
-            "percentages": (vc / num_rows * 100).round(2).to_dict(),
-        }
-
-    # 2. Enhanced Feature–target relationship
-    if target_is_binary or target_is_categorical:
-        # For classification targets: use mutual info for all feature types
-        feature_target_scores = {}
-
-        # Encode target for mutual info calculation
         if target_is_binary:
-            y = pd.Categorical(df[target]).codes
+            vc = df[target].value_counts()
+            proportions = (vc / num_rows * 100).round(2)
+            target_stats = {
+                "type": "binary",
+                "values": vc.index.tolist(),
+                "counts": vc.values.tolist(),
+                "proportions": proportions.tolist(),
+                "balance_ratio": min(proportions) / max(proportions)
+                if max(proportions) > 0
+                else 0,
+                "is_balanced": min(proportions) >= 30.0,
+            }
+        elif target_is_numeric:
+            tdesc = df[target].describe().to_dict()
+            t_iqr = float(df[target].quantile(0.75) - df[target].quantile(0.25))
+            target_stats = {"type": "numeric", "summary": tdesc, "IQR": t_iqr}
         else:
-            y = df[target].astype("category").cat.codes
+            vc = df[target].value_counts()
+            target_stats = {
+                "type": "categorical",
+                "counts": vc.to_dict(),
+                "percentages": (vc / num_rows * 100).round(2).to_dict(),
+            }
 
-        # Calculate mutual info for numeric features
-        if numeric_cols:
-            clean_numeric = df[numeric_cols].fillna(0)
-            mi_numeric = mutual_info_classif(clean_numeric, y, discrete_features=False)
-            feature_target_scores.update(dict(zip(numeric_cols, mi_numeric.tolist())))
+    # 2. Enhanced Feature–target relationship (only if target is provided)
+    feature_target = None
+    if target is not None:
+        if target_is_binary or target_is_categorical:
+            # For classification targets: use mutual info for all feature types
+            feature_target_scores = {}
 
-        # Calculate mutual info for binary features (excluding target)
-        binary_features = [c for c in binary_cols if c != target]
-        if binary_features:
-            # For binary features, we can use them as discrete
-            clean_binary = df[binary_features].fillna(-1)
-            # Convert to numeric codes for mutual info
-            binary_encoded = clean_binary.apply(lambda x: pd.Categorical(x).codes)
-            mi_binary = mutual_info_classif(binary_encoded, y, discrete_features=True)
-            feature_target_scores.update(dict(zip(binary_features, mi_binary.tolist())))
+            # Encode target for mutual info calculation
+            if target_is_binary:
+                y = pd.Categorical(df[target]).codes
+            else:
+                y = df[target].astype("category").cat.codes
 
-        feature_target = {
-            "method": "mutual_info_classification",
-            "scores": feature_target_scores,
-        }
+            # Calculate mutual info for numeric features
+            if numeric_cols:
+                clean_numeric = df[numeric_cols].fillna(0)
+                mi_numeric = mutual_info_classif(clean_numeric, y, discrete_features=False)
+                feature_target_scores.update(dict(zip(numeric_cols, mi_numeric.tolist())))
 
-    else:
-        # For regression targets: use correlation for numeric, mutual info for others
-        feature_target_scores = {}
+            # Calculate mutual info for binary features (excluding target)
+            binary_features = [c for c in binary_cols if c != target]
+            if binary_features:
+                # For binary features, we can use them as discrete
+                clean_binary = df[binary_features].fillna(-1)
+                # Convert to numeric codes for mutual info
+                binary_encoded = clean_binary.apply(lambda x: pd.Categorical(x).codes)
+                mi_binary = mutual_info_classif(binary_encoded, y, discrete_features=True)
+                feature_target_scores.update(dict(zip(binary_features, mi_binary.tolist())))
 
-        # Pearson correlation for numeric features
-        if numeric_cols:
-            corr_with_target = (
-                df[numeric_cols + [target]].corr()[target].drop(target).abs().to_dict()
-            )
-            feature_target_scores.update(corr_with_target)
+            feature_target = {
+                "method": "mutual_info_classification",
+                "scores": feature_target_scores,
+            }
 
-        # For binary features with numeric target, use point-biserial correlation
-        if binary_cols:
-            for col in binary_cols:
-                if not df[col].isnull().all() and not df[target].isnull().all():
-                    # Convert binary to numeric (0/1) for correlation
-                    binary_numeric = pd.Categorical(df[col]).codes
-                    corr_val = abs(np.corrcoef(binary_numeric, df[target])[0, 1])
-                    if not np.isnan(corr_val):
-                        feature_target_scores[col] = corr_val
+        else:
+            # For regression targets: use correlation for numeric, mutual info for others
+            feature_target_scores = {}
 
-        feature_target = {
-            "method": "correlation_regression",
-            "scores": feature_target_scores,
-        }
+            # Pearson correlation for numeric features
+            if numeric_cols:
+                corr_with_target = (
+                    df[numeric_cols + [target]].corr()[target].drop(target).abs().to_dict()
+                )
+                feature_target_scores.update(corr_with_target)
+
+            # For binary features with numeric target, use point-biserial correlation
+            if binary_cols:
+                for col in binary_cols:
+                    if not df[col].isnull().all() and not df[target].isnull().all():
+                        # Convert binary to numeric (0/1) for correlation
+                        binary_numeric = pd.Categorical(df[col]).codes
+                        corr_val = abs(np.corrcoef(binary_numeric, df[target])[0, 1])
+                        if not np.isnan(corr_val):
+                            feature_target_scores[col] = corr_val
+
+            feature_target = {
+                "method": "correlation_regression",
+                "scores": feature_target_scores,
+            }
 
     # 3. Outlier counts (>3σ) - NUMERIC ONLY
     outliers = {}
@@ -934,16 +944,14 @@ def exploratory_data_analysis(
 def format_eda_for_llm(
     eda: dict[str, Any],
     include_sample_data: bool = True,
-    include_detailed_info: bool = True,
 ) -> str:
     """
-    Build a concise plain-text summary of extended EDA results,
+    Build a plain-text summary of extended EDA results,
     including the new metrics under data_quality_results and enhanced details.
 
     Args:
         eda: EDA results dictionary from exploratory_data_analysis()
         include_sample_data: Whether to include sample data in the output. Defaults to True.
-        include_detailed_info: Whether to include detailed DataFrame info. Defaults to True.
 
     Returns:
         Formatted string summary of the EDA results
@@ -959,10 +967,12 @@ def format_eda_for_llm(
         f"Dataset: {info['rows']}×{info['columns']} ({info['memory_usage_mb']} MB)"
     )
     lines.append("Columns: " + ", ".join(info["column_names"]))
-    lines.append(f"Target: {eda['target_column']}")
+    if eda['target_column'] is not None:
+        lines.append(f"Target: {eda['target_column']}")
+    else:
+        lines.append("Target: None (unsupervised analysis)")
     lines.append("")
 
-    # Enhanced variable type classification
     if "variable_types" in eda:
         var_types = eda["variable_types"]
         summary = var_types["summary"]
@@ -1061,37 +1071,38 @@ def format_eda_for_llm(
                 lines.append(f" • {col}: All NaN")
         lines.append("")
 
-    # Enhanced Target column analysis
     dqr = eda["data_quality_results"]
     ts = dqr["target_stats"]
-    if ts["type"] == "binary":
-        values_info = "; ".join(
-            f"{val}: {count} ({prop}%)"
-            for val, count, prop in zip(ts["values"], ts["counts"], ts["proportions"])
-        )
-        balance_status = (
-            "balanced"
-            if ts["is_balanced"]
-            else f"imbalanced (ratio: {ts['balance_ratio']:.3f})"
-        )
-        lines.append(f"Target (binary) distribution: {values_info} - {balance_status}")
-    elif ts["type"] == "numeric":
-        s = ts["summary"]
-        lines.append(
-            f"Target (numeric) summary: mean={s['mean']:.3f}, std={s['std']:.3f}, "
-            f"min={s['min']:.3f}, max={s['max']:.3f}, IQR={ts['IQR']:.3f}"
-        )
-    else:
-        pct = ts["percentages"]
-        dist = "; ".join(f"{k}={v} %" for k, v in pct.items())
-        lines.append("Target (categorical) distribution: " + dist)
-    lines.append("")
+    if ts is not None:
+        if ts["type"] == "binary":
+            values_info = "; ".join(
+                f"{val}: {count} ({prop}%)"
+                for val, count, prop in zip(ts["values"], ts["counts"], ts["proportions"])
+            )
+            balance_status = (
+                "balanced"
+                if ts["is_balanced"]
+                else f"imbalanced (ratio: {ts['balance_ratio']:.3f})"
+            )
+            lines.append(f"Target (binary) distribution: {values_info} - {balance_status}")
+        elif ts["type"] == "numeric":
+            s = ts["summary"]
+            lines.append(
+                f"Target (numeric) summary: mean={s['mean']:.3f}, std={s['std']:.3f}, "
+                f"min={s['min']:.3f}, max={s['max']:.3f}, IQR={ts['IQR']:.3f}"
+            )
+        else:
+            pct = ts["percentages"]
+            dist = "; ".join(f"{k}={v} %" for k, v in pct.items())
+            lines.append("Target (categorical) distribution: " + dist)
+        lines.append("")
 
     # Binary features analysis
     if "binary_analysis" in eda and eda["binary_analysis"]:
         lines.append("Binary features analysis:")
         for feature, stats in eda["binary_analysis"].items():
-            if feature != eda["target_column"]:  # Don't repeat target info
+            # Don't repeat target info if target is provided
+            if eda["target_column"] is None or feature != eda["target_column"]:
                 values_info = "; ".join(
                     f"{val}: {count} ({prop}%)"
                     for val, count, prop in zip(
@@ -1106,34 +1117,34 @@ def format_eda_for_llm(
                 lines.append(f" • {feature}: {values_info} - {balance_status}")
         lines.append("")
 
-    # Feature–target relationship analysis
+    # Feature–target relationship analysis (only if target is provided)
     ftr = dqr["feature_target_relationship"]
+    if ftr is not None:
+        # Handle nested scores structure - flatten if needed
+        scores = ftr["scores"]
+        if scores:
+            # Check if scores is nested (contains dictionaries as values)
+            if isinstance(next(iter(scores.values())), dict):
+                # Flatten nested structure: extract all feature-score pairs
+                flat_scores = {}
+                for target_name, feature_dict in scores.items():
+                    if isinstance(feature_dict, dict):
+                        flat_scores.update(feature_dict)
+                    else:
+                        # If it's not a dict, treat it as a direct score
+                        flat_scores[target_name] = feature_dict
+                scores = flat_scores
 
-    # Handle nested scores structure - flatten if needed
-    scores = ftr["scores"]
-    if scores:
-        # Check if scores is nested (contains dictionaries as values)
-        if isinstance(next(iter(scores.values())), dict):
-            # Flatten nested structure: extract all feature-score pairs
-            flat_scores = {}
-            for target_name, feature_dict in scores.items():
-                if isinstance(feature_dict, dict):
-                    flat_scores.update(feature_dict)
-                else:
-                    # If it's not a dict, treat it as a direct score
-                    flat_scores[target_name] = feature_dict
-            scores = flat_scores
-
-        # Sort and get top features
-        top_feats = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
-        method_name = ftr["method"].replace("_", " ").title()
-        lines.append(
-            f"Top 5 feature–target ({method_name}): "
-            + ", ".join(f"{f}={score:.3f}" for f, score in top_feats)
-        )
-    else:
-        lines.append("No feature-target relationships calculated.")
-    lines.append("")
+            # Sort and get top features
+            top_feats = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
+            method_name = ftr["method"].replace("_", " ").title()
+            lines.append(
+                f"Top 5 feature–target ({method_name}): "
+                + ", ".join(f"{f}={score:.3f}" for f, score in top_feats)
+            )
+        else:
+            lines.append("No feature-target relationships calculated.")
+        lines.append("")
 
     # Outlier analysis (show any with >1% prevalence) - NUMERIC ONLY
     ol = {c: v for c, v in dqr["outlier_stats"].items() if v["percentage"] > 1}
@@ -1169,10 +1180,8 @@ def format_eda_for_llm(
         lines.append("No data quality issues flagged.")
     lines.append("")
 
-    # Detailed DataFrame info (optional)
-    if include_detailed_info and "dataframe_info" in eda:
-        lines.append("Detailed DataFrame Information:")
-        lines.append(eda["dataframe_info"])
+    lines.append("Detailed DataFrame Information:")
+    lines.append(eda["dataframe_info"])
 
     return "\n".join(lines)
 

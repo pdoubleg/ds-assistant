@@ -5,6 +5,7 @@
 data:
   data_path: "./data/insurance_claims_transformed.csv"  # Path to your CSV data file (e.g., "data/dataset.csv")
   target_column: "claim_status"  # Name of the target column (e.g., "target" or "label")
+  output_directory: "tuning_output"
 
 # General Settings
 general:
@@ -54,20 +55,19 @@ display:
   max_table_rows: 20
   decimal_precision: 4
   
-# File output settings
-output:
-  save_results: true
-  results_dir: "results"
-  save_study: true
-  save_best_model: true
-  export_json: true  # Export tuning summary as JSON
-  export_yaml: true  # Export tuning summary as YAML
 
 # MLflow integration settings
 mlflow:
-  enable_mlflow: true
+  enable_mlflow: false
   experiment_name: "autotuner_optimization"
   log_agent_iterations: true  # Log each agent iteration as separate artifact
   log_trial_details: false   # Don't log individual Optuna trials (focus on agent-level)
   artifact_logging: true     # Use MLflow artifacts instead of local files
   nested_runs: true          # Use nested runs for organization
+
+file_logging:
+  enable_file_logging: true
+  output_directory: "tunning_logs"
+  export_json: true
+  export_yaml: true
+  save_tuning_summary: false

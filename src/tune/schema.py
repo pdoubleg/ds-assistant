@@ -76,6 +76,7 @@ class AutoTunerConfig:
     # Data settings
     data_path: str | None = None
     target_column: str | None = None
+    output_directory: str = "llm_tuning_output"
 
     # General settings
     random_state: int = 42
@@ -117,14 +118,14 @@ class AutoTunerConfig:
     max_table_rows: int = 20
     decimal_precision: int = 4
 
-    # Output settings
-    save_results: bool = True
-    results_dir: str = "results"
-    save_study: bool = True
-    save_best_model: bool = True
+
+    # File logging settings
+    enable_file_logging: bool = True
+    output_directory: str = "tunning_logs"
     export_json: bool = True
     export_yaml: bool = True
-    
+    save_tuning_summary: bool = True
+
     # MLflow settings
     enable_mlflow: bool = True
     experiment_name: str = "autotuner_optimization"
@@ -203,16 +204,15 @@ class AutoTunerConfig:
                 "decimal_precision", 4
             )
 
-        # Output settings
-        if "output" in config_dict:
-            output_config = config_dict["output"]
-            flat_config["save_results"] = output_config.get("save_results", True)
-            flat_config["results_dir"] = output_config.get("results_dir", "results")
-            flat_config["save_study"] = output_config.get("save_study", True)
-            flat_config["save_best_model"] = output_config.get("save_best_model", True)
-            flat_config["export_json"] = output_config.get("export_json", True)
-            flat_config["export_yaml"] = output_config.get("export_yaml", True)
-
+        # File logging settings
+        if "file_logging" in config_dict:
+            file_logging_config = config_dict["file_logging"]
+            flat_config["enable_file_logging"] = file_logging_config.get("enable_file_logging", False)
+            flat_config["output_directory"] = file_logging_config.get("output_directory", "tunning_logs")
+            flat_config["export_json"] = file_logging_config.get("export_json", False)
+            flat_config["export_yaml"] = file_logging_config.get("export_yaml", False)
+            flat_config["save_tuning_summary"] = file_logging_config.get("save_tuning_summary", False)
+            
         # MLflow settings
         if "mlflow" in config_dict:
             mlflow_config = config_dict["mlflow"]

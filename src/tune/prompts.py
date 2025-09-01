@@ -63,6 +63,7 @@ of nested parameters, i.e., steps and their input data types.
 Prior issues to avoid:
 InvalidParameterError: The 'max_features' parameter of RandomForestClassifier must be an int in the range [1, inf), a float in the \
 range (0.0, 1.0], a str among {'sqrt', 'log2'} or None. Got 'auto' instead.
+ValueError: CategoricalDistribution does not support dynamic value space.
 
 {model_params}
 """
@@ -238,6 +239,7 @@ of nested parameters, i.e., steps and their input data types.
 Prior issues to avoid:
 InvalidParameterError: The 'max_features' parameter of RandomForestClassifier must be an int in the range [1, inf), a float in the \
 range (0.0, 1.0], a str among {'sqrt', 'log2'} or None. Got 'auto' instead.
+Optuna ValueError: CategoricalDistribution does not support dynamic value space.
 
 {model_params}
 """

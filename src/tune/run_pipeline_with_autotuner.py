@@ -30,7 +30,7 @@ from databricks.mlflow.utils import split_data_on_indexes, get_split_indexes, ge
 from databricks.mlflow.utils import evaluation_metrics # type: ignore
 
 # Import our MLflow AutoTuner
-from .tune_mlflow import MLflowAutoTuner, run_mlflow_tuning
+from .tuner import MLflowAutoTuner, run_mlflow_tuning
 
 logger = getLogger(__name__)
 

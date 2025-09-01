@@ -27,7 +27,7 @@ import numpy as np
 # Add the project root to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.tune.tune_mlflow import MLflowAutoTuner, run_mlflow_tuning
+from src.tune.tuner import MLflowAutoTuner, run_mlflow_tuning
 
 # Configure warnings
 warnings.filterwarnings('ignore', category=UserWarning)
@@ -545,7 +545,7 @@ def example_with_random_forest_titanic_survival():
         
         # Step 5: Recursive feature elimination with Random Forest
         ('feature_selection_rfe', RFE(
-            estimator=RandomForestClassifier(n_estimators=10, random_state=42),
+            estimator=RandomForestClassifier(n_estimators=10, random_state=42, bootstrap=True),
             n_features_to_select=15,
             step=1
         )),
@@ -618,10 +618,10 @@ def main():
         # example_integration_with_existing_pipeline()
 
         # Example 5: LightGBM Classification
-        # example_with_lightgbm_classification()
+        example_with_lightgbm_classification()
         
         # Example 6: Random Forest Titanic Survival
-        example_with_random_forest_titanic_survival()
+        # example_with_random_forest_titanic_survival()
 
         print("\n" + "=" * 60)
         print("All examples completed successfully!")
