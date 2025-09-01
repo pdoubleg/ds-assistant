@@ -20,8 +20,8 @@ from .tools import (
 from .utils import (
     Markdown,
     get_model_pipeline,
-    get_scorer_smart,
 )
+from .evaluation import get_scorer_smart
 
 console = Console()
 

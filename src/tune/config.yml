@@ -66,7 +66,7 @@ mlflow:
   nested_runs: true          # Use nested runs for organization
 
 file_logging:
-  enable_file_logging: true
+  enable_file_logging: false
   output_directory: "tunning_logs"
   export_json: true
   export_yaml: true

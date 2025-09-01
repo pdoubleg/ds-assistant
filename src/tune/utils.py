@@ -1,5 +1,5 @@
 from dataclasses import asdict
-from typing import Any, Callable, Union
+from typing import Any
 
 import numpy as np
 import optuna
@@ -9,18 +9,6 @@ from rich.markdown import Heading, Markdown
 from rich.style import Style
 from rich.text import Text
 from sklearn.base import BaseEstimator
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    get_scorer,
-    make_scorer,
-    mean_absolute_error,
-    mean_squared_error,
-    precision_score,
-    r2_score,
-    recall_score,
-    roc_auc_score,
-)
 from xgboost import XGBClassifier, XGBRegressor
 
 
@@ -39,41 +27,6 @@ class LeftHeading(Heading):
 Markdown.elements.update(
     heading_open=LeftHeading,
 )
-
-
-def get_default_metric(task_type: str) -> str:
-    """Get default metric for a task type.
-
-    Args:
-        task_type (str): Type of ML task
-
-    Returns:
-        str: Default metric name
-    """
-    if task_type == "classification":
-        return "f1"  # More informative than accuracy for most cases
-    else:  # regression
-        return "r2"
-
-
-def get_scorer_smart(metric: Union[str, Callable, None], task_type: str) -> Callable:
-    """Get scorer function with 'smart' defaults.
-
-    Args:
-        metric: User-specified metric (string name, callable, or None)
-        task_type: Type of ML task
-
-    Returns:
-        Callable: Scoring function
-    """
-    if callable(metric):
-        return metric
-    elif isinstance(metric, str):
-        return get_scorer_from_string(metric, task_type)
-    else:
-        # Use better defaults than just accuracy/r2
-        default_metric = get_default_metric(task_type)
-        return get_scorer_from_string(default_metric, task_type)
 
 
 def get_model_pipeline(
@@ -151,39 +104,6 @@ def get_model_pipeline(
         model.set_params(**model_hyperparameters)
 
     return model
-
-
-def get_scorer_from_string(metric_name: str, task_type: str) -> Callable:
-    """Get sklearn scorer from string name."""
-    try:
-        return get_scorer(metric_name)
-    except ValueError:
-        # Handle custom metrics or common aliases
-        if task_type == "classification":
-            if metric_name in ["accuracy"]:
-                return make_scorer(accuracy_score)
-            elif metric_name in ["precision"]:
-                return make_scorer(precision_score, average="weighted")
-            elif metric_name in ["recall"]:
-                return make_scorer(recall_score, average="weighted")
-            elif metric_name in ["f1"]:
-                return make_scorer(f1_score, average="weighted")
-            elif metric_name in ["roc_auc", "auc"]:
-                return make_scorer(
-                    roc_auc_score,
-                    needs_proba=True,
-                    multi_class="ovr",
-                    average="weighted",
-                )
-        else:  # regression
-            if metric_name in ["mse", "mean_squared_error"]:
-                return make_scorer(mean_squared_error, greater_is_better=False)
-            elif metric_name in ["mae", "mean_absolute_error"]:
-                return make_scorer(mean_absolute_error, greater_is_better=False)
-            elif metric_name in ["r2", "r2_score"]:
-                return make_scorer(r2_score)
-
-        raise ValueError(f"Unsupported metric: {metric_name}")
 
 
 def extract_logs_from_study(study: optuna.Study, top_n: int = 5) -> tuple[str, float]:

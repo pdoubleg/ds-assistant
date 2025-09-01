@@ -15,19 +15,6 @@ from logging import getLogger
 from typing import Any, Callable, Union
 
 from sklearn.base import BaseEstimator
-from sklearn.metrics import (
-    accuracy_score,
-    balanced_accuracy_score,
-    f1_score,
-    log_loss,
-    mean_absolute_error,
-    mean_absolute_percentage_error,
-    mean_squared_error,
-    precision_score,
-    r2_score,
-    recall_score,
-    roc_auc_score,
-)
 
 try:
     import mlflow  # type: ignore
@@ -51,8 +38,6 @@ from rich.progress import (
 )
 from rich.table import Table
 from sklearn.model_selection import (
-    RepeatedKFold,
-    RepeatedStratifiedKFold,
     cross_val_score,
     train_test_split,
 )
@@ -68,14 +53,12 @@ from .prompts import (
     get_refine_search_space_prompt,
 )
 from .schema import AutoMLDependencies, AutoTunerConfig
-from .tools import generate_search_space_from_code
 from .utils import (
     Markdown,
     extract_logs_from_study,
-    get_default_metric,
     get_model_pipeline,
-    get_scorer_smart,
 )
+from .evaluation import get_comprehensive_metrics, get_default_metric, get_scorer_smart, get_cv
 from .logging import BaseTuningLogger, MLflowLogger, LocalFileLogger, NoOpLogger
 
 # Removes warnings in the current job
@@ -388,7 +371,7 @@ class MLflowAutoTuner:
                 )
 
             # Generate search space function from the generated code
-            define_fn = generate_search_space_from_code(current_code)
+            define_fn = self.generate_search_space_from_code(current_code)
 
             # Run optimization using Optuna
             study = self._run_optimization(define_fn, iteration + 1)
@@ -570,15 +553,23 @@ class MLflowAutoTuner:
             )
             final_results["best_test_metrics"] = best_metrics
             self.best_test_metrics = best_metrics
-        
+
         self.agent_results.append(final_results)
         self._log_final_results(final_results)
         self._save_results_via_logger()
-        
+
         if self.config.verbose >= 1:
             self._print_final_summary(final_results)
 
         return final_results
+    
+    
+    def generate_search_space_from_code(self, code: str) -> Callable[[optuna.trial.Trial], dict]:
+        """Execute LLM code and return the define_search_space function."""
+        
+        local_ns: dict[str, Any] = {"optuna": optuna, "np": np}
+        exec(code, local_ns)
+        return local_ns["define_search_space"]
 
     def evaluate_model(
         self,
@@ -634,7 +625,13 @@ class MLflowAutoTuner:
         # 4) Train/evaluate
         if not final:
             # Baseline path: CV on training fold, then fit on all train and score test
-            cv = self._get_cv()
+            cv = get_cv(
+                self.config.task_type,
+                self.config.cv_folds,
+                self.config.n_repeats,
+                self.config.stratify,
+                self.config.random_state,
+            )
             cv_scores = cross_val_score(
                 estimator,
                 X_train,
@@ -685,7 +682,7 @@ class MLflowAutoTuner:
                             f"Error predicting probabilities: {e}", style="red"
                         )
 
-            comp = self._get_comprehensive_metrics(y_test, y_pred, y_pred_proba)
+            comp = get_comprehensive_metrics(y_test, y_pred, y_pred_proba)
             metrics = {f"test_{k}": float(v) for k, v in comp.items()}
 
             # Logging
@@ -743,20 +740,6 @@ class MLflowAutoTuner:
             te = self._cached_split_indices["test_idx"]
             return X.loc[tr], X.loc[te], y.loc[tr], y.loc[te]
 
-    def _get_cv(self):
-        if self.config.task_type == "classification" and self.config.stratify:
-            return RepeatedStratifiedKFold(
-                n_splits=self.config.cv_folds,
-                n_repeats=self.config.n_repeats,
-                random_state=self.config.random_state,
-            )
-        else:
-            return RepeatedKFold(
-                n_splits=self.config.cv_folds,
-                n_repeats=self.config.n_repeats,
-                random_state=self.config.random_state,
-            )
-
     def _run_optimization(
         self, define_search_space: Callable, iteration: int
     ) -> optuna.Study:
@@ -774,7 +757,13 @@ class MLflowAutoTuner:
             model = self._build_estimator(model_hyperparameters)
 
             # Cross-validation
-            cv = self._get_cv()
+            cv = get_cv(
+                self.config.task_type,
+                self.config.cv_folds,
+                self.config.n_repeats,
+                self.config.stratify,
+                self.config.random_state,
+            )
 
             scores = cross_val_score(
                 model, X, y, scoring=scorer, cv=cv, n_jobs=self.config.n_jobs
@@ -1046,103 +1035,32 @@ class MLflowAutoTuner:
                     console.print(
                         f"📈 Improvement: {improvement:+.{self.config.decimal_precision}f} ({improvement_pct:+.2f}%)"
                     )
-                    
+
     def _save_results_via_logger(self):
         """Save results using the pluggable logger system."""
+        
         if not self.best_configs:
             return
-        
+
         # Save best parameters (simple JSON for **params usage)
         best_params = self.best_configs[0]["config"]
         self.logger.save_best_params(
             best_params,
-            export_json=getattr(self.config, 'export_json', True),
-            export_yaml=getattr(self.config, 'export_yaml', True)
+            export_json=getattr(self.config, "export_json", True),
+            export_yaml=getattr(self.config, "export_yaml", True),
         )
-        
+
         # Save comprehensive tuning summary
         if self.config.save_tuning_summary:
             summary = self.get_tuning_summary()
             self.logger.save_tuning_summary(
                 summary,
-                export_json=getattr(self.config, 'export_json', True),
-                export_yaml=getattr(self.config, 'export_yaml', True)
+                export_json=getattr(self.config, "export_json", True),
+                export_yaml=getattr(self.config, "export_yaml", True),
             )
-        
+
         if self.config.verbose >= 1:
             console.print("✅ Results saved successfully!")
-
-    def _get_comprehensive_metrics(
-        self, y_true, y_pred, y_pred_proba=None
-    ) -> dict[str, float]:
-        """
-        Get comprehensive evaluation metrics based on task type.
-
-        Args:
-            y_true: True target values
-            y_pred: Predicted values
-            y_pred_proba: Predicted probabilities (for classification only)
-
-        Returns:
-            dict: Dictionary of metric names and values
-        """
-        metrics = {}
-
-        if self.config.task_type == "classification":
-            # Core classification metrics
-            metrics["accuracy"] = float(accuracy_score(y_true, y_pred))
-            metrics["balanced_accuracy"] = float(
-                balanced_accuracy_score(y_true, y_pred)
-            )
-
-            # Handle multiclass vs binary
-            average_method = "binary" if len(np.unique(y_true)) == 2 else "weighted"
-
-            metrics["precision"] = float(
-                precision_score(y_true, y_pred, average=average_method, zero_division=0)
-            )
-            metrics["recall"] = float(
-                recall_score(y_true, y_pred, average=average_method, zero_division=0)
-            )
-            metrics["f1"] = float(
-                f1_score(y_true, y_pred, average=average_method, zero_division=0)
-            )
-
-            # Probability-based metrics (if available)
-            if y_pred_proba is not None:
-                try:
-                    if len(np.unique(y_true)) == 2:
-                        # Binary classification
-                        metrics["roc_auc"] = float(
-                            roc_auc_score(y_true, y_pred_proba[:, 1])
-                        )
-                        metrics["log_loss"] = float(log_loss(y_true, y_pred_proba))
-                    else:
-                        # Multiclass
-                        metrics["roc_auc"] = float(
-                            roc_auc_score(
-                                y_true,
-                                y_pred_proba,
-                                multi_class="ovr",
-                                average="weighted",
-                            )
-                        )
-                        metrics["log_loss"] = float(log_loss(y_true, y_pred_proba))
-                except (ValueError, IndexError):
-                    # Skip if probabilities are not compatible
-                    pass
-
-        else:  # regression
-            metrics["r2"] = float(r2_score(y_true, y_pred))
-            metrics["mse"] = float(mean_squared_error(y_true, y_pred))
-            metrics["rmse"] = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-            metrics["mae"] = float(mean_absolute_error(y_true, y_pred))
-
-            # Avoid division by zero for MAPE
-            if not np.any(y_true == 0):
-                metrics["mape"] = float(mean_absolute_percentage_error(y_true, y_pred))
-
-        return metrics
 
     def get_best_config(self) -> dict | None:
         """Get the best hyperparameter configuration."""

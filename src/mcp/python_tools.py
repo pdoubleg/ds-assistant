@@ -8,16 +8,17 @@ from typing import Annotated
 
 import matplotlib.pyplot as plt
 
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("python_tools")
 
 
 class PythonREPL:
+    """A Python REPL that executes code and returns the standard output."""
+    
     def run(self, code):
         old_stdout = sys.stdout
         redirected_output = sys.stdout = StringIO()
-
         try:
             exec(code, globals())
             sys.stdout = old_stdout
@@ -32,7 +33,7 @@ repl = PythonREPL()
 
 @mcp.tool()
 async def python_repl(code: str) -> str:
-    """Execute Python code."""
+    """Execute Python code and return the standard output."""
     return repl.run(code)
 
 

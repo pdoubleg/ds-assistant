@@ -1,18 +1,10 @@
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import numpy as np
-import optuna
 import pandas as pd
 from sklearn.base import BaseEstimator, ClassifierMixin, ClusterMixin, RegressorMixin
 
 from .schema import HPOProfile
-
-
-def generate_search_space_from_code(code: str) -> Callable[[optuna.trial.Trial], dict]:
-    """Execute LLM code and return the define_search_space function."""
-    local_ns: dict[str, Any] = {"optuna": optuna, "np": np}
-    exec(code, local_ns)
-    return local_ns["define_search_space"]
 
 
 def render_estimator_params(estimator: BaseEstimator, deep: bool = True) -> str:
