@@ -25,7 +25,10 @@ class LoggingToolset(WrapperToolset):
             self.console.print(f'Calling code tool {name!r}')
             self.console.print(Markdown(code_string, code_theme="github-dark"))
         else:
-            self.console.print(f'Calling tool {name!r} with args: {tool_args!r}')
+            # Truncate long arguments for display
+            truncated_args = self._truncate_args(tool_args)
+            self.console.print(f'Calling tool {name!r} with args: {truncated_args}')
+            
         try:
             result = await super().call_tool(name, tool_args, ctx, tool)
             self.console.print(f'Finished calling tool {name!r}')
@@ -33,5 +36,28 @@ class LoggingToolset(WrapperToolset):
         except Exception as e:
             self.console.print(f'Error calling tool {name!r}: {e}')
             raise
+        
+    def _truncate_args(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Truncate long argument values for display purposes.
+        
+        Args:
+            args: Dictionary of tool arguments
+            
+        Returns:
+            Dictionary with truncated string representations of arguments
+        """
+        MAX_ARG_LENGTH = 10000
+        truncated = {}
+        for key, value in args.items():
+            # Convert value to string representation
+            str_value = repr(value)
+            
+            # Truncate if too long
+            if len(str_value) > MAX_ARG_LENGTH:
+                truncated[key] = str_value[:MAX_ARG_LENGTH - 3] + "..."
+            else:
+                truncated[key] = str_value
+                
+        return truncated
         
         

@@ -33,56 +33,64 @@ repl = PythonREPL()
 
 @mcp.tool()
 async def python_repl(code: str) -> str:
-    """Execute Python code and return the standard output."""
+    """Execute Python code and return the standard output.
+    
+    Args:
+        code: The python code to execute
+
+    Returns:
+        The standard output of the python code
+    
+    """
     return repl.run(code)
 
 
-@mcp.tool()
-async def matplotlib_visualization(code: Annotated[str, "The python code to execute to generate visualization using matplotlib"]) -> str:
-    """Use this tool to generate graphs and visualizations using python code and matplotlib library.
+# @mcp.tool()
+# async def matplotlib_visualization(code: Annotated[str, "The python code to execute to generate visualization using matplotlib"]) -> str:
+#     """Use this tool to generate graphs and visualizations using python code and matplotlib library.
     
-    - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`
-    - Use matplotlib library to make the graph interactive
-    - Create publication-quality visualizations with proper labels, titles, and legends
-    - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
-    - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
-    """
-    try:
-        repl.run(code)
-        buf = io.BytesIO()
-        plt.savefig(buf, format="png")
-        buf.seek(0)
-        plt.close()  # Close the figure to free memory
-        return "Success!"
-    except Exception as e:
-        return f"Error creating chart: {str(e)}"
+#     - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`
+#     - Use matplotlib library to make the graph interactive
+#     - Create publication-quality visualizations with proper labels, titles, and legends
+#     - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
+#     - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
+#     """
+#     try:
+#         repl.run(code)
+#         buf = io.BytesIO()
+#         plt.savefig(buf, format="png")
+#         buf.seek(0)
+#         plt.close()  # Close the figure to free memory
+#         return "Success!"
+#     except Exception as e:
+#         return f"Error creating chart: {str(e)}"
 
-@mcp.tool()
-async def plotly_visualization(
-    code: Annotated[str, "The python code to execute to generate visualization using plotly"],
-) -> str:
-    """
-    Use this tool to generate graphs and visualizations using python code.
+# @mcp.tool()
+# async def plotly_visualization(
+#     code: Annotated[str, "The python code to execute to generate visualization using plotly"],
+# ) -> str:
+#     """
+#     Use this tool to generate graphs and visualizations using python code.
 
-    - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`
-    - Use plotly express library to make the graph interactive
-    - Create publication-quality visualizations with proper labels, titles, and legends
-    - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
-    - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
-    """
+#     - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`
+#     - Use plotly express library to make the graph interactive
+#     - Create publication-quality visualizations with proper labels, titles, and legends
+#     - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
+#     - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
+#     """
 
-    catcher = StringIO()
+#     catcher = StringIO()
 
-    try:
-        with redirect_stdout(catcher):
-            # The compile step can catch syntax errors early
-            compiled_code = compile(code, "<string>", "exec")
-            exec(compiled_code, globals(), globals())
+#     try:
+#         with redirect_stdout(catcher):
+#             # The compile step can catch syntax errors early
+#             compiled_code = compile(code, "<string>", "exec")
+#             exec(compiled_code, globals(), globals())
 
-            return f"The graph path is \n\n{catcher.getvalue()}"
+#             return f"The graph path is \n\n{catcher.getvalue()}"
 
-    except Exception as e:
-        return f"Failed to run code. Error: {repr(e)}, try a different approach"
+#     except Exception as e:
+#         return f"Failed to run code. Error: {repr(e)}, try a different approach"
 
 
 if __name__ == "__main__":

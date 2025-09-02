@@ -58,8 +58,8 @@ async def get_analyst_agent_system_prompt(ctx: RunContext[AnalystAgentDeps]):
     - `write_file`: Write a file to the data directory from a given input string. Useful for markdown (.md) and code (.py, .js, .ts, .html, .css, .scss) files.
     - `load_huggingface_dataset`: Get a dataset from huggingface and save it to the data directory.
     - `get_eda_report`: Get a comprehensive exploratory data analysis of a given dataset.
-    - `matplotlib_visualization`: Create visualizations (charts, plots, graphs) and save them in HTML and PNG formats.
-    - `python_repl`: Execute Python code and return the standard output. Always use the visualization specific tools for plotting.
+    - `python_repl`: Execute Python code and return the standard output. Objects do not persist between runs; always load the dataset each time and \
+save plots and/or dataframes, e.g., `df = pd.read_csv(f'{ctx.deps.data_directory}/dataset_name_train.csv')` and `plt.savefig(f'{ctx.deps.data_directory}/graph.png', dpi=300, bbox_inches='tight')`.
     - `internet_search`: Search the internet for information.
     - `generate_image`: Generate an image based on a user prompt.
     
@@ -94,9 +94,9 @@ async def get_analyst_agent_system_prompt(ctx: RunContext[AnalystAgentDeps]):
     **Tool Usage Best Practices:**
     
     **General Dataset Handling:**
+    - When writing python code for a dataset, always import the it, e.g. `df = pd.read_csv(f'{ctx.deps.data_directory}/dataset_name_train.csv')`.
+    - Use the `inspect_directory` tool to discover and read local files.
     - Hugging Face paths follow the format `<user_name>/<dataset_name>`.
-    - When writing python code for a dataset, always import the it, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`.
-    - Use the file toolset to discover and read local files, e.g., `inspect_directory`.
     
     **load_huggingface_dataset**:
     - Use this tool to load a dataset from Hugging Face.
@@ -108,20 +108,16 @@ async def get_analyst_agent_system_prompt(ctx: RunContext[AnalystAgentDeps]):
     
     **python_repl**:
     - Use this tool to execute Python code for statistical calculations, data processing, and metric computation.
-    - Do NOT use this tool for plotting or visualization.
-    - If a dataset is needed, load it each time: `df = pd.read_csv('data/dataset_name_train.csv')`
+    - If a dataset is needed, load it each time: `df = pd.read_csv(f'{ctx.deps.data_directory}/dataset_name_train.csv')`
     - Always include necessary imports: `import pandas as pd`, `import numpy as np`, `import matplotlib.pyplot as plt`, `import seaborn as sns`
     - Use descriptive variable names and clear print statements
     - Format output: `print(f"The calculated value for {{metric_name}} is {{value}}")`
     - Handle errors gracefully with try-except blocks
-
-    **matplotlib_visualization**:
-    - Always include necessary imports and dataset loading
-    - If a dataset is needed, load it each time: `df = pd.read_csv('data/dataset_name_train.csv')`
     - Include transformations or feature engineering if needed to enhance the visualization.
-    - Create publication-quality visualizations with proper labels, titles, and legends
-    - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
-    - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
+    - Create publication-quality visualizations with proper labels, titles, and legends using matplotlib or plotly
+    - Save graphs using: `plt.savefig(f'{ctx.deps.data_directory}/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
+    - Print file paths in the required format: `print("The graph path in html format is <{ctx.deps.data_directory}/path.html> and the graph path in png format is <{ctx.deps.data_directory}/path.png>")`
+    - Do not use plt.show() to display the graph, instead save it to the data directory.
     
     **internet_search**:
     - Use this tool to search the internet for information.
