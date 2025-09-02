@@ -13,6 +13,7 @@ from src.tools.file import file_tools
 from src.tools.image_gen import image_tools
 from src.tools.logging import LoggingToolset
 
+DATA_DIRECTORY = "data"
 os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
 
 console = Console()
@@ -22,13 +23,27 @@ install(show_locals=True, console=console)
 _internet_search = MCPServerStdio(command="uvx", args=["duckduckgo-mcp-server"])
 internet_search = LoggingToolset(wrapped=_internet_search, console=console)
 
-_run_python = MCPServerStdio(
+run_python = MCPServerStdio(
     "python",
     ["src/mcp/python_tools.py"],
     max_retries=5,
 )
-run_python = LoggingToolset(wrapped=_run_python, console=console)
 
+# python_isolated_sandbox = MCPServerStdio(
+#     "deno",
+#     args=[
+#         "run",
+#         "-N",
+#         "-R=node_modules",
+#         "-W=node_modules",
+#         "--node-modules-dir=auto",
+#         "jsr:@pydantic/mcp-run-python",
+#         "stdio",
+#     ],
+# )
+# python_isolated_sandbox = LoggingToolset(wrapped=python_isolated_sandbox, console=console)
+
+run_python = LoggingToolset(wrapped=run_python, console=console)
 data_toolset = LoggingToolset(wrapped=data_tools, console=console)
 image_toolset = LoggingToolset(wrapped=image_tools, console=console)
 file_toolset = LoggingToolset(wrapped=file_tools, console=console)
@@ -58,8 +73,9 @@ async def get_analyst_agent_system_prompt(ctx: RunContext[AnalystAgentDeps]):
     - `write_file`: Write a file to the data directory from a given input string. Useful for markdown (.md) and code (.py, .js, .ts, .html, .css, .scss) files.
     - `load_huggingface_dataset`: Get a dataset from huggingface and save it to the data directory.
     - `get_eda_report`: Get a comprehensive exploratory data analysis of a given dataset.
-    - `python_repl`: Execute Python code and return the standard output. Objects do not persist between runs; always load the dataset each time and \
-save plots and/or dataframes, e.g., `df = pd.read_csv(f'{ctx.deps.data_directory}/dataset_name_train.csv')` and `plt.savefig(f'{ctx.deps.data_directory}/graph.png', dpi=300, bbox_inches='tight')`.
+    - `python_repl`: Execute Python code and return the standard output. Always load the dataset each time and \
+save plots and/or dataframes, e.g., `df = pd.read_csv(f'{ctx.deps.data_directory}/dataset_name_train.csv')` and `pio.write_html(fig1, f'{ctx.deps.data_directory}/plot_claim_status_distribution.html')', \
+`pio.write_image(fig1, f'{ctx.deps.data_directory}/plot_claim_status_distribution.png')`.
     - `internet_search`: Search the internet for information.
     - `generate_image`: Generate an image based on a user prompt.
     
@@ -109,15 +125,15 @@ save plots and/or dataframes, e.g., `df = pd.read_csv(f'{ctx.deps.data_directory
     **python_repl**:
     - Use this tool to execute Python code for statistical calculations, data processing, and metric computation.
     - If a dataset is needed, load it each time: `df = pd.read_csv(f'{ctx.deps.data_directory}/dataset_name_train.csv')`
-    - Always include necessary imports: `import pandas as pd`, `import numpy as np`, `import matplotlib.pyplot as plt`, `import seaborn as sns`
+    - Always include necessary imports: `import pandas as pd`, `import numpy as np`, `import plotly.express as px`, `import plotly.io as pio`
     - Use descriptive variable names and clear print statements
     - Format output: `print(f"The calculated value for {{metric_name}} is {{value}}")`
     - Handle errors gracefully with try-except blocks
     - Include transformations or feature engineering if needed to enhance the visualization.
-    - Create publication-quality visualizations with proper labels, titles, and legends using matplotlib or plotly
-    - Save graphs using: `plt.savefig(f'{ctx.deps.data_directory}/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
+    - Create publication-quality visualizations with proper labels, titles, and legends using plotly
+    - Save graphs using: `pio.write_html(fig1, f'{ctx.deps.data_directory}/plot_claim_status_distribution.html')` and `pio.write_image(fig1, f'{ctx.deps.data_directory}/plot_claim_status_distribution.png')`
     - Print file paths in the required format: `print("The graph path in html format is <{ctx.deps.data_directory}/path.html> and the graph path in png format is <{ctx.deps.data_directory}/path.png>")`
-    - Do not use plt.show() to display the graph, instead save it to the data directory.
+    - Do not display the graph, instead save it to the {ctx.deps.data_directory} directory.
     
     **internet_search**:
     - Use this tool to search the internet for information.
@@ -150,7 +166,7 @@ save plots and/or dataframes, e.g., `df = pd.read_csv(f'{ctx.deps.data_directory
 
 async def main():
     deps = AnalystAgentDeps(
-        data_directory="data",
+        data_directory=DATA_DIRECTORY,
     )
 
     await run_chat(

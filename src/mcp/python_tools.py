@@ -1,5 +1,6 @@
 import base64
 import io
+import os
 import sys
 import traceback
 from contextlib import redirect_stdout
@@ -10,30 +11,71 @@ import matplotlib.pyplot as plt
 
 from mcp.server.fastmcp import FastMCP
 
+DATA_DIRECTORY = "data"
+
 mcp = FastMCP("python_tools")
 
 
 class PythonREPL:
     """A Python REPL that executes code and returns the standard output."""
     
-    def run(self, code):
+    def __init__(self):
+        """Initialize the REPL with a persistent namespace."""
+        self.namespace = {'__builtins__': __builtins__}
+        
+    def run(self, code: str) -> str:
+        """Execute Python code and return the standard output.
+        
+        Args:
+            code: The Python code to execute
+            
+        Returns:
+            The standard output of the Python code
+        """
         old_stdout = sys.stdout
         redirected_output = sys.stdout = StringIO()
+        
+        # Ensure the data directory exists
+        os.makedirs(DATA_DIRECTORY, exist_ok=True)
+        
         try:
-            exec(code, globals())
+            # Execute code in persistent namespace to maintain state between calls
+            exec(code, self.namespace)
             sys.stdout = old_stdout
-            return redirected_output.getvalue()
+            output = redirected_output.getvalue()
+            
+            # Close any open matplotlib figures to prevent memory leaks
+            plt.close('all')
+            
+            return output
         except Exception as e:
             sys.stdout = old_stdout
-            return f"Error: {str(e)}\n{traceback.format_exc()}"
+            error_output = f"Error: {str(e)}\n{traceback.format_exc()}"
+            
+            # Close any open matplotlib figures even on error
+            plt.close('all')
+            
+            return error_output
 
 
 repl = PythonREPL()
 
 
-@mcp.tool()
-async def python_repl(code: str) -> str:
+@mcp.tool(
+    name="python_repl",
+    description=(
+        "Execute Python code and return the standard output.\n"
+        "This tool maintains state between executions, so variables and imports "
+        f"persist across multiple calls. Files can be saved and read from the `{DATA_DIRECTORY}` directory."
+    ),
+)
+async def python_repl(
+    code: Annotated[str, "The python code to execute"],
+    ) -> str:
     """Execute Python code and return the standard output.
+    
+    This tool maintains state between executions, so variables and imports
+    persist across multiple calls. Files can be saved to the `{DATA_DIRECTORY}` directory.
     
     Args:
         code: The python code to execute
@@ -43,54 +85,6 @@ async def python_repl(code: str) -> str:
     
     """
     return repl.run(code)
-
-
-# @mcp.tool()
-# async def matplotlib_visualization(code: Annotated[str, "The python code to execute to generate visualization using matplotlib"]) -> str:
-#     """Use this tool to generate graphs and visualizations using python code and matplotlib library.
-    
-#     - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`
-#     - Use matplotlib library to make the graph interactive
-#     - Create publication-quality visualizations with proper labels, titles, and legends
-#     - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
-#     - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
-#     """
-#     try:
-#         repl.run(code)
-#         buf = io.BytesIO()
-#         plt.savefig(buf, format="png")
-#         buf.seek(0)
-#         plt.close()  # Close the figure to free memory
-#         return "Success!"
-#     except Exception as e:
-#         return f"Error creating chart: {str(e)}"
-
-# @mcp.tool()
-# async def plotly_visualization(
-#     code: Annotated[str, "The python code to execute to generate visualization using plotly"],
-# ) -> str:
-#     """
-#     Use this tool to generate graphs and visualizations using python code.
-
-#     - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`
-#     - Use plotly express library to make the graph interactive
-#     - Create publication-quality visualizations with proper labels, titles, and legends
-#     - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
-#     - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
-#     """
-
-#     catcher = StringIO()
-
-#     try:
-#         with redirect_stdout(catcher):
-#             # The compile step can catch syntax errors early
-#             compiled_code = compile(code, "<string>", "exec")
-#             exec(compiled_code, globals(), globals())
-
-#             return f"The graph path is \n\n{catcher.getvalue()}"
-
-#     except Exception as e:
-#         return f"Failed to run code. Error: {repr(e)}, try a different approach"
 
 
 if __name__ == "__main__":
