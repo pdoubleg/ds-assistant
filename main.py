@@ -1,16 +1,16 @@
-import os
 import asyncio
-from pydantic_ai import Agent
+import os
+
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import MCPServerStdio
-from rich.console import Console
-from pydantic_ai.mcp import MCPServerStdio
-from pydantic_ai.toolsets import FunctionToolset
 from rich import pretty
+from rich.console import Console
 from rich.traceback import install
 
 from src.clai import run_chat
-from src.tools.image_gen import image_tools
 from src.tools.data import AnalystAgentDeps, data_tools
+from src.tools.file import file_tools
+from src.tools.image_gen import image_tools
 from src.tools.logging import LoggingToolset
 
 os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
@@ -19,34 +19,28 @@ console = Console()
 pretty.install(console=console)
 install(show_locals=True, console=console)
 
-internet_search_ = MCPServerStdio(command="uvx", args=["duckduckgo-mcp-server"])
-internet_search = LoggingToolset(wrapped=internet_search_, console=console)
-      
-run_python_ = MCPServerStdio(
-    'python',
-    ['src/mcp/python_tools.py'],
+_internet_search = MCPServerStdio(command="uvx", args=["duckduckgo-mcp-server"])
+internet_search = LoggingToolset(wrapped=_internet_search, console=console)
+
+_run_python = MCPServerStdio(
+    "python",
+    ["src/mcp/python_tools.py"],
     max_retries=5,
 )
-run_python = LoggingToolset(wrapped=run_python_, console=console)
-
-code_reasoning_ = MCPServerStdio(
-    command="npx",
-    args=["-y", "@mettamatt/code-reasoning"],
-    tool_prefix="code_reasoning",
-)
-code_reasoning = LoggingToolset(wrapped=code_reasoning_, console=console)
+run_python = LoggingToolset(wrapped=_run_python, console=console)
 
 data_toolset = LoggingToolset(wrapped=data_tools, console=console)
 image_toolset = LoggingToolset(wrapped=image_tools, console=console)
+file_toolset = LoggingToolset(wrapped=file_tools, console=console)
 
 agent = Agent(
-    model="openai:gpt-4.1",
+    model="openai:gpt-4.1-mini",
     output_type=str,
     retries=5,
     toolsets=[
         data_toolset,
+        file_toolset,
         run_python,
-        code_reasoning,
         internet_search,
         image_toolset,
     ],
@@ -55,29 +49,23 @@ agent = Agent(
 
 
 @agent.instructions
-async def get_analyst_agent_system_prompt():
-    
-    prompt = """
+async def get_analyst_agent_system_prompt(ctx: RunContext[AnalystAgentDeps]):
+    prompt = f"""
     You are a world class assistant AI. Use the available tools to help the user with their query.
 
     **Available Tools:**
-    - `load_huggingface_dataset`: Get a dataset from huggingface and load it into the context.
-    - `run_duckdb`: Run DuckDB SQL query on the DataFrame and store the result in the context.
-    - `get_eda_analysis`: Get a comprehensive exploratory data analysis of the dataset.
-    - `matplotlib_visualization and plotly_visualization`: Create visualizations (charts, plots, graphs) and save them in HTML and PNG formats. Favor \
-plotly express library to make the graph interactive.
-    - `python_repl`: Execute Python code for statistical calculations, data processing, and metric computation.
-    - `code_reasoning`: Reason about the code and provide a detailed explanation of the code.
+    - `inspect_directory`: Inspect a given directory and list the files and directories. Note local datasets are stored in the data directory.
+    - `write_file`: Write a file to the data directory from a given input string. Useful for markdown (.md) and code (.py, .js, .ts, .html, .css, .scss) files.
+    - `load_huggingface_dataset`: Get a dataset from huggingface and save it to the data directory.
+    - `get_eda_report`: Get a comprehensive exploratory data analysis of a given dataset.
+    - `matplotlib_visualization`: Create visualizations (charts, plots, graphs) and save them in HTML and PNG formats.
+    - `python_repl`: Execute Python code and return the standard output. Always use the visualization specific tools for plotting.
     - `internet_search`: Search the internet for information.
     - `generate_image`: Generate an image based on a user prompt.
-    - `read_file`: Read a file from the context.
-    - `discover_files`: Discover files in the context.
-    - `write_file`: Write a file to the context.
-    - `grep_a`: Grep a file for a pattern and return the lines before and after the match.
     
     **Data and Analysis Execution Workflow:**
 
-    1. **Dataset Discovery**: Load a dataset or datasets into the context.
+    1. **Dataset Discovery**: Load a dataset or datasets into the context from huggingface or from a local file.
 
     2. **Analysis Planning**: Based on the user query and dataset structure, create a systematic analysis plan identifying:
        - Key variables to examine
@@ -86,8 +74,8 @@ plotly express library to make the graph interactive.
        - Metrics to calculate
 
     3. **Data Exploration**: 
-       - Use `get_eda_analysis` tool to perform standard initial exploratory data analysis.
-       - Write python code to perform additional analysis or visualization.
+       - Use `get_eda_report` tool to perform standard initial exploratory data analysis.
+       - Write python code to perform additional analysis.
        - Analyze the dataset and get the insights
 
     4. **Statistical Analysis**: Execute the planned analysis using appropriate statistical methods:
@@ -99,7 +87,7 @@ plotly express library to make the graph interactive.
        - Use appropriate chart types for the data
        - Ensure visualizations are clear and informative
        - Save outputs in both HTML and PNG formats
-       - Use `generate_image` tool for prompt based images
+       - Use `generate_image` tool for prompt based images, e.g., info-graphics and creative images
 
     6. **Report Synthesis**: Compile all findings into a comprehensive analytical report.
 
@@ -107,46 +95,39 @@ plotly express library to make the graph interactive.
     
     **General Dataset Handling:**
     - Hugging Face paths follow the format `<user_name>/<dataset_name>`.
-    - When writing python code for any analysis or visualization, always import the dataset using the reference string, e.g. `df = pd.read_csv('dataframe_1.csv')`.
-    - For DuckDB SQL, the virtual table name used must be `dataset`.
-    - Use the file toolset to discover and read local files.
+    - When writing python code for a dataset, always import the it, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`.
+    - Use the file toolset to discover and read local files, e.g., `inspect_directory`.
     
     **load_huggingface_dataset**:
     - Use this tool to load a dataset from Hugging Face.
     - Note the path follows the format `<user_name>/<dataset_name>`.
 
-    **get_eda_analysis**:
+    **get_eda_report**:
     - Use this tool to analyze a dataset and optionally the target column of interest.
     - Returns a standard comprehensive summary
     
-    **run_duckdb**:
-    - Use this tool to run DuckDB SQL query on the DataFrame and store the result in the context.
-    - You can use this for dataset creation, data cleaning, feature engineering, and analysis.
-    - The virtual table name used in DuckDB SQL must be `dataset`.
-
     **python_repl**:
     - Use this tool to execute Python code for statistical calculations, data processing, and metric computation.
-    - Load dataset fresh each time: `df = pd.read_csv('dataframe_1.csv')`
+    - Do NOT use this tool for plotting or visualization.
+    - If a dataset is needed, load it each time: `df = pd.read_csv('data/dataset_name_train.csv')`
     - Always include necessary imports: `import pandas as pd`, `import numpy as np`, `import matplotlib.pyplot as plt`, `import seaborn as sns`
     - Use descriptive variable names and clear print statements
     - Format output: `print(f"The calculated value for {{metric_name}} is {{value}}")`
     - Handle errors gracefully with try-except blocks
 
-    **matplotlib_visualization and plotly_visualization**:
+    **matplotlib_visualization**:
     - Always include necessary imports and dataset loading
-    - Load dataset fresh each time: `df = pd.read_csv('dataframe_1.csv')`
+    - If a dataset is needed, load it each time: `df = pd.read_csv('data/dataset_name_train.csv')`
+    - Include transformations or feature engineering if needed to enhance the visualization.
     - Create publication-quality visualizations with proper labels, titles, and legends
-    - Save graphs using: `plt.savefig('graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
-    - Print file paths in the required format: `print("The graph path in html format is <path.html> and the graph path in png format is <path.png>")`
-    
-    **code_reasoning**:
-    - Use this tool when advanced reasoning is needed.
+    - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
+    - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
     
     **internet_search**:
     - Use this tool to search the internet for information.
     
     **generate_image**:
-    - Use this tool to generate an image based on a user prompt.
+    - Use this tool to generate an image based on an input prompt.
     - Prompts should be vividly descriptive.
 
     **Quality Standards:**
@@ -162,26 +143,29 @@ plotly express library to make the graph interactive.
     - If code execution fails, analyze the error and try alternative approaches
     - Handle missing data appropriately (document and address)
     - Validate results for reasonableness before reporting
-
-    **Final Note:**
-    Approach this analysis systematically. Think step-by-step, validate your work, and ensure every insight is backed by quantitative evidence. Your goal is to provide the user with a thorough, professional response that directly addresses their query.
+    
+    **Data Directory:**
+    - The data directory is `{ctx.deps.data_directory}`.
+    - Use this directory to read and write files.
+    - Current files in the data directory: {str(ctx.deps.list_files_in_data_directory())}
     """
     return prompt
 
 
 async def main():
-            
-    deps = AnalystAgentDeps()
-    
+    deps = AnalystAgentDeps(
+        data_directory="data",
+    )
+
     await run_chat(
-            stream=True,
-            agent=agent,
-            deps=deps,
-            console=console,
-            code_theme='github-dark',
-            prog_name='clai-bot',
-            message_history=[],
-        )
+        stream=True,
+        agent=agent,
+        deps=deps,
+        console=console,
+        code_theme="github-dark",
+        prog_name="clai-bot",
+        message_history=[],
+    )
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from pydantic_ai import ModelRetry
 
 def resolve_path(path_input: Union[str, Path]) -> Path:
     """Resolve a path to an absolute, normalized Path."""
+    
     p = Path(path_input)
     return p.resolve() if p.is_absolute() else (Path.cwd() / p).resolve()
 
@@ -50,7 +51,7 @@ def read_file(file_path: str) -> str:
         file_path: Path to the file to read
 
     Returns:
-        str: Contents of the file
+        str: Contents of the file, truncated if necessary
 
     """
     encodings = ["utf-8", "utf-8-sig", "latin1", "cp1252", "ascii"]
@@ -61,25 +62,24 @@ def read_file(file_path: str) -> str:
     for encoding in encodings:
         try:
             with open(resolved_path, "r", encoding=encoding) as file:
-                return file.read()
+                contents = file.read()
+                if len(contents) > 1_000_000:
+                    return contents[:1_000_000] + "..."
+                return contents
         except UnicodeDecodeError:
             continue  # Try next encoding
         except Exception as e:
             # For non-encoding related errors like permissions or file not found
-            raise ModelRetry(
-                f"Error reading file: {str(e)}. Path: {file_path}, Resolved Path: {resolved_path}"
-            )
+            return f"Error reading file: {str(e)}. Path: {file_path}, Resolved Path: {resolved_path}"
 
     # If we've tried all encodings and none worked
-    raise ModelRetry(
-        f"Error reading file: Could not decode file with any of these encodings: {encodings}. Path: {file_path}, Resolved Path: {resolved_path}"
-    )
+    return f"Error reading file: Could not decode file with any of these encodings: {encodings}. Path: {file_path}, Resolved Path: {resolved_path}"
 
 
-def discover_files(directory: str = ".") -> str:
+def inspect_directory(directory: str = ".") -> str:
     """
     Discover files and folders in the specified directory with detailed information. Call this tool
-    as many times as needed to explore the codebase or find a particular file of interest.
+    as many times as needed to explore the current directory or find a particular file of interest.
 
     Args:
         directory (str): The directory path to explore. Defaults to current directory.
@@ -90,7 +90,7 @@ def discover_files(directory: str = ".") -> str:
     """
     try:
         # Convert to Path object for better handling
-        path = Path(directory).resolve()
+        path = resolve_path(directory)
 
         if not path.exists():
             return f"Error: Directory '{directory}' does not exist."
@@ -162,8 +162,10 @@ def discover_files(directory: str = ".") -> str:
                         result.append(
                             f"{emoji} {item.name} ({size_str}) - Path: {exact_path}"
                         )
-                    except Exception as e:
-                        ModelRetry(f"Error getting file size: {str(e)}")
+                    except Exception as _:
+                        result.append(
+                            f"{item.name} - Path: {exact_path}"
+                        )
 
             if len(result) == 1:  # Only the directory header
                 result.append("empty directory")
@@ -179,7 +181,7 @@ def discover_files(directory: str = ".") -> str:
 
 def write_file(file_path: str, content: str) -> str:
     """
-    Write content to a file.
+    Write content to a file. Useful for markdown (.md) and code (.py, .js, .ts, .html, .css, .scss) files.
 
     Args:
         file_path: Path where the file should be written (relative or absolute)
@@ -309,7 +311,7 @@ def edit_file(file_path: str, old_str: str, new_str: str) -> str:
         raise ModelRetry(error_msg)
 
 
-def grep_a(file_path: str, pattern: str, after_lines: int = 20, before_lines: int = 0) -> list[str]:
+def grep_a(file_path: str, pattern: str, after_lines: int = 20, before_lines: int = 0) -> str:
     """
     Grep a file for a pattern and return the lines before and after the match.
 
@@ -322,6 +324,8 @@ def grep_a(file_path: str, pattern: str, after_lines: int = 20, before_lines: in
     Returns:
         List of matched lines with context
     """
+    # Resolve to absolute path
+    file_path = resolve_path(file_path)
     try:
         with open(file_path, "r") as file:
             lines = file.readlines()
@@ -330,7 +334,7 @@ def grep_a(file_path: str, pattern: str, after_lines: int = 20, before_lines: in
     except PermissionError:
         return f"Permission denied when accessing file: {file_path}"
     except Exception as e:
-        raise ModelRetry(f"Error reading file: {str(e)}")
+        return f"Error reading file: {str(e)}"
 
     match_lines = []
     for i, line in enumerate(lines):
@@ -341,6 +345,6 @@ def grep_a(file_path: str, pattern: str, after_lines: int = 20, before_lines: in
             end = min(len(lines), i + 1 + after_lines)
             match_lines.extend(lines[start:end])
 
-    return match_lines
+    return "\n".join(match_lines)
 
-file_tools = FunctionToolset(tools=[discover_files, write_file, grep_a], max_retries=5)
+file_tools = FunctionToolset(tools=[inspect_directory, write_file, read_file], max_retries=5)

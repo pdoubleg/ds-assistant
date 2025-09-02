@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import os
 
 import datasets
 import duckdb
@@ -15,24 +16,26 @@ from .logging import LoggingToolset
 class AnalystAgentDeps:
     """Dependencies for the AnalystAgent."""
     
-    datasets: dict[str, pd.DataFrame] = field(default_factory=dict)
-
-    def store(self, value: pd.DataFrame) -> str:
-        """Store the output in deps and return the reference such as dataframe_1.csv to be used by the LLM."""
-        ref = f'dataframe_{len(self.datasets) + 1}.csv'
-        self.datasets[ref] = value
-        value.to_csv(ref, index=False)
-        return ref
-
-    def get(self, ref: str) -> pd.DataFrame:
-        if ref not in self.datasets:
-            raise ModelRetry(
-                f'Error: {ref} is not a valid variable reference. Check the previous messages and try again.'
-            )
-        return self.datasets[ref]
+    data_directory: str = field(default="data")
+    _directory_list: list[str] = field(default_factory=list)
     
-    def list_datasets(self) -> list[str]:
-        return list(self.datasets.keys())
+    def __post_init__(self):
+        """Ensure the data directory exists."""
+        if not os.path.exists(self.data_directory):
+            os.makedirs(self.data_directory)
+                    
+    def list_files_in_data_directory(self) -> list[str]:
+        """Get a list of files in the data directory.
+
+        Returns:
+            str: A string containing the list of files in the data directory, one per line.
+        """
+        # Get list of files in data directory
+        files = os.listdir(self.data_directory)
+        # Filter out hidden files and directories
+        files = [f for f in files if not f.startswith('.') or f not in ['__pycache__', 'node_modules', '.git']]
+        # Return as newline-separated string
+        return files
     
 
 def load_huggingface_dataset(
@@ -40,33 +43,47 @@ def load_huggingface_dataset(
     path: str,
     split: str = 'train',
 ) -> str:
-    """Load the dataset `dataset_name` from huggingface.
+    """Load the dataset from huggingface.
 
     Args:
         ctx: Pydantic AI agent RunContext
-        path: name of the dataset in the form of `<user_name>/<dataset_name>`
+        path: name of the dataset in the form of `<user_name>/<dataset_name>`. 
         split: load the split of the dataset (default: "train")
     """
+    if os.path.exists(path):
+        return f'Dataset loaded to `{path}`.'
+    
+    clean_name = path.replace('/', '_').replace('-', '_').lower()
+    suffix = ".csv" if not path.endswith(".csv") else ""
+    
+    clean_path = f"{ctx.deps.data_directory}/{clean_name}_{split}{suffix}"
+    if os.path.exists(clean_path):
+        return f'Dataset loaded to `{clean_path}`.'
+    
     # begin load data from hf
-    builder = datasets.load_dataset_builder(path)  # pyright: ignore[reportUnknownMemberType]
-    splits: dict[str, datasets.SplitInfo] = builder.info.splits or {}  # pyright: ignore[reportUnknownMemberType]
-    if split not in splits:
-        raise ModelRetry(
-            f'{split} is not valid for dataset {path}. Valid splits are {",".join(splits.keys())}'
-        )
-
-    builder.download_and_prepare()  # pyright: ignore[reportUnknownMemberType]
+    try:
+        builder = datasets.load_dataset_builder(path)  # pyright: ignore[reportUnknownMemberType]
+        splits: dict[str, datasets.SplitInfo] = builder.info.splits or {}  # pyright: ignore[reportUnknownMemberType]
+        if split not in splits:
+            raise ModelRetry(
+                f'{split} is not valid for dataset {path}. Valid splits are {",".join(splits.keys())}'
+            )
+        builder.download_and_prepare()  # pyright: ignore[reportUnknownMemberType]
+    except Exception as e:
+        raise ModelRetry(f"Error loading dataset from Hugging Face: {str(e)}")
+    
     dataset = builder.as_dataset(split=split)
     assert isinstance(dataset, datasets.Dataset)
     dataframe = dataset.to_pandas()
     assert isinstance(dataframe, pd.DataFrame)
     # end load data from hf
+        
+    # Save the dataframe to the data directory
+    dataframe.to_csv(clean_path, index=False)
 
-    # store the dataframe in the deps and get a ref like "dataframe_1.csv"
-    ref = ctx.deps.store(dataframe)
     # construct a summary of the loaded dataset
     output = [
-        f'Loaded the dataset as `{ref}`.',
+        f'Dataset loaded to `{clean_path}`.',
         f'Description: {dataset.info.description}'
         if dataset.info.description
         else None,
@@ -75,47 +92,23 @@ def load_huggingface_dataset(
     return '\n'.join(filter(None, output))
 
 
-def run_duckdb(ctx: RunContext[AnalystAgentDeps], dataset_ref: str, sql: str) -> str:
-    """Run DuckDB SQL query on the DataFrame.
 
-    Note that the virtual table name used in DuckDB SQL must be `dataset`.
-
-    Args:
-        ctx: Pydantic AI agent RunContext
-        dataset_ref: reference string to the DataFrame, e.g. "dataframe_1.csv" for creating a virtual table named "dataset"
-        sql: the query to be executed using DuckDB
-    """
-    try:
-        data = ctx.deps.get(dataset_ref)
-    except ModelRetry:
-        raise ModelRetry(f"Dataset '{dataset_ref}' not found in context. Please load the dataset using `load_huggingface_dataset` \
-tool, or pick from the following datasets: {ctx.deps.list_datasets()}")
-        
-    try:
-        result = duckdb.query_df(df=data, virtual_table_name='dataset', sql_query=sql)
-    except Exception as e:
-        raise ModelRetry(f"Error executing SQL query: {e}") from e
-    
-    ref = ctx.deps.store(result.df())
-    return f'Executed SQL, result is `{ref}`'
-
-
-def get_eda_analysis(ctx: RunContext[AnalystAgentDeps], dataset_ref: str, target: str | None = None) -> str:
+def get_eda_report(ctx: RunContext[AnalystAgentDeps], dataset_path: str, target: str | None = None) -> str:
     """Exploratory data analysis.
     
     Args:
         ctx: Pydantic AI agent RunContext
-        dataset_ref: reference string to the DataFrame, e.g. "dataframe_1.csv"
+        dataset_path: path to the dataset, e.g. "data/dataset_name.csv"
         target: the target column name (optional)
 
     Returns:
         str: Exploratory data analysis results
     """
     try:
-        df = ctx.deps.get(dataset_ref)
+        df = pd.read_csv(dataset_path)
     except ModelRetry:
-        raise ModelRetry(f"Dataset '{dataset_ref}' not found in context. Please load the dataset using `load_huggingface_dataset` \
-tool, or pick from the following datasets: {ctx.deps.list_datasets()}")
+        raise ModelRetry(f"Dataset '{dataset_path}' not found in context. Please load the dataset using `load_huggingface_dataset` \
+tool, or pick from the following datasets: {str(ctx.deps.list_files_in_data_directory())}")
     
     if target is not None and target not in df.columns:
         valid_columns = df.columns.tolist()
@@ -125,4 +118,4 @@ tool, or pick from the following datasets: {ctx.deps.list_datasets()}")
     return format_eda_for_llm(result_dict)
 
 
-data_tools = FunctionToolset(tools=[load_huggingface_dataset, get_eda_analysis, run_duckdb], max_retries=5, id="data_toolset")
+data_tools = FunctionToolset(tools=[load_huggingface_dataset, get_eda_report], max_retries=5, id="data_toolset")

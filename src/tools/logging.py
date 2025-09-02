@@ -4,6 +4,8 @@ from rich.console import Console
 from pydantic_ai import RunContext
 from pydantic_ai.toolsets import ToolsetTool, WrapperToolset
 
+from src.clai import Markdown
+
 
 @dataclass
 class LoggingToolset(WrapperToolset):
@@ -18,7 +20,12 @@ class LoggingToolset(WrapperToolset):
     
     async def call_tool(self, name: str, tool_args: dict[str, Any], ctx: RunContext, tool: ToolsetTool) -> Any:
         """Log tool calls and delegate to wrapped toolset."""
-        self.console.print(f'Calling tool {name!r} with args: {tool_args!r}')
+        if tool_args.get("code", False):
+            code_string = f"```python\n{tool_args['code']}\n```"
+            self.console.print(f'Calling code tool {name!r}')
+            self.console.print(Markdown(code_string, code_theme="github-dark"))
+        else:
+            self.console.print(f'Calling tool {name!r} with args: {tool_args!r}')
         try:
             result = await super().call_tool(name, tool_args, ctx, tool)
             self.console.print(f'Finished calling tool {name!r}')

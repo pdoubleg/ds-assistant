@@ -41,35 +41,34 @@ async def python_repl(code: str) -> str:
 async def matplotlib_visualization(code: Annotated[str, "The python code to execute to generate visualization using matplotlib"]) -> str:
     """Use this tool to generate graphs and visualizations using python code and matplotlib library.
     
-    - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('dataframe_1.csv')`
+    - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`
     - Use matplotlib library to make the graph interactive
     - Create publication-quality visualizations with proper labels, titles, and legends
-    - Save graphs using: `plt.savefig('graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
-    - Print file paths in the required format: `print("The graph path in html format is <path.html> and the graph path in png format is <path.png>")`
+    - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
+    - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
     """
     try:
         repl.run(code)
         buf = io.BytesIO()
         plt.savefig(buf, format="png")
         buf.seek(0)
-        img_str = base64.b64encode(buf.getvalue()).decode()
         plt.close()  # Close the figure to free memory
-        return f"data:image/png;base64,{img_str}"
+        return "Success!"
     except Exception as e:
         return f"Error creating chart: {str(e)}"
 
-
+@mcp.tool()
 async def plotly_visualization(
     code: Annotated[str, "The python code to execute to generate visualization using plotly"],
 ) -> str:
     """
     Use this tool to generate graphs and visualizations using python code.
 
-    - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('dataframe_1.csv')`
+    - Always include necessary imports and dataset loading, e.g. `df = pd.read_csv('data/dataset_name_train.csv')`
     - Use plotly express library to make the graph interactive
     - Create publication-quality visualizations with proper labels, titles, and legends
-    - Save graphs using: `plt.savefig('graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
-    - Print file paths in the required format: `print("The graph path in html format is <path.html> and the graph path in png format is <path.png>")`
+    - Save graphs using: `plt.savefig('data/graph.png', dpi=300, bbox_inches='tight')` and HTML equivalent
+    - Print file paths in the required format: `print("The graph path in html format is <data/path.html> and the graph path in png format is <data/path.png>")`
     """
 
     catcher = StringIO()
