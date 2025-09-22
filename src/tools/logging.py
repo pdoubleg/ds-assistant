@@ -20,8 +20,11 @@ class LoggingToolset(WrapperToolset):
     
     async def call_tool(self, name: str, tool_args: dict[str, Any], ctx: RunContext, tool: ToolsetTool) -> Any:
         """Log tool calls and delegate to wrapped toolset."""
-        if tool_args.get("code", False):
-            code_string = f"```python\n{tool_args['code']}\n```"
+        # Check if any key contains "code" to handle keys like python_code, code_snippet, etc.
+        code_key = next((key for key in tool_args.keys() if "code" in key.lower()), None)
+        
+        if code_key and tool_args.get(code_key):
+            code_string = f"```python\n{tool_args[code_key]}\n```"
             self.console.print(f'Calling code tool {name!r}')
             self.console.print(Markdown(code_string, code_theme="github-dark"))
         else:

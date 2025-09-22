@@ -78,7 +78,7 @@ def read_file(file_path: str) -> str:
 
 def inspect_directory(directory: str = ".") -> str:
     """
-    Discover files and folders in the specified directory with detailed information. Call this tool
+    Discover files and folders in a given directory with detailed information. Call this tool
     as many times as needed to explore the current directory or find a particular file of interest.
 
     Args:

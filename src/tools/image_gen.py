@@ -7,6 +7,11 @@ from pydantic_ai.toolsets import FunctionToolset
 
 from src.tools.utils import encode_image, base64_to_image, is_url
 
+IMAGE_DIRECTORY = "data/images"
+
+if not os.path.exists(IMAGE_DIRECTORY):
+    os.makedirs(IMAGE_DIRECTORY)
+
 
 def generate_image(image_prompt: str, file_name: str) -> str:
     """
@@ -42,10 +47,17 @@ def generate_image(image_prompt: str, file_name: str) -> str:
 
     if image_data:
         image_base64 = image_data[0]
-        with open(f"{file_name}.png", "wb") as f:
-            f.write(base64.b64decode(image_base64))
+        decoded_image = base64.b64decode(image_base64)
+        
+        # Save as PNG
+        with open(f"{IMAGE_DIRECTORY}/{file_name}.png", "wb") as f:
+            f.write(decoded_image)
+            
+        # Save as JPEG
+        with open(f"{IMAGE_DIRECTORY}/{file_name}.jpeg", "wb") as f:
+            f.write(decoded_image)
 
-    return f"Success: File has been saved to: {file_name}.png"
+    return f"Success: Files have been saved as: {file_name}.png and {file_name}.jpeg"
 
 
 def generate_image_with_inputs(
@@ -69,6 +81,7 @@ def generate_image_with_inputs(
     for path in input_image_paths:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Image file not found: {path}")
+
     
     # Prepare file name
     file_name = file_name.replace(" ", "_")
@@ -119,9 +132,14 @@ def generate_image_with_inputs(
 
         if image_data:
             image_base64 = image_data[0]
-            with open(f"{file_name}.png", "wb") as f:
-                f.write(base64.b64decode(image_base64))
-        return f"Success: File has been saved to: {file_name}.png"
+            decoded_image = base64.b64decode(image_base64)
+            # Save as PNG
+            with open(f"{IMAGE_DIRECTORY}/{file_name}.png", "wb") as f:
+                f.write(decoded_image)
+            # Save as JPEG
+            with open(f"{IMAGE_DIRECTORY}/{file_name}.jpeg", "wb") as f:
+                f.write(decoded_image)
+        return f"Success: Files have been saved as: {file_name}.png and {file_name}.jpeg"
 
     except Exception as e:
         return f"Error generating image: {str(e)}"

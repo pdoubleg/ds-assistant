@@ -2,14 +2,12 @@ from dataclasses import dataclass, field
 import os
 
 import datasets
-import duckdb
 import pandas as pd
 
 from pydantic_ai import ModelRetry, RunContext
 from pydantic_ai.toolsets import FunctionToolset
 
 from src.utils import exploratory_data_analysis, format_eda_for_llm
-from .logging import LoggingToolset
 
 
 @dataclass
@@ -43,11 +41,11 @@ def load_huggingface_dataset(
     path: str,
     split: str = 'train',
 ) -> str:
-    """Load the dataset from huggingface.
+    """Load a dataset from Hugging Face. Note the path follows the format `<user_name>/<dataset_name>`.
 
     Args:
         ctx: Pydantic AI agent RunContext
-        path: name of the dataset in the form of `<user_name>/<dataset_name>`. 
+        path: The name of the dataset in the form of `<user_name>/<dataset_name>`. 
         split: load the split of the dataset (default: "train")
     """
     if os.path.exists(path):
@@ -94,15 +92,15 @@ def load_huggingface_dataset(
 
 
 def get_eda_report(ctx: RunContext[AnalystAgentDeps], dataset_path: str, target: str | None = None) -> str:
-    """Exploratory data analysis.
+    """Get a comprehensive exploratory data analysis of a given dataset.
     
     Args:
         ctx: Pydantic AI agent RunContext
-        dataset_path: path to the dataset, e.g. "data/dataset_name.csv"
-        target: the target column name (optional)
+        dataset_path: Path to the dataset, e.g. "data/dataset_name.csv"
+        target: The target column name (optional)
 
     Returns:
-        str: Exploratory data analysis results
+        str: A comprehensive exploratory data analysis of the given dataset
     """
     try:
         df = pd.read_csv(dataset_path)
