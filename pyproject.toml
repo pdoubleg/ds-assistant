@@ -45,4 +45,6 @@ dependencies = [
     "nltk>=3.9.1",
     "spacy>=3.7.0",
     "pip>=25.2",
+    "citeurl>=11.5.1",
+    "eyecite>=2.7.6",
 ]

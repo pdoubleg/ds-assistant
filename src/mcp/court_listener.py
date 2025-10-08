@@ -8,7 +8,7 @@ from pydantic import Field
 from mcp.server.fastmcp import Context, FastMCP
 
 from models import OpinionSearchResults, PersonSearchResults, Opinion, Person, OpinionExcerpt, OpinionExcerpts
-from utils import get_context_with_bm25
+from utils import get_context_with_bm25, get_citation_context
 
 
 load_dotenv()
@@ -131,6 +131,68 @@ async def search_opinions(
             await ctx.error(error_msg)
         else:
             logger.error(error_msg)
+        raise e
+    
+@mcp.tool()
+async def search_opinions_by_citation(
+    citation: Annotated[str, Field(description="The citation to search for")],
+    ctx: Context | None = None,
+) -> str:
+    """Search for court opinions by citation string from CourtListener. Useful for finding the opinion ID of a given citation
+    along with other metadata.
+
+    Args:
+        citation: The citation to search for.
+        full_text: Whether to return the full text of the opinion. Default is False.
+
+    Returns:
+        str: The opinion search results as returned by the CourtListener API.
+    """
+
+    if ctx:
+        await ctx.info(f"Getting opinion with citation: {citation}")
+    else:
+        logger.info(f"Getting opinion with citation: {citation}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+    
+    params = {
+        "citation": citation,
+        "type": "o",  # Opinion type for V4 API
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.courtlistener.com/api/rest/v4/search/",
+                params=params,
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            results = OpinionSearchResults(**data)
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved opinions for citation {citation}")
+            else:
+                logger.info(f"Successfully retrieved opinions for citation {citation}")
+            
+            return results.to_xml()
+        
+    except Exception as e:
+        if ctx:
+            await ctx.error(f"Error retrieving opinions for citation {citation}: {e}")
+        else:
+            logger.error(f"Error retrieving opinions for citation {citation}: {e}")
         raise e
 
 
@@ -261,7 +323,7 @@ async def search_people(
 @mcp.tool()
 async def get_opinion(
     opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
-    full_text: Annotated[bool | None, Field(default=None, description="Whether to return the full text of the opinion")],
+    full_text: Annotated[bool, Field(default=False, description="Whether to return the full text of the opinion")] = False,
     ctx: Context | None = None,
 ) -> str:
     """Get a specific court opinion by ID from CourtListener.
@@ -309,7 +371,7 @@ async def get_opinion(
                 **data
             )
             
-            return result
+            return result.to_xml()
 
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error getting opinion: {e}"
@@ -328,25 +390,26 @@ async def get_opinion(
 
 
 @mcp.tool()
-async def get_opinion_excerpts(
+async def fetch_opinion_excerpts_by_query(
     opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
-    query: Annotated[str, Field(description="The query to retrieve excerpts from the opinion")],
+    search_query: Annotated[str, Field(description="The query to retrieve excerpts from the opinion")],
     ctx: Context | None = None,
 ) -> str:
-    """Given an input query, retrieve excerpts from a specific court opinion by ID from CourtListener.
+    """Given an input search query, retrieve excerpts from a specific court opinion by ID from CourtListener. Uses BM25 to retrieve excerpts. 
+    Useful for retrieving excerpts from a specific opinion that are relevant to a given search query. 
 
     Args:
         opinion_id: The opinion ID to retrieve.
-        query: The query to retrieve excerpts from the opinion.
+        search_query: The query to retrieve excerpts from the opinion.
 
     Returns:
         str: The opinion excerpts as returned by the CourtListener API.
     """
 
     if ctx:
-        await ctx.info(f"Getting opinion with ID: {opinion_id} and query: {query}")
+        await ctx.info(f"Getting opinion with ID: {opinion_id} and query: {search_query}")
     else:
-        logger.info(f"Getting opinion with ID: {opinion_id} and query: {query}")
+        logger.info(f"Getting opinion with ID: {opinion_id} and query: {search_query}")
 
     if not API_KEY:
         error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
@@ -378,7 +441,7 @@ async def get_opinion_excerpts(
                 **data
             )
             
-            bm25_results = get_context_with_bm25(query, result.text, 50, 100, adjust_to_sentences=True)
+            bm25_results = get_context_with_bm25(search_query, result.text, 500, 1000, adjust_to_sentences=True)
             
             if bm25_results:
                 excerpts = [OpinionExcerpt(
@@ -388,7 +451,7 @@ async def get_opinion_excerpts(
                 ) for context, start, end, score in bm25_results]
                 
             else:
-                excerpts = f"No excerpts found in opinion `{opinion_id}` for query `{query}`"
+                excerpts = f"No excerpts found in opinion `{opinion_id}` for query `{search_query}`"
                 
             opinion_excerpts = OpinionExcerpts(id=opinion_id, excerpts=excerpts)
             
@@ -403,6 +466,141 @@ async def get_opinion_excerpts(
         raise e
     except Exception as e:
         error_msg = f"Error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@mcp.tool()
+async def fetch_opinion_excerpts_by_citation(
+    opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
+    citation: Annotated[str, Field(description="The citation to retrieve excerpts from the opinion")],
+    ctx: Context | None = None,
+) -> str:
+    """Given an input citation, retrieve excerpts from a specific court opinion by ID from CourtListener. Uses citation lookup engine to retrieve excerpts.
+    Useful for retrieving excerpts from a specific opinion concerning a given citation. 
+
+    Args:
+        opinion_id: The opinion ID to retrieve.
+        citation: The citation to retrieve excerpts from the opinion.
+
+    Returns:
+        str: The opinion excerpts as returned by the CourtListener API.
+    """
+
+    if ctx:
+        await ctx.info(f"Getting opinion with ID: {opinion_id} and citation: {citation}")
+    else:
+        logger.info(f"Getting opinion with ID: {opinion_id} and citation: {citation}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/opinions/{opinion_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved opinion {opinion_id}")
+            else:
+                logger.info(f"Successfully retrieved opinion {opinion_id}")
+
+            result = Opinion(
+                full_text_flag=True,
+                **data
+            )
+            
+            citation_results = get_citation_context(result.text, citation, words_before=500, words_after=1000)
+            
+            if citation_results:
+                excerpts = [OpinionExcerpt(
+                    score=round(score, 3),
+                    index_range=f"{start}-{end}",
+                    text=context
+                ) for context, start, end, score in citation_results]
+                
+            else:
+                excerpts = f"No excerpts found in opinion `{opinion_id}` for citation `{citation}`"
+                
+            opinion_excerpts = OpinionExcerpts(id=opinion_id, excerpts=excerpts)
+            
+            return opinion_excerpts.to_xml()
+        
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@mcp.tool()
+async def get_forward_citation_ids(
+    opinion_id: Annotated[int, Field(description="The target opinion ID to find forward citations for")],
+    ctx: Context | None = None,
+) -> list[int]:
+    """
+    Calls Court Listener's front end citation lookup engine to search all records for
+        a given case id that cites the target opinion.
+
+    Args:
+        opinion_id (int): The unique identifier for the opinion to find forward citations for.
+        ctx: Optional context for logging and error reporting.
+
+    Returns:
+        List[int]: A list of ids for cases that cite the target opinion. 
+    """
+    
+    ep = f"https://www.courtlistener.com/api/rest/v4/search/?q=cites%3A({opinion_id})&type=o&order_by=dateFiled%20asc&stat_Precedential=on"
+    
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                ep,
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            results = OpinionSearchResults(**data)
+            forward_citations = [result.primary_opinion_id for result in results.results]
+            return forward_citations
+        
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting forward citation ids: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting forward citation ids: {e}"
         if ctx:
             await ctx.error(error_msg)
         else:
@@ -473,6 +671,8 @@ async def get_person(
         else:
             logger.error(error_msg)
         raise e
+    
+
 
 
 if __name__ == "__main__":

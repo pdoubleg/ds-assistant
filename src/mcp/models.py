@@ -1,8 +1,6 @@
 from datetime import date
 from typing import List, Optional, TypeAlias
 
-import html2text
-
 from pydantic_ai.format_prompt import format_as_xml
 from pydantic import (
     BaseModel,
@@ -12,6 +10,8 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+
+from utils import html_to_text
 
 
 class BaseFilteredModel(BaseModel):
@@ -93,6 +93,10 @@ class OpinionSearchResult(BaseFilteredModel):
     @property
     def primary_opinion(self) -> Optional[Opinion]:
         return self.opinions[0] if self.opinions else None
+    
+    @property
+    def primary_opinion_id(self) -> Optional[int]:
+        return self.primary_opinion.id if self.primary_opinion else None
 
 
 class OpinionSearchResults(BaseFilteredModel):
@@ -170,31 +174,6 @@ class PersonSearchResults(BaseFilteredModel):
         )
         
         
-def html_to_text(html_string: str) -> str:
-    """Converts an HTML string to plain text using html2text.
-    
-    Args:
-        html_string (str): The HTML string to convert.
-    
-    Returns:
-        str: The converted plain text string.
-    
-    Example:
-        >>> html_to_text("<p>Hello <strong>world</strong>!</p>")
-        'Hello **world**!'
-    """
-    # Create html2text instance with desired settings
-    h = html2text.HTML2Text()
-    h.ignore_links = False  # Keep links as markdown
-    h.ignore_images = True  # Remove images
-    h.body_width = 0  # Don't wrap lines
-    
-    # Convert HTML to text
-    text = h.handle(html_string)
-    
-    # Clean up extra whitespace
-    return text.strip()
-
 
 class Opinion(BaseFilteredModel):
     id: int
@@ -480,3 +459,106 @@ class Person(BaseFilteredModel):
         return format_as_xml(
             self, root_tag=self.__class__.__name__, include_field_info="once"
         )
+
+class DocketMeta(BaseFilteredModel):
+    """
+    Metadata for docket search results.
+    
+    Attributes:
+        timestamp: ISO timestamp of when the result was generated
+        date_created: ISO timestamp of when the docket was created
+        score: Search relevance scoring information
+    """
+    timestamp: Optional[str] = None
+    date_created: Optional[str] = None
+    score: Optional[dict] = None
+    
+    @field_validator("timestamp", "date_created")
+    def parse_date(cls, v: str) -> Optional[str]:
+        """Parse datetime string to ISO format date string."""
+        if v is None:
+            return None
+        # Parse the datetime string and extract just the date portion
+        return v.split("T")[0]
+
+class DocketSearchResult(BaseFilteredModel):
+    """
+    Individual docket search result from CourtListener API.
+    
+    Represents a single case/docket with all associated metadata including
+    parties, attorneys, court information, and case details.
+    """
+    
+    # Core identifiers
+    docket_id: int
+    docket_absolute_url: Optional[str] = None
+    docketNumber: Optional[str] = None
+    pacer_case_id: Optional[str] = None
+    
+    # Case information
+    caseName: Optional[str] = None
+    case_name_full: Optional[str] = None
+    cause: Optional[str] = None
+    suitNature: Optional[str] = None
+    chapter: Optional[str] = None
+    
+    # Court information
+    court: Optional[str] = None
+    court_citation_string: Optional[str] = None
+    court_id: Optional[str] = None
+    
+    # Dates
+    dateArgued: Optional[str] = None
+    dateFiled: Optional[str] = None
+    dateTerminated: Optional[str] = None
+    
+    # Judges and assignment
+    assignedTo: Optional[str] = None
+    assigned_to_id: Optional[int] = None
+    referredTo: Optional[str] = None
+    referred_to_id: Optional[int] = None
+    
+    # Parties
+    party: List[str] = Field(default_factory=list)
+    party_id: List[int] = Field(default_factory=list)
+    
+    # Attorneys and firms
+    attorney: List[str] = Field(default_factory=list)
+    attorney_id: List[int] = Field(default_factory=list)
+    firm: List[str] = Field(default_factory=list)
+    firm_id: List[int] = Field(default_factory=list)
+    
+    # Case characteristics
+    jurisdictionType: Optional[str] = None
+    juryDemand: Optional[str] = None
+    trustee_str: Optional[str] = None
+    
+    # Metadata
+    meta: Optional[DocketMeta] = None
+
+
+class DocketSearchResults(BaseFilteredModel):
+    """
+    Collection of docket search results from CourtListener API.
+    
+    Contains pagination information and a list of docket results.
+    """
+    
+    count: int
+    next: Optional[str] = None
+    previous: Optional[str] = None
+    results: List[DocketSearchResult]
+
+    def to_xml(self) -> str:
+        """
+        Convert the docket search results to XML format.
+        
+        Returns:
+            str: XML representation of the search results
+        """
+        return format_as_xml(
+            self.results, root_tag=self.__class__.__name__, include_field_info="once", item_tag=None,
+        )
+
+
+# Add Docket and related classes

@@ -2,6 +2,9 @@ import difflib
 import re
 from typing import List, Tuple
 
+import html2text
+import eyecite
+
 try:
     import nltk
     from rank_bm25 import BM25Okapi
@@ -11,6 +14,32 @@ try:
 except ImportError:
     BM25_AVAILABLE = False
     SPACY_AVAILABLE = False
+    
+    
+def html_to_text(html_string: str) -> str:
+    """Converts an HTML string to plain text using html2text.
+    
+    Args:
+        html_string (str): The HTML string to convert.
+    
+    Returns:
+        str: The converted plain text string.
+    
+    Example:
+        >>> html_to_text("<p>Hello <strong>world</strong>!</p>")
+        'Hello **world**!'
+    """
+    # Create html2text instance with desired settings
+    h = html2text.HTML2Text()
+    h.ignore_links = False  # Keep links as markdown
+    h.ignore_images = True  # Remove images
+    h.body_width = 0  # Don't wrap lines
+    
+    # Convert HTML to text
+    text = h.handle(html_string)
+    
+    # Clean up extra whitespace
+    return text.strip()
 
 
 def get_context(
@@ -109,7 +138,7 @@ def preprocess_text(text: str) -> str:
         'quick brown fox jump lazy dog'
     """
     if not BM25_AVAILABLE:
-        raise ImportError("NLTK is not available. Please install nltk to use BM25 functionality.")
+        raise ImportError("BM25Okapi is not available. Please install rank-bm25 to use BM25 functionality.")
     
     # Ensure the NLTK resources are available
     for resource in ["punkt", "wordnet", "stopwords"]:
@@ -174,13 +203,8 @@ def get_context_with_bm25(
             - float: BM25 score of the match.
         
         Returns empty list if no matches are found.
-    
-    Example:
-        >>> text = "The quick brown fox jumps. This is sentence two. The fox is clever."
-        >>> results = get_context_with_bm25("fox jumps", text, words_before=3, words_after=5, k=2)
-        >>> for context, start, end, score in results:
-        ...     print(f"Score: {score:.3f}, Context: {context}")
     """
+    
     if not BM25_AVAILABLE:
         raise ImportError("BM25 dependencies not available. Please install rank-bm25 and nltk.")
     
@@ -283,3 +307,174 @@ def get_context_with_bm25(
         results.append((context, start_pos, end_pos, score))
     
     return results
+
+
+# def get_citation_context(
+#     text: str,
+#     citation: str,
+#     words_before: int = 1000,
+#     words_after: int = 1000,
+#     max_excerpts: int = 10,
+# ) -> str:
+#     """
+#     Finds a citation in text and return the context around it, with the start and end positions
+#     adjusted to complete sentences.
+
+#     Args:
+#         text (str): The text to search.
+#         citation (str): The citation to find.
+#         words_before (int): Maximum number of words to include before the citation. Defaults to 1000.   
+#         words_after (int): Maximum number of words to include after the citation. Defaults to 1000.
+#         max_excerpts (int): Maximum number of excerpts to return. Defaults to 10.
+        
+#     Returns:
+#         str: The context around the citation, adjusted to complete sentences.
+#     """
+#     if words_after is None and words_before is None:
+#         # Return entire text since we're not asked to return a bounded context
+#         return text
+
+#     found_citations = eyecite.get_citations(text)
+    
+#     output = []
+
+#     for cit in found_citations:
+#         # found_citations is a list of all the citations in the text
+#         # for each match, we need to find the context of the citation
+#         if cit.corrected_citation() == citation:
+#             match = cit.matched_text()
+#             sequence_matcher = difflib.SequenceMatcher(None, text, match)
+#             match_info = sequence_matcher.find_longest_match(0, len(text), 0, len(match))
+
+#             if match_info.size == 0:
+#                 return ""
+
+#             segments = text.split()
+#             n_segs = len(segments)
+
+#             start_segment_pos = len(text[:match_info.a].split())
+
+#             words_before = words_before or n_segs
+#             words_after = words_after or n_segs
+#             start_pos = max(0, start_segment_pos - words_before)
+#             end_pos = min(n_segs, start_segment_pos + words_after + len(citation.split()))
+
+#             context = " ".join(segments[start_pos:end_pos])
+
+#             # Use spaCy to adjust to complete sentences
+#             nlp = spacy.load("en_core_web_sm")
+#             doc = nlp(context)
+#             sentences = list(doc.sents)
+
+#             # Drop the first and last sentences if they are likely incomplete
+#             adjusted_context = " ".join(sentence.text for sentence in sentences[1:-1])
+            
+#             output.append(adjusted_context)
+
+#     return "\n\n".join(output[:max_excerpts])
+
+def get_citation_context(
+    text: str,
+    citation: str,
+    words_before: int = 100,
+    words_after: int = 500,
+    max_excerpts: int = 10,
+) -> list[tuple[str, int, int, float]]:
+    """Find contexts around a target legal citation and return spans as tuples.
+
+    This function scans `text` for citations using eyecite, finds those that match
+    the provided `citation` (based on `corrected_citation()`), then extracts
+    surrounding context as word-based windows. It optionally (always, here) tries
+    to align the context to complete sentences using spaCy, similar to
+    `get_context_with_bm25`. The return type mirrors `get_context_with_bm25`:
+    a list of tuples `(context, start_pos, end_pos, score)`. Since there is no
+    BM25 scoring here, `score` is set to `1.0` for each matched excerpt.
+
+    Args:
+        text (str): The input text to search.
+        citation (str): The normalized citation string to match against
+            `cit.corrected_citation()`.
+        words_before (int, optional): Max words before the match to include.
+            Defaults to 1000.
+        words_after (int, optional): Max words after the match to include.
+            Defaults to 1000.
+        max_excerpts (int, optional): Maximum number of excerpts to return.
+            Defaults to 10.
+
+    Returns:
+        List[Tuple[str, int, int, float]]: Each tuple contains:
+            - context (str): Extracted context, adjusted to full sentences when possible.
+            - start_pos (int): Start word index in the original `text`.
+            - end_pos (int): End word index in the original `text`.
+            - score (float): Fixed to 1.0 for citation matches.
+
+        Returns an empty list if no matches are found.
+
+    """
+    
+    # If both bounds are None, return entire text as a single span (if non-empty)
+    if words_after is None and words_before is None:
+        segments = text.split()
+        return [(text, 0, len(segments), 1.0)] if text.strip() else []
+
+    found_citations = eyecite.get_citations(text)
+
+    results: list[tuple[str, int, int, float]] = []
+
+    for cit in found_citations:
+        # Filter only the citations that match the requested normalized citation
+        if cit.corrected_citation() != citation:
+            continue
+
+        # Use the actual matched text from eyecite to localize the span in `text`
+        match = cit.matched_text()
+
+        # Find the position of `match` within `text` using difflib
+        sequence_matcher = difflib.SequenceMatcher(None, text, match)
+        match_info = sequence_matcher.find_longest_match(0, len(text), 0, len(match))
+        if match_info.size == 0:
+            continue  # Skip if we cannot localize match
+
+        # Compute word-based positions for the context window
+        segments = text.split()
+        n_segs = len(segments)
+
+        # Words before the start of the matched region
+        start_segment_pos = len(text[:match_info.a].split())
+
+        # Adjust window sizes when None/zero-like
+        words_before_adj = words_before or n_segs
+        words_after_adj = words_after or n_segs
+
+        # Word-based window boundaries
+        start_pos = max(0, start_segment_pos - words_before_adj)
+        end_pos = min(n_segs, start_segment_pos + words_after_adj + len(citation.split()))
+
+        # Initial context
+        context = " ".join(segments[start_pos:end_pos])
+
+        # Try to align context to full sentences using spaCy
+        if context.strip():
+            try:
+                nlp = spacy.load("en_core_web_sm")
+                context_doc = nlp(context)
+                context_sentences = list(context_doc.sents)
+
+                # If >2 sentences, drop potentially incomplete first/last
+                if len(context_sentences) > 2:
+                    adjusted_context = " ".join(s.text for s in context_sentences[1:-1]).strip()
+                    if adjusted_context:
+                        context = adjusted_context
+                # If exactly 2 sentences, keep both
+                elif len(context_sentences) == 2:
+                    context = " ".join(s.text for s in context_sentences)
+                # If 1 sentence, leave as-is
+            except Exception:
+                # On any spaCy error, fall back to the original context
+                pass
+
+        # Append tuple with a fixed score of 1.0 for citation matches
+        results.append((context, start_pos, end_pos, 1.0))
+
+    # Enforce max_excerpts limit
+    return results[:max_excerpts]
