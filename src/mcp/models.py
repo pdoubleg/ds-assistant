@@ -5,13 +5,18 @@ from pydantic_ai.format_prompt import format_as_xml
 from pydantic import (
     BaseModel,
     Field,
+    HttpUrl,
     computed_field,
     field_validator,
     model_serializer,
     model_validator,
 )
-
-from utils import html_to_text
+try:
+    from utils import html_to_text
+except ImportError:
+    from src.mcp.utils import html_to_text
+    
+COURTLISTENER_WEB_URL = "https://www.courtlistener.com"
 
 
 class BaseFilteredModel(BaseModel):
@@ -89,6 +94,11 @@ class OpinionSearchResult(BaseFilteredModel):
     status: Optional[str] = None
     suitNature: Optional[str] = None
     syllabus: Optional[str] = None
+    
+    @computed_field
+    @property
+    def web_link(self) -> str:
+        return f"{COURTLISTENER_WEB_URL}{self.absolute_url}"
 
     @property
     def primary_opinion(self) -> Optional[Opinion]:
@@ -160,6 +170,11 @@ class PersonSearchResult(BaseFilteredModel):
     races: Optional[List[str]] = None
     religion: Optional[str] = None
     school: Optional[List[str]] = None
+    
+    @computed_field
+    @property
+    def web_link(self) -> str:
+        return f"{COURTLISTENER_WEB_URL}{self.absolute_url}"
 
 
 class PersonSearchResults(BaseFilteredModel):
@@ -192,6 +207,11 @@ class Opinion(BaseFilteredModel):
     date_modified: Optional[str] = None
     download_url: Optional[str] = None
     local_path: Optional[str] = None
+    
+    @computed_field
+    @property
+    def web_link(self) -> str:
+        return f"{COURTLISTENER_WEB_URL}{self.absolute_url}"
 
     plain_text: Optional[str] = Field(
         default=None,
@@ -535,6 +555,11 @@ class DocketSearchResult(BaseFilteredModel):
     
     # Metadata
     meta: Optional[DocketMeta] = None
+    
+    @computed_field
+    @property
+    def web_link(self) -> str:
+        return f"{COURTLISTENER_WEB_URL}{self.docket_absolute_url}"
 
 
 class DocketSearchResults(BaseFilteredModel):
@@ -561,4 +586,379 @@ class DocketSearchResults(BaseFilteredModel):
         )
 
 
-# Add Docket and related classes
+class Docket(BaseFilteredModel):
+    """Represents a CourtListener docket record."""
+
+    resource_uri: str
+    id: int
+    court: Optional[str]
+    court_id: Optional[str]
+    original_court_info: Optional[str]
+    idb_data: Optional[str]
+    clusters: list[str]
+    audio_files: list[str]
+    assigned_to: Optional[str]
+    referred_to: Optional[str]
+    absolute_url: str
+    date_created: str
+    date_modified: str
+    source: Optional[int]
+    appeal_from_str: Optional[str]
+    assigned_to_str: Optional[str]
+    referred_to_str: Optional[str]
+    panel_str: Optional[str]
+    date_last_index: Optional[str]
+    date_cert_granted: Optional[str]
+    date_cert_denied: Optional[str]
+    date_argued: Optional[str]
+    date_reargued: Optional[str]
+    date_reargument_denied: Optional[str]
+    date_filed: Optional[str]
+    date_terminated: Optional[str]
+    date_last_filing: Optional[str]
+    case_name_short: Optional[str]
+    case_name: Optional[str]
+    case_name_full: Optional[str]
+    slug: Optional[str]
+    docket_number: Optional[str]
+    docket_number_core: Optional[str]
+    docket_number_raw: Optional[str]
+    federal_dn_office_code: Optional[str]
+    federal_dn_case_type: Optional[str]
+    federal_dn_judge_initials_assigned: Optional[str]
+    federal_dn_judge_initials_referred: Optional[str]
+    federal_defendant_number: Optional[int]
+    pacer_case_id: Optional[str]
+    cause: Optional[str]
+    nature_of_suit: Optional[str]
+    jury_demand: Optional[str]
+    jurisdiction_type: Optional[str]
+    appellate_fee_status: Optional[str]
+    appellate_case_type_information: Optional[str]
+    mdl_status: Optional[str]
+    filepath_ia: Optional[str]
+    filepath_ia_json: Optional[str]
+    ia_upload_failure_count: Optional[int]
+    ia_needs_upload: Optional[bool]
+    ia_date_first_change: Optional[str]
+    date_blocked: Optional[str]
+    blocked: Optional[bool]
+    appeal_from: Optional[str]
+    parent_docket: Optional[str]
+    tags: list[str]
+    panel: list[str]
+    
+    @computed_field
+    @property
+    def web_link(self) -> str:
+        return f"{COURTLISTENER_WEB_URL}{self.absolute_url}"
+
+    def __str__(self) -> str:
+        """Concise string useful for LLM or UI summaries."""
+        return (
+            f"Docket {self.id} | {self.case_name or 'Unknown Case'} "
+            f"({self.web_link})"
+            f"({self.court_id or 'N/A'}) — {self.docket_number or ''} | "
+            f"Filed: {self.date_filed or 'N/A'} | "
+            f"Judge: {self.assigned_to_str or 'N/A'} | "
+            f"Cause: {self.cause or 'N/A'}"
+        )
+        
+    def to_xml(self) -> str:
+        """
+        Convert the docket to XML format.
+
+        Returns:
+            str: XML representation of the docket
+        """
+        return format_as_xml(
+            self, root_tag=self.__class__.__name__, include_field_info="once", item_tag=None,
+        )
+        
+        
+        
+class ScoreInfo(BaseModel):
+    """Scoring details, typically from BM25 or other relevance ranking."""
+    bm25: Optional[float] = Field(None, description="BM25 score or ranking metric.")
+
+
+class MetaInfo(BaseModel):
+    """Metadata for the search result, including timestamps and scoring."""
+    timestamp: Optional[str] = Field(None, description="Timestamp of the search result.")
+    date_created: Optional[str] = Field(None, description="Original creation date of the record.")
+    score: Optional[ScoreInfo] = Field(None, description="Scoring information such as BM25.")
+
+
+class RECAPSearchResult(BaseModel):
+    """Represents a RECAP docket-level search result."""
+    assignedTo: Optional[str]
+    assigned_to_id: Optional[int]
+    attorney: Optional[List[str]]
+    attorney_id: Optional[List[int]]
+    caseName: Optional[str]
+    case_name_full: Optional[str]
+    cause: Optional[str]
+    chapter: Optional[str]
+    court: Optional[str]
+    court_citation_string: Optional[str]
+    court_id: Optional[str]
+    dateArgued: Optional[str]
+    dateFiled: Optional[str]
+    dateTerminated: Optional[str]
+    docketNumber: Optional[str]
+    docket_absolute_url: Optional[str]
+    docket_id: Optional[int]
+    firm: Optional[List[str]]
+    firm_id: Optional[List[int]]
+    jurisdictionType: Optional[str]
+    juryDemand: Optional[str]
+    meta: Optional[MetaInfo]
+    pacer_case_id: Optional[str]
+    party: Optional[List[str]]
+    party_id: Optional[List[int]]
+    referredTo: Optional[str]
+    referred_to_id: Optional[int]
+    suitNature: Optional[str]
+    trustee_str: Optional[str]
+    
+    @computed_field
+    @property
+    def web_link(self) -> str:
+        return f"{COURTLISTENER_WEB_URL}{self.docket_absolute_url}"
+
+    def __str__(self) -> str:
+        """
+        Compact text representation suitable for LLM consumption.
+        Focuses on case identification, key parties, attorneys, and docket info.
+        """
+        parts = [
+            f"Case: {self.caseName or 'Unknown'} ({self.docketNumber or 'No docket'})",
+            f"({self.web_link})",
+            f"Court: {self.court_citation_string or self.court_id or 'N/A'}",
+            f"Filed: {self.dateFiled or 'N/A'}",
+            f"Terminated: {self.dateTerminated or 'N/A'}",
+        ]
+        if self.attorney:
+            parts.append(f"Attorneys: {', '.join(self.attorney[:3])}{'...' if len(self.attorney) > 3 else ''}")
+        if self.firm:
+            parts.append(f"Firms: {', '.join(self.firm[:2])}{'...' if len(self.firm) > 2 else ''}")
+        if self.party:
+            parts.append(f"Parties: {', '.join(self.party[:3])}{'...' if len(self.party) > 3 else ''}")
+        return " | ".join(parts)
+    
+    def to_xml(self) -> str:
+        return format_as_xml(
+            self,
+            root_tag=self.__class__.__name__,
+            include_field_info="once",
+        )
+        
+        
+class RECAPSearchResults(BaseModel):
+    count: int
+    next: Optional[str] = None
+    previous: Optional[str] = None
+    results: List[RECAPSearchResult]
+    
+    def to_xml(self) -> str:
+        return format_as_xml(
+            self,
+            root_tag=self.__class__.__name__,
+            include_field_info="once",
+        )
+        
+
+class PartyRepresented(BaseModel):
+    """Represents a party the attorney is linked to in a docket."""
+    role: Optional[int] = None
+    docket: Optional[str] = None
+    party: Optional[str] = None
+    date_action: Optional[str] = None
+    
+    @field_validator("date_action")
+    def parse_date(cls, v: str) -> Optional[str]:
+        if v is None:
+            return None
+        # Parse the datetime string and extract just the date portion
+        return v.split("T")[0]
+
+    def __str__(self) -> str:
+        return f"Role: {self.role}, Docket: {self.docket}, Party: {self.party}"
+
+
+class Attorney(BaseModel):
+    """Represents an attorney in the CourtListener dataset."""
+    resource_uri: Optional[str] = None
+    id: int
+    parties_represented: Optional[List[PartyRepresented]] = []
+    date_created: Optional[str] = None
+    date_modified: Optional[str] = None
+    name: Optional[str] = None
+    contact_raw: Optional[str] = None
+    phone: Optional[str] = None
+    fax: Optional[str] = None
+    email: Optional[str] = None
+    
+    @field_validator("date_created", "date_modified")
+    def parse_date(cls, v: str) -> Optional[str]:
+        if v is None:
+            return None
+        # Parse the datetime string and extract just the date portion
+        return v.split("T")[0]
+
+    def __str__(self) -> str:
+        """Concise summary useful for LLM responses or logs."""
+        parts_repr = (
+            f"{len(self.parties_represented)} represented" 
+            if self.parties_represented else "No represented parties"
+        )
+        return (
+            f"Attorney {self.name or 'Unknown'} "
+            f"({self.email or 'no email'}) — {parts_repr}, "
+            f"Phone: {self.phone or 'N/A'}"
+        )
+        
+    def to_xml(self) -> str:
+        return format_as_xml(
+            self,
+            root_tag=self.__class__.__name__,
+            include_field_info="once",
+        )
+        
+        
+class PacerFilingSearchResult(BaseFilteredModel):
+    """Represents a PACER filing document from the CourtListener dataset."""
+    
+    id: int
+    absolute_url: Optional[str] = None
+    attachment_number: Optional[int] = None
+    cites: List[int] = Field(default_factory=list)
+    description: Optional[str] = None
+    docket_entry_id: Optional[int] = None
+    docket_id: Optional[int] = None
+    document_number: Optional[int] = None
+    document_type: Optional[str] = None
+    entry_date_filed: Optional[date] = None
+    entry_number: Optional[int] = None
+    filepath_local: Optional[str] = None
+    is_available: Optional[bool] = None
+    meta: Optional[Meta] = None
+    pacer_doc_id: Optional[str] = None
+    page_count: Optional[int] = None
+    short_description: Optional[str] = None
+    snippet: Optional[str] = None
+    
+    @computed_field
+    @property
+    def web_link(self) -> str:
+        return f"{COURTLISTENER_WEB_URL}{self.absolute_url}"
+    
+    def __str__(self) -> str:
+        """Concise summary useful for LLM responses or logs."""
+        return (
+            f"PACER Filing #{self.document_number or 'N/A'} "
+            f"({self.web_link})"
+            f"(ID: {self.id}) — {self.short_description or 'No description'}, "
+            f"Filed: {self.entry_date_filed or 'Unknown'}, "
+            f"Pages: {self.page_count or 0}"
+        )
+    
+    def to_xml(self) -> str:
+        return format_as_xml(
+            self,
+            root_tag=self.__class__.__name__,
+            include_field_info="once",
+        )
+
+
+
+class PacerFilingSearchResults(BaseFilteredModel):
+    count: int
+    next: Optional[str] = None
+    previous: Optional[str] = None
+    results: List[PacerFilingSearchResult]
+    
+    def to_xml(self) -> str:
+        return format_as_xml(
+            self,
+            root_tag=self.__class__.__name__,
+            include_field_info="once",
+        )
+
+
+class OralArgumentSearchResult(BaseFilteredModel):
+    """
+    Oral argument audio recording search result from CourtListener.
+    """
+    
+    id: int
+    absolute_url: Optional[str] = None
+    caseName: Optional[str] = None
+    case_name_full: Optional[str] = None
+    court: Optional[str] = None
+    court_citation_string: Optional[str] = None
+    court_id: Optional[str] = None
+    
+    dateArgued: Optional[date] = None
+    dateReargued: Optional[date] = None
+    dateReargumentDenied: Optional[date] = None
+    
+    docketNumber: Optional[str] = None
+    docket_id: Optional[int] = None
+    download_url: Optional[str] = None
+    duration: Optional[int] = None
+    file_size_mp3: Optional[int] = None
+    judge: Optional[str] = None
+    local_path: Optional[str] = None
+    meta: Optional[Meta] = None
+    pacer_case_id: Optional[str] = None
+    panel_ids: List[int] = Field(default_factory=list)
+    sha1: Optional[str] = None
+    snippet: Optional[str] = None
+    source: Optional[str] = None
+    
+    @computed_field
+    @property
+    def web_link(self) -> str:
+        return f"{COURTLISTENER_WEB_URL}{self.absolute_url}"
+    
+    @computed_field
+    @property
+    def mp3_url(self) -> str:
+        local_path_mp3 = self.local_path
+        if local_path_mp3:
+            base_url = COURTLISTENER_WEB_URL
+            return f"{base_url}/{local_path_mp3}"
+        else:
+            return "No MP3 URL available"
+    
+    def __str__(self) -> str:
+        """Concise summary useful for LLM responses or logs."""
+        return (
+            f"{self.caseName or 'Unknown Case'} "
+            f"({self.web_link}) "
+            f"(ID: {self.id}) — {self.court or 'Unknown Court'}, "
+            f"Argued: {self.dateArgued or 'Unknown'}, "
+            f"Duration: {self.duration or 0}s"
+        )
+    
+    def to_xml(self) -> str:
+        return format_as_xml(
+            self,
+            root_tag=self.__class__.__name__,
+            include_field_info="once",
+        )
+
+
+class OralArgumentSearchResults(BaseFilteredModel):
+    count: int
+    next: Optional[str] = None
+    previous: Optional[str] = None
+    results: List[OralArgumentSearchResult]
+    
+    def to_xml(self) -> str:
+        return format_as_xml(
+            self,
+            root_tag=self.__class__.__name__,
+            include_field_info="once",
+        )

@@ -23,7 +23,14 @@ court_listener = MCPServerStdio(
     max_retries=5,
 )
 
+# cl_query_writer = MCPServerStdio(
+#     "python",
+#     ["src/mcp/cl_query_writer.py"],
+#     max_retries=5,
+# )
+
 court_listener = LoggingToolset(wrapped=court_listener, console=console)
+# cl_query_writer = LoggingToolset(wrapped=cl_query_writer, console=console)
 
 agent = Agent(
     model="openai:gpt-4.1",
@@ -31,6 +38,7 @@ agent = Agent(
     retries=5,
     toolsets=[
         court_listener,
+        # cl_query_writer,
     ],
     deps_type=None,
 )

@@ -47,4 +47,5 @@ dependencies = [
     "pip>=25.2",
     "citeurl>=11.5.1",
     "eyecite>=2.7.6",
+    "courts-db>=0.10.26",
 ]
