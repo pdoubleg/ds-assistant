@@ -10,14 +10,32 @@ from pydantic_ai import Agent
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.server import logger
 
-from models import (
-    OralArgumentSearchResults,
-    PacerFilingSearchResults,
-    OpinionSearchResults,
-    DocketSearchResults,
-    PersonSearchResults,
-    RECAPSearchResults,
-)
+try:
+    from utils import get_citation_context, get_context_with_bm25
+
+except ImportError:
+    from src.mcp.utils import get_citation_context, get_context_with_bm25
+    
+try:
+    from models import (
+        OralArgumentSearchResults,
+        PacerFilingSearchResults,
+        OpinionSearchResults,
+        DocketSearchResults,
+        PersonSearchResults,
+        RECAPSearchResults,
+        Attorney, Docket, Opinion, OpinionExcerpt, OpinionExcerpts, OralArgument, Person
+    )
+except ImportError:
+    from src.mcp.models import (
+        OralArgumentSearchResults,
+        PacerFilingSearchResults,
+        OpinionSearchResults,
+        DocketSearchResults,
+        PersonSearchResults,
+        RECAPSearchResults,
+        Attorney, Docket, Opinion, OpinionExcerpt, OpinionExcerpts, OralArgument, Person
+    )
 
 load_dotenv()
 
@@ -28,11 +46,13 @@ if not API_KEY:
 query_server = FastMCP(
     name="cl_query_writer",
     instructions=dedent("""\
-        A set of tools for constructing advanced search queries for the CourtListener API.
+        A set of tools for constructing and executing advanced search queries for the CourtListener API.
         Use the get_court_listener_query tool to construct a query or series of queries using an AI agent to address the user's request.
-        Use the execute_court_listener_search_query tool to execute the query or series of queries and return the results as an XML string.
+        Use the execute_court_listener_search_query tool to execute the query or series of queries and return the search results as an XML string.
         Note that get_court_listener_query may include multiple steps with some steps depending on the results of prior steps. In these cases
-        you will need to use the execute_court_listener_search_query tool to get the results of the prior step and use those results to construct the next step.
+        you will need to use the execute_court_listener_search_query tool to get the results of the prior step and use those results to construct the next step. 
+        Finally, use the "get tools", e.g., get_opinion, get_opinion_excerpt, get_opinion_excerpt_by_citation, get_person, get_docket, get_attorney, 
+        get_oral_argument tools to retrieve the data you need.
     """),
 )
 
@@ -43,7 +63,7 @@ class CourtListenerSearchQuery(BaseModel):
         ...,
         description=(
             "Brief explanation of the chosen type, core fielded terms/operators, "
-            "sort choice, and any extra params."
+            "sort choice, and any extra params. Include any additional instructions for the next step(s)."
         ),
     )
     step_number: int = Field(
@@ -174,9 +194,7 @@ Advanced operator reminders
     - Proximity: "phrase"~k
     - Ranges: field:[A TO B], * for open bound
     
-Different search interfaces support different fields according to the following:
-
-# Field descriptions by corpus type
+Different search interfaces support **different fields** according to the following:
 
 ## OPINIONS
 - id: CourtListener system ID
@@ -302,7 +320,7 @@ Different search interfaces support different fields according to the following:
 
 
 agent = Agent(
-    model="openai:gpt-4.1",
+    model="openai:gpt-5-mini",
     output_type=list[CourtListenerSearchQuery],
     retries=5,
     deps_type=None,
@@ -445,7 +463,522 @@ async def execute_court_listener_search_query(
         else:
             logger.error(error_msg)
         raise e
+    
+    
+@query_server.tool()
+async def get_opinion(
+    opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
+    full_text: Annotated[
+        bool,
+        Field(
+            default=False, description="Whether to return the full text of the opinion"
+        ),
+    ] = False,
+    ctx: Context | None = None,
+) -> str:
+    """Get a specific court opinion by ID from CourtListener.
 
+    Args:
+        opinion_id: The opinion ID to retrieve.
+        full_text: Whether to return the full text of the opinion. Default is False.
+
+    Returns:
+        str: The opinion data as returned by the CourtListener API.
+    """
+
+    if ctx:
+        await ctx.info(f"Getting opinion with ID: {opinion_id}")
+    else:
+        logger.info(f"Getting opinion with ID: {opinion_id}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/opinions/{opinion_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved opinion {opinion_id}")
+            else:
+                logger.info(f"Successfully retrieved opinion {opinion_id}")
+
+            result = Opinion(full_text_flag=full_text, **data)
+
+            return result.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@query_server.tool()
+async def get_opinion_excerpt(
+    opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
+    search_query: Annotated[
+        str, Field(description="The query to retrieve excerpt(s) from the opinion")
+    ],
+    ctx: Context | None = None,
+) -> str:
+    """Given a search query and opinion ID, retrieve excerpt(s) from the opinion text. Uses BM25 to retrieve excerpt(s).
+    Useful for retrieving excerpts from a specific opinion that are relevant to a given search query.
+
+    Args:
+        opinion_id: The opinion ID to retrieve.
+        search_query: The query to retrieve excerpts from the opinion.
+
+    Returns:
+        str: The opinion excerpts as returned by the CourtListener API.
+    """
+
+    if ctx:
+        await ctx.info(
+            f"Getting opinion with ID: {opinion_id} and query: {search_query}"
+        )
+    else:
+        logger.info(f"Getting opinion with ID: {opinion_id} and query: {search_query}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/opinions/{opinion_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved opinion {opinion_id}")
+            else:
+                logger.info(f"Successfully retrieved opinion {opinion_id}")
+
+            result = Opinion(full_text_flag=True, **data)
+
+            bm25_results = get_context_with_bm25(
+                search_query, result.text, 500, 1000, adjust_to_sentences=True
+            )
+
+            if bm25_results:
+                excerpts = [
+                    OpinionExcerpt(
+                        score=round(score, 3),
+                        index_range=f"{start}-{end}",
+                        text=context,
+                    )
+                    for context, start, end, score in bm25_results
+                ]
+
+            else:
+                excerpts = f"No excerpts found in opinion `{opinion_id}` for query `{search_query}`"
+
+            opinion_excerpts = OpinionExcerpts(id=opinion_id, excerpts=excerpts)
+
+            return opinion_excerpts.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@query_server.tool()
+async def get_opinion_excerpt_by_citation(
+    opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
+    citation: Annotated[
+        str, Field(description="The citation to retrieve excerpt(s) from the opinion")
+    ],
+    ctx: Context | None = None,
+) -> str:
+    """Given an input citation and opinion ID, retrieve excerpt(s) from the opinion text. Uses citation lookup engine to detect citations.
+    Useful for retrieving excerpts from a specific opinion concerning a given citation.
+
+    Args:
+        opinion_id: The opinion ID to retrieve.
+        citation: The citation to retrieve excerpt(s) from the opinion.
+
+    Returns:
+        str: The opinion excerpt(s) as returned by the CourtListener API.
+    """
+
+    if ctx:
+        await ctx.info(
+            f"Getting opinion with ID: {opinion_id} and citation: {citation}"
+        )
+    else:
+        logger.info(f"Getting opinion with ID: {opinion_id} and citation: {citation}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/opinions/{opinion_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved opinion {opinion_id}")
+            else:
+                logger.info(f"Successfully retrieved opinion {opinion_id}")
+
+            result = Opinion(full_text_flag=True, **data)
+
+            citation_results = get_citation_context(
+                result.text, citation, words_before=500, words_after=1000
+            )
+
+            if citation_results:
+                excerpts = [
+                    OpinionExcerpt(
+                        score=round(score, 3),
+                        index_range=f"{start}-{end}",
+                        text=context,
+                    )
+                    for context, start, end, score in citation_results
+                ]
+
+            else:
+                excerpts = f"No excerpts found in opinion `{opinion_id}` for citation `{citation}`"
+
+            opinion_excerpts = OpinionExcerpts(id=opinion_id, excerpts=excerpts)
+
+            return opinion_excerpts.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting opinion: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@query_server.tool()
+async def get_person(
+    person_id: Annotated[str, Field(description="The person (judge) ID to retrieve")],
+    ctx: Context | None = None,
+) -> str:
+    """Get judge or legal professional information by ID from CourtListener.
+
+    Args:
+        person_id: The person ID to retrieve.
+        ctx: Optional context for logging and error reporting.
+
+    Returns:
+        str: The person data as returned by the CourtListener API.
+    """
+
+    if ctx:
+        await ctx.info(f"Getting person with ID: {person_id}")
+    else:
+        logger.info(f"Getting person with ID: {person_id}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/people/{person_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved person {person_id}")
+            else:
+                logger.info(f"Successfully retrieved person {person_id}")
+
+            result = Person(**data)
+
+            return result.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting person: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting person: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@query_server.tool()
+async def get_docket(
+    docket_id: Annotated[str, Field(description="The docket ID to retrieve")],
+    ctx: Context | None = None,
+) -> str:
+    """Get a specific court docket by ID from CourtListener.
+
+    Args:
+        docket_id: The docket ID to retrieve.
+        ctx: Optional context for logging and error reporting.
+
+    Returns:
+        str: The docket data as returned by the CourtListener API.
+
+    Raises:
+        ValueError: If the COURT_LISTENER_API_KEY is not found in environment variables.
+
+    """
+    if ctx:
+        await ctx.info(f"Getting docket with ID: {docket_id}")
+    else:
+        logger.info(f"Getting docket with ID: {docket_id}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/dockets/{docket_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            result = Docket(**data)
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved docket {docket_id}")
+            else:
+                logger.info(f"Successfully retrieved docket {docket_id}")
+
+            return result.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting docket: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting docket: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@query_server.tool()
+async def get_attorney(
+    attorney_id: Annotated[str, Field(description="The attorney ID to retrieve")],
+    ctx: Context | None = None,
+) -> str:
+    """Get attorney information by ID from CourtListener.
+
+    Args:
+        attorney_id: The attorney ID to retrieve.
+        ctx: Optional context for logging and error reporting.
+
+    Returns:
+        str: The attorney data as returned by the CourtListener API.
+    """
+
+    if ctx:
+        await ctx.info(f"Getting attorney with ID: {attorney_id}")
+    else:
+        logger.info(f"Getting attorney with ID: {attorney_id}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/attorneys/{attorney_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            result = Attorney(**data)
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved person {attorney_id}")
+            else:
+                logger.info(f"Successfully retrieved person {attorney_id}")
+
+            return result.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting attorney: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting attorney: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@query_server.tool()
+async def get_oral_argument(
+    audio_id: Annotated[str, Field(description="The audio recording, i.e., oral argument, ID to retrieve")],
+    ctx: Context | None = None,
+) -> str:
+    """Get oral argument information by ID from CourtListener. Typically contains transcript text.
+
+    Args:
+        audio_id: The audio recording, i.e., oral argument, ID to retrieve.
+        ctx: Optional context for logging and error reporting.
+
+    Returns:
+        str: The oral argument data as returned by the CourtListener API.
+
+    Raises:
+        ValueError: If the COURT_LISTENER_API_KEY is not found in environment variables.
+
+    """
+    if ctx:
+        await ctx.info(f"Getting oral argument with ID: {audio_id}")
+    else:
+        logger.info(f"Getting oral argument with ID: {audio_id}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/audio/{audio_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved audio {audio_id}")
+            else:
+                logger.info(f"Successfully retrieved audio {audio_id}")
+
+            result = OralArgument(**response.json())
+
+            return result.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting audio: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting audio: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
 
 if __name__ == "__main__":
     # Initialize and run the server

@@ -16,6 +16,8 @@ from models import (
     Attorney,
     PersonSearchResults,
     RECAPSearchResults,
+    OralArgumentSearchResults,  
+    OralArgument,
 )
 from pydantic import Field
 
@@ -41,7 +43,13 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP(
     name="court_listener",
     instructions=dedent("""\
-        A set of tools for searching and retrieving data from the CourtListener API.
+        A set of tools for searching and retrieving data from the CourtListener API. 
+        Provides three main patterns:
+        - Search tools: search_opinions, search_opinions_by_citation, search_people, search_dockets_by_firm_name, search_recap_docs_by_attorney_name, search_oral_arguments
+        - Get tools: get_opinion, get_opinion_excerpt, get_opinion_excerpt_by_citation, get_docket, get_attorney, get_person, get_oral_argument
+        - Fetch tools: fetch_forward_citations
+        Use the search tools to search for data, e.g., ID and metadata, and the get tools to retrieve data, e.g., opinion full text and excerpt(s), people, dockets, oral arguments.
+        Use the fetch tools to fetch additional data that is not directly available from the search or get tools, e.g., forward citations.
     """))
 
 
@@ -131,7 +139,8 @@ async def search_opinions(
             )
             response.raise_for_status()
             data = response.json()
-
+            data['results'] = data['results'][:limit]
+            
             if ctx:
                 await ctx.info(f"Found {data.get('count', 0)} opinions")
             else:
@@ -160,13 +169,15 @@ async def search_opinions(
 @mcp.tool()
 async def search_opinions_by_citation(
     citation: Annotated[str, Field(description="The citation to search for")],
+    limit: Annotated[int, Field(description="The maximum number of results to return", ge=1, le=100)] = 10,
     ctx: Context | None = None,
 ) -> str:
     """Search for court opinions by citation string from CourtListener. Useful for finding the opinion ID of a given citation
     along with other metadata.
 
     Args:
-        citation: The citation to search for.
+        citation: The citation to search for, e.g., '410 U.S. 113' or '2023 WL 12345'.
+        limit: The maximum number of results to return. Default is 10.
 
     Returns:
         str: The opinion search results as returned by the CourtListener API.
@@ -190,6 +201,7 @@ async def search_opinions_by_citation(
     params = {
         "citation": citation,
         "type": "o",  # Opinion type for V4 API
+        "limit": limit,
     }
 
     try:
@@ -202,6 +214,7 @@ async def search_opinions_by_citation(
             )
             response.raise_for_status()
             data = response.json()
+            data['results'] = data['results'][:limit]
             results = OpinionSearchResults(**data)
 
             if ctx:
@@ -293,14 +306,14 @@ async def get_opinion(
 
 
 @mcp.tool()
-async def fetch_opinion_excerpts_by_query(
+async def get_opinion_excerpt(
     opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
     search_query: Annotated[
-        str, Field(description="The query to retrieve excerpts from the opinion")
+        str, Field(description="The query to retrieve excerpt(s) from the opinion")
     ],
     ctx: Context | None = None,
 ) -> str:
-    """Given a search query and opinion ID, retrieve excerpts from the opinion text. Uses BM25 to retrieve excerpts.
+    """Given a search query and opinion ID, retrieve excerpt(s) from the opinion text. Uses BM25 to retrieve excerpt(s).
     Useful for retrieving excerpts from a specific opinion that are relevant to a given search query.
 
     Args:
@@ -383,22 +396,22 @@ async def fetch_opinion_excerpts_by_query(
 
 
 @mcp.tool()
-async def fetch_opinion_excerpts_by_citation(
+async def get_opinion_excerpt_by_citation(
     opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
     citation: Annotated[
-        str, Field(description="The citation to retrieve excerpts from the opinion")
+        str, Field(description="The citation to retrieve excerpt(s) from the opinion")
     ],
     ctx: Context | None = None,
 ) -> str:
-    """Given an input citation and opinion ID, retrieve excerpts from the opinion text. Uses citation lookup engine to detect citations.
+    """Given an input citation and opinion ID, retrieve excerpt(s) from the opinion text. Uses citation lookup engine to detect citations.
     Useful for retrieving excerpts from a specific opinion concerning a given citation.
 
     Args:
         opinion_id: The opinion ID to retrieve.
-        citation: The citation to retrieve excerpts from the opinion.
+        citation: The citation to retrieve excerpt(s) from the opinion.
 
     Returns:
-        str: The opinion excerpts as returned by the CourtListener API.
+        str: The opinion excerpt(s) as returned by the CourtListener API.
     """
 
     if ctx:
@@ -473,7 +486,7 @@ async def fetch_opinion_excerpts_by_citation(
 
 
 @mcp.tool()
-async def get_forward_citation_ids(
+async def fetch_forward_citations(
     opinion_id: Annotated[
         int, Field(description="The target opinion ID to find forward citations for")
     ],
@@ -631,6 +644,7 @@ async def search_people(
             else:
                 logger.info(f"Found {data.get('count', 0)} people")
 
+            data['results'] = data['results'][:limit]
             results = PersonSearchResults(**data)
 
             return results.to_xml()
@@ -1036,7 +1050,148 @@ async def get_attorney(
         else:
             logger.error(error_msg)
         raise e
+    
+    
+@mcp.tool()
+async def search_oral_arguments(
+    q: Annotated[str, Field(description="Search query for oral arguments")],
+    limit: Annotated[int, Field(description="The maximum number of results to return", ge=1, le=100)] = 10,
+    ctx: Context | None = None,
+) -> str:
+    """Search for oral arguments from CourtListener.
 
+    Args:
+        q: The search query to execute.
+        limit: The maximum number of results to return. Default is 10.
+        ctx: Optional context for logging and error reporting.
+
+    Returns:
+        str: The oral argument search results as returned by the CourtListener API.
+    """
+    
+    if ctx:
+        await ctx.info(f"Searching oral arguments with query: {q}")
+    else:
+        logger.info(f"Searching oral arguments with query: {q}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+    params = {
+        "q": q,
+        "type": "oa",
+        "limit": limit,
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://www.courtlistener.com/api/rest/v4/search/",
+                params=params,
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            data['results'] = data['results'][:limit]
+            results = OralArgumentSearchResults(**data)
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved oral arguments with query {q}")
+            else:
+                logger.info(f"Successfully retrieved oral arguments with query {q}")
+
+            return results.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting oral arguments: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting oral arguments: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
+@mcp.tool()
+async def get_oral_argument(
+    audio_id: Annotated[str, Field(description="The audio recording, i.e., oral argument, ID to retrieve")],
+    ctx: Context | None = None,
+) -> str:
+    """Get oral argument information by ID from CourtListener. Typically contains transcript text.
+
+    Args:
+        audio_id: The audio recording, i.e., oral argument, ID to retrieve.
+        ctx: Optional context for logging and error reporting.
+
+    Returns:
+        str: The oral argument data as returned by the CourtListener API.
+
+    Raises:
+        ValueError: If the COURT_LISTENER_API_KEY is not found in environment variables.
+
+    """
+    if ctx:
+        await ctx.info(f"Getting oral argument with ID: {audio_id}")
+    else:
+        logger.info(f"Getting oral argument with ID: {audio_id}")
+
+    if not API_KEY:
+        error_msg = "COURT_LISTENER_API_KEY not found in environment variables"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    headers = {"Authorization": f"Token {API_KEY}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://www.courtlistener.com/api/rest/v4/audio/{audio_id}/",
+                headers=headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+
+            if ctx:
+                await ctx.info(f"Successfully retrieved audio {audio_id}")
+            else:
+                logger.info(f"Successfully retrieved audio {audio_id}")
+
+            result = OralArgument(**response.json())
+
+            return result.to_xml()
+
+    except httpx.HTTPStatusError as e:
+        error_msg = f"HTTP error getting audio: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    except Exception as e:
+        error_msg = f"Error getting audio: {e}"
+        if ctx:
+            await ctx.error(error_msg)
+        else:
+            logger.error(error_msg)
+        raise e
+    
+    
 
 if __name__ == "__main__":
     # Initialize and run the server

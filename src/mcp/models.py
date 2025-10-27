@@ -931,17 +931,7 @@ class OralArgumentSearchResult(BaseFilteredModel):
             return f"{base_url}/{local_path_mp3}"
         else:
             return "No MP3 URL available"
-    
-    def __str__(self) -> str:
-        """Concise summary useful for LLM responses or logs."""
-        return (
-            f"{self.caseName or 'Unknown Case'} "
-            f"({self.web_link}) "
-            f"(ID: {self.id}) — {self.court or 'Unknown Court'}, "
-            f"Argued: {self.dateArgued or 'Unknown'}, "
-            f"Duration: {self.duration or 0}s"
-        )
-    
+        
     def to_xml(self) -> str:
         return format_as_xml(
             self,
@@ -962,3 +952,50 @@ class OralArgumentSearchResults(BaseFilteredModel):
             root_tag=self.__class__.__name__,
             include_field_info="once",
         )
+
+
+class OralArgument(BaseFilteredModel):
+    """
+    Represents an oral argument record from the CourtListener API.
+    """
+    id: int
+    resource_uri: Optional[str] = None
+    absolute_url: Optional[str] = None
+    panel: Optional[list[str]] = Field(default_factory=list)
+    docket: Optional[str] = None
+    date_created: Optional[str] = None
+    date_modified: Optional[str] = None
+    source: Optional[str] = None
+    case_name_short: Optional[str] = None
+    case_name: Optional[str] = None
+    case_name_full: Optional[str] = None
+    judges: Optional[str] = None
+    sha1: Optional[str] = None
+    download_url: Optional[str] = None
+    local_path_mp3: Optional[str] = None
+    local_path_original_file: Optional[str] = None
+    filepath_ia: Optional[str] = None
+    ia_upload_failure_count: Optional[int] = None
+    duration: Optional[int] = None
+    processing_complete: Optional[bool] = None
+    date_blocked: Optional[str] = None
+    blocked: Optional[bool] = None
+    stt_status: Optional[int] = None
+    stt_source: Optional[int] = None
+    stt_transcript: Optional[str] = None
+    
+    @field_validator("date_created", "date_modified")
+    def parse_date(cls, v: str) -> Optional[str]:
+        if v is None:
+            return None
+        # Parse the datetime string and extract just the date portion
+        return v.split("T")[0]
+
+    def to_xml(self) -> str:
+        return format_as_xml(
+            self,
+            root_tag=self.__class__.__name__,
+            include_field_info="once",
+        )
+        
+        
