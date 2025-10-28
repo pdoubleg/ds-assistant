@@ -290,7 +290,7 @@ class Opinion(BaseFilteredModel):
                 if self.full_text_flag:
                     return html_to_text(html_content)
                 else:
-                    return html_to_text(html_content)[:50] + "..."
+                    return html_to_text(html_content)[:150] + "..."
         
         # Fall back to XML (return as-is, assuming it's text-like)
         if self.xml_harvard is not None:

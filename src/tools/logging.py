@@ -4,7 +4,8 @@ from rich.console import Console
 from pydantic_ai import RunContext
 from pydantic_ai.toolsets import ToolsetTool, WrapperToolset
 
-from src.clai import Markdown
+# from src.clai import Markdown
+from pydantic_ai._cli import Markdown
 
 
 @dataclass

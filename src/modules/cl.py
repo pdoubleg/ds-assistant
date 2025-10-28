@@ -1,34 +1,53 @@
-# uv run python -m src.modules.cl
+# /// script
+# dependencies = [
+#   "httpx",
+#   "pydantic-ai-slim[openai, retries, cli]>=1.0.0",
+#   "pydantic",
+#   "dotenv",
+#   "asyncio",
+#   "eyecite",
+#   "html2text",
+#   "nltk",
+#   "spacy",
+#   "rank-bm25",
+# ]
+# ///
 
 
-from typing import Annotated, Dict, Literal, Optional
-from dataclasses import dataclass, field
+"""uv run python -m src.modules.cl --no-project"""
+
+import asyncio
 import os
-from fsspec.exceptions import asyncio
-import httpx
+from dataclasses import dataclass, field
 from textwrap import dedent
+from typing import Annotated, Dict, Literal, Optional
+
+import httpx
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.models import ModelMessage
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.toolsets import FunctionToolset
 from pydantic_ai.usage import RunUsage
-from pydantic_ai.models.openai import OpenAIChatModelSettings
 
-
-from src.mcp.utils import get_citation_context, get_context_with_bm25
-from src.tools.logging import LoggingToolset
-    
 from src.mcp.models import (
+    Attorney,
+    Docket,
+    DocketSearchResults,
+    Opinion,
+    OpinionExcerpt,
+    OpinionExcerpts,
+    OpinionSearchResults,
+    OralArgument,
     OralArgumentSearchResults,
     PacerFilingSearchResults,
-    OpinionSearchResults,
-    DocketSearchResults,
+    Person,
     PersonSearchResults,
     RECAPSearchResults,
-    Attorney, Docket, Opinion, OpinionExcerpt, OpinionExcerpts, OralArgument, Person
 )
+from src.mcp.utils import get_citation_context, get_context_with_bm25
+from src.tools.logging import LoggingToolset
 
 load_dotenv()
 
@@ -36,21 +55,19 @@ load_dotenv()
 @dataclass
 class CourtListenerAgentDeps:
     """Dependencies for the CourtListener agent."""
-    
+
     api_key: str
     client: httpx.AsyncClient
     usages: list[RunUsage] = field(default_factory=list, init=False)
-    
+
     def __post_init__(self):
         if not self.api_key:
-            raise ValueError("COURT_LISTENER_API_KEY not found in environment variables")
-        
+            raise ValueError(
+                "COURT_LISTENER_API_KEY not found in environment variables"
+            )
+
     def get_headers(self):
-        return {
-            "Authorization": f"Token {self.api_key}"
-        }
-
-
+        return {"Authorization": f"Token {self.api_key}"}
 
 
 class CourtListenerSearchQuery(BaseModel):
@@ -325,7 +342,6 @@ court_listener_query_writer_agent = Agent(
 )
 
 
-
 async def get_court_listener_query(
     ctx: RunContext[CourtListenerAgentDeps],
     query: Annotated[
@@ -346,11 +362,9 @@ async def get_court_listener_query(
     """
 
     result = await court_listener_query_writer_agent.run(query, deps=ctx.deps)
-    
+
     return result.output
 
-
-    
 
 async def execute_court_listener_search_query(
     ctx: RunContext[CourtListenerAgentDeps],
@@ -364,17 +378,14 @@ async def execute_court_listener_search_query(
             description="The type of search to execute. Options are as follows: o = opinions, r = List of Federal cases (dockets), rd = Federal filing documents from PACER, d = Federal cases (dockets) from PACER, p = judges, oa = oral arguments"
         ),
     ],
-    
     order_by: Annotated[
         str,
         Field(description="Sort by 'score desc', 'dateFiled desc', or 'dateFiled asc'"),
     ] = "score desc",
-    
     params: Annotated[
         Dict[str, str] | None,
         Field(description="The params to use"),
     ] = None,
-    
     limit: Annotated[
         int,
         Field(description="The limit to use"),
@@ -393,10 +404,10 @@ async def execute_court_listener_search_query(
     Returns:
         str: The search results as returned by the CourtListener API
     """
-    
+
     if not params:
         params = {}
-    
+
     if limit:
         params["limit"] = limit
 
@@ -409,8 +420,8 @@ async def execute_court_listener_search_query(
         )
         response.raise_for_status()
         data = response.json()
-        data['results'] = data['results'][:limit]
-        
+        data["results"] = data["results"][:limit]
+
         if type == "o":
             data = OpinionSearchResults(**data)
         elif type == "r":
@@ -423,18 +434,17 @@ async def execute_court_listener_search_query(
             data = PersonSearchResults(**data)
         elif type == "oa":
             data = OralArgumentSearchResults(**data)
-            
+
         return data.to_xml()
 
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error: {e}"
         raise ModelRetry(error_msg) from e
-    
+
     except Exception as e:
         error_msg = f"Error executing search query: {e}"
         raise ModelRetry(error_msg) from e
-    
-    
+
 
 async def get_opinion(
     ctx: RunContext[CourtListenerAgentDeps],
@@ -473,12 +483,11 @@ async def get_opinion(
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error getting opinion: {e}"
         raise ModelRetry(error_msg) from e
-    
+
     except Exception as e:
         error_msg = f"Error getting opinion: {e}"
         raise ModelRetry(error_msg) from e
-    
-    
+
 
 async def get_opinion_excerpt(
     ctx: RunContext[CourtListenerAgentDeps],
@@ -494,7 +503,7 @@ async def get_opinion_excerpt(
         opinion_id: The opinion ID to retrieve.
         search_query: The query to retrieve excerpts from the opinion.
         ctx: The pydantic-ai agent run context
-        
+
     Returns:
         str: The opinion excerpts as returned by the CourtListener API.
     """
@@ -534,12 +543,11 @@ async def get_opinion_excerpt(
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error getting opinion: {e}"
         raise ModelRetry(error_msg) from e
-    
+
     except Exception as e:
         error_msg = f"Error getting opinion: {e}"
         raise ModelRetry(error_msg) from e
-    
-    
+
 
 async def get_opinion_excerpt_by_citation(
     ctx: RunContext[CourtListenerAgentDeps],
@@ -555,7 +563,7 @@ async def get_opinion_excerpt_by_citation(
         opinion_id: The opinion ID to retrieve.
         citation: The citation to retrieve excerpt(s) from the opinion.
         ctx: The pydantic-ai agent run context
-        
+
     Returns:
         str: The opinion excerpt(s) as returned by the CourtListener API.
     """
@@ -586,7 +594,9 @@ async def get_opinion_excerpt_by_citation(
             ]
 
         else:
-            excerpts = f"No excerpts found in opinion `{opinion_id}` for citation `{citation}`"
+            excerpts = (
+                f"No excerpts found in opinion `{opinion_id}` for citation `{citation}`"
+            )
 
         opinion_excerpts = OpinionExcerpts(id=opinion_id, excerpts=excerpts)
 
@@ -595,12 +605,11 @@ async def get_opinion_excerpt_by_citation(
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error getting opinion: {e}"
         raise ModelRetry(error_msg) from e
-    
+
     except Exception as e:
         error_msg = f"Error getting opinion: {e}"
         raise ModelRetry(error_msg) from e
-    
-    
+
 
 async def get_person(
     ctx: RunContext[CourtListenerAgentDeps],
@@ -632,12 +641,11 @@ async def get_person(
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error getting person: {e}"
         raise ModelRetry(error_msg) from e
-    
+
     except Exception as e:
         error_msg = f"Error getting person: {e}"
         raise ModelRetry(error_msg) from e
-    
-    
+
 
 async def get_docket(
     ctx: RunContext[CourtListenerAgentDeps],
@@ -670,12 +678,11 @@ async def get_docket(
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error getting docket: {e}"
         raise ModelRetry(error_msg) from e
-    
+
     except Exception as e:
         error_msg = f"Error getting docket: {e}"
         raise ModelRetry(error_msg) from e
-    
-    
+
 
 async def get_attorney(
     ctx: RunContext[CourtListenerAgentDeps],
@@ -706,15 +713,18 @@ async def get_attorney(
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error getting attorney: {e}"
         raise ModelRetry(error_msg) from e
-    
+
     except Exception as e:
         error_msg = f"Error getting attorney: {e}"
         raise ModelRetry(error_msg) from e
-    
-    
+
+
 async def get_oral_argument(
     ctx: RunContext[CourtListenerAgentDeps],
-    audio_id: Annotated[str, Field(description="The audio recording, i.e., oral argument, ID to retrieve")],
+    audio_id: Annotated[
+        str,
+        Field(description="The audio recording, i.e., oral argument, ID to retrieve"),
+    ],
 ) -> str:
     """Get oral argument information by ID from CourtListener. Typically contains transcript text.
 
@@ -742,23 +752,24 @@ async def get_oral_argument(
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP error getting audio: {e}"
         raise ModelRetry(error_msg) from e
-    
+
     except Exception as e:
         error_msg = f"Error getting audio: {e}"
         raise ModelRetry(error_msg) from e
-    
-    
+
+
 court_listener_toolset = FunctionToolset(
     tools=[
-        get_court_listener_query, 
-        execute_court_listener_search_query, 
-        get_opinion, 
-        get_opinion_excerpt, 
-        get_opinion_excerpt_by_citation, 
-        get_person, 
-        get_docket, 
-        get_attorney, 
-        get_oral_argument],
+        get_court_listener_query,
+        execute_court_listener_search_query,
+        get_opinion,
+        get_opinion_excerpt,
+        get_opinion_excerpt_by_citation,
+        get_person,
+        get_docket,
+        get_attorney,
+        get_oral_argument,
+    ],
     max_retries=5,
 )
 
@@ -773,11 +784,14 @@ court_listener_agent = Agent(
     system_prompt="You are a world class legal assistant AI. Use the available tools AS NEEDED to help the user with their query.",
     model_settings=OpenAIChatModelSettings(
         parallel_tool_calls=False,
-    )
+    ),
 )
 
+
 @court_listener_agent.instructions
-async def get_court_listener_agent_system_prompt(ctx: RunContext[CourtListenerAgentDeps]):
+async def get_court_listener_agent_system_prompt(
+    ctx: RunContext[CourtListenerAgentDeps],
+):
     prompt = dedent("""\
         <instructions>
             <instruction>Use the provided tools AS NEEDED to explore the CourtListener database.</instruction>
@@ -793,25 +807,29 @@ async def get_court_listener_agent_system_prompt(ctx: RunContext[CourtListenerAg
     """)
     return prompt
 
+
 async def main():
     """Main entry point for the CourtListener agent CLI.
-    
+
     Initializes the agent dependencies with a shared HTTP client and runs the CLI interface.
     The client is properly closed after the CLI session ends.
     """
     message_history: list[ModelMessage] = []
     client = httpx.AsyncClient()
-    
+
     try:
         deps = CourtListenerAgentDeps(
             api_key=os.getenv("COURT_LISTENER_API_KEY"),
             client=client,
         )
-        
-        await court_listener_agent.to_cli(deps=deps, message_history=message_history, prog_name="court_listener_agent")
+
+        await court_listener_agent.to_cli(
+            deps=deps, message_history=message_history, prog_name="court_listener_agent"
+        )
     finally:
         # Ensure the client is properly closed when the agent session ends
         await client.aclose()
-    
+
+
 if __name__ == "__main__":
     asyncio.run(main())
