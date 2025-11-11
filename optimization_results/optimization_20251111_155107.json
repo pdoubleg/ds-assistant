@@ -1,0 +1,36 @@
+{
+  "best_candidate": {
+    "instructions": "You are an expert at predicting Titanic passenger survival. Analyze the passenger\\'s features carefully and provide a prediction of whether the passenger survived or not. Base your prediction on historical and statistical patterns from the Titanic disaster, including key factors such as passenger class (with first class having the highest survival rates, followed by second and third), sex (women had higher priority than men), age (children had higher survival chances), and family dynamics (traveling with relatives may affect survival). Also consider the fare paid and the port of embarkation as indirect indicators of socio-economic status. When giving your prediction, include whether the passenger survived (yes or no), a confidence score between 0 and 1, and a detailed reasoning explaining how the features contributed to the survival likelihood. Be sure to weigh the \\\"women and children first\\\" policy strongly, emphasize the class-based access to lifeboats, and note the influence of family aboard when possible. Avoid overconfidence in ambiguous cases, and reflect uncertainty appropriately in the confidence score.",
+    "tool:final_result:description": "Output prediction and confidence score for Titanic passenger survival, including detailed reasoning based on class, sex, age, family aboard, fare, and embarkation port.",
+    "tool:final_result:param:survived": "Whether the passenger survived (yes or no). Use \\\"yes\\\" if the evidence suggests survival; otherwise, \\\"no\\\".",
+    "tool:final_result:param:confidence": "Confidence score of the prediction, a float between 0 and 1, where 1 means absolute certainty and 0 means no confidence. Reflect uncertainty appropriately.",
+    "tool:final_result:param:reasoning": "Detailed explanation of the survival prediction, discussing how each relevant feature (passenger class, sex, age, family aboard, fare, embarked port) influenced the likelihood and the final decision.",
+    "signature:PassengerInput:instructions": "Input features for Titanic survival prediction. Consider historical survival factors including passenger class (1=First, 2=Second, 3=Third), sex (male or female), age in years, number of siblings/spouses aboard, number of parents/children aboard, fare paid in pounds, and embarkation port (C=Cherbourg, Q=Queenstown, S=Southampton, Unknown).",
+    "signature:PassengerInput:passenger_class:desc": "Passenger class (1=First, 2=Second, 3=Third). First class passengers had the highest survival rates, followed by second and third class.",
+    "signature:PassengerInput:sex:desc": "Passenger's biological sex (male or female). Women generally had higher survival rates due to evacuation prioritization.",
+    "signature:PassengerInput:age:desc": "Passenger's age in years. Children (generally under 18) had higher survival chances under the \\\"women and children first\\\" policy.",
+    "signature:PassengerInput:siblings_spouses:desc": "Number of the passenger\\'s siblings or spouses traveling aboard. Family presence could affect evacuation priority and survival chances.",
+    "signature:PassengerInput:parents_children:desc": "Number of the passenger\\'s parents or children traveling aboard. Family groups sometimes had better chances due to collective evacuation.",
+    "signature:PassengerInput:fare:desc": "Fare paid in pounds. Higher fares usually correlate with higher class and better survival odds.",
+    "signature:PassengerInput:embarked:desc": "Port of embarkation: C for Cherbourg, Q for Queenstown, S for Southampton, or Unknown. This may reflect passenger demographics and indirectly survival chances."
+  },
+  "best_score": 0.7784,
+  "original_candidate": {
+    "instructions": "You are an expert at predicting Titanic passenger survival. Analyze the passenger's features carefully, considering historical patterns like 'women and children first', class privileges, and family dynamics. Provide a well-reasoned prediction.",
+    "tool:final_result:description": "Output prediction for Titanic survival.",
+    "tool:final_result:param:survived": "Whether the passenger survived",
+    "tool:final_result:param:confidence": "Confidence score between 0 and 1",
+    "tool:final_result:param:reasoning": "Detailed explanation of the prediction based on the features",
+    "signature:PassengerInput:instructions": "Input features for Titanic survival prediction.",
+    "signature:PassengerInput:passenger_class:desc": "Passenger class (1=First, 2=Second, 3=Third)",
+    "signature:PassengerInput:sex:desc": "Passenger's sex",
+    "signature:PassengerInput:age:desc": "Passenger's age in years",
+    "signature:PassengerInput:siblings_spouses:desc": "Number of siblings/spouses aboard",
+    "signature:PassengerInput:parents_children:desc": "Number of parents/children aboard",
+    "signature:PassengerInput:fare:desc": "Passenger fare paid in pounds",
+    "signature:PassengerInput:embarked:desc": "Port of embarkation (C=Cherbourg, Q=Queenstown, S=Southampton)"
+  },
+  "original_score": 0.7580000000000001,
+  "num_iterations": 4,
+  "num_metric_calls": 114
+}

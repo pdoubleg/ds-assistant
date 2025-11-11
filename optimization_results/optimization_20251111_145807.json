@@ -1,0 +1,26 @@
+{
+  "best_candidate": {
+    "instructions": "Classify the sentiment of the given text as positive, negative, or neutral. Consider both the explicit statements in the text and the provided context. Use the following definitions:\n- Positive: Expresses satisfaction, approval, praise, enthusiasm, or explicit positives (e.g., 'Absolutely love it!').\n- Negative: Expresses dissatisfaction, criticism, complaint, disappointment, or explicit negatives (e.g., 'Terrible experience.').\n- Neutral: Expresses neither strong satisfaction nor dissatisfaction; includes factual, descriptive, or indifferent statements (e.g., 'It works as described.' or 'It's okay, nothing special.'). Pay close attention to context (such as product reviews) and favor 'neutral' for statements indicating basic adequacy without enthusiasm or criticism.",
+    "tool:final_result:description": "Provide a JSON object containing three fields: \n1. 'category': The sentiment label (positive, negative, or neutral) chosen according to the guidelines above.\n2. 'confidence': A value between 0 and 1 representing how certain you are in your classification, with higher values for clear-cut cases.\n3. 'reasoning': A concise explanation for the classification, referencing key phrases and how context and sentiment definitions informed your choice.",
+    "tool:final_result:param:category": "The sentiment category assigned to the text. Must be one of: 'positive', 'negative', or 'neutral'. Choose 'neutral' for texts that simply confirm adequacy or meet expectations without further commentary, as in 'It works as described.' in a product review.",
+    "tool:final_result:param:confidence": "A numeric confidence score between 0 and 1 reflecting the certainty of your sentiment classification. Use higher scores for texts with clear sentiment indicators (enthusiastic praise or explicit complaint) and lower for more ambiguous or minimal statements.",
+    "tool:final_result:param:reasoning": "Briefly justify your sentiment assignment, citing specific phrases and connecting them to the definitions of positive, negative, or neutral. If context played a key role (for example, factual language in a product review suggesting neutrality), mention this in your explanation.",
+    "signature:SentimentInput:instructions": "Input for sentiment classification. Supply the text to be analyzed and optionally the context in which it appears (e.g., 'product review', 'customer feedback'). The context may influence whether statements are neutral or positive/negative.",
+    "signature:SentimentInput:text:desc": "The text to classify for sentiment. Neutral responses typically use factual or unembellished language (e.g., 'It works as described.' is neutral in reviews; 'Absolutely love it!' is positive).",
+    "signature:SentimentInput:context:desc": "The situational context where the text appears, such as 'product review', 'customer feedback', or 'general comment'. Context distinguishes neutral adequacy ('It works as described.') from positive sentiment."
+  },
+  "best_score": 1.0,
+  "original_candidate": {
+    "instructions": "Classify the sentiment of the given text as positive, negative, or neutral.",
+    "tool:final_result:description": "Output for sentiment classification.",
+    "tool:final_result:param:category": "The sentiment category",
+    "tool:final_result:param:confidence": "Confidence score between 0 and 1",
+    "tool:final_result:param:reasoning": "Brief explanation of the classification",
+    "signature:SentimentInput:instructions": "Input for sentiment classification.",
+    "signature:SentimentInput:text:desc": "The text to classify",
+    "signature:SentimentInput:context:desc": "The context of the text"
+  },
+  "original_score": 0.8,
+  "num_iterations": 2,
+  "num_metric_calls": 52
+}
