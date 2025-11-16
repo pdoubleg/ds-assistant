@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.gepa.scaffold import GepaConfig, run_optimization_pipeline
-from src.gepa.data_utils import create_dataset_from_dicts
+from src.gepa.data_utils import prepare_train_val_sets
 from src.gepa.lm import get_openai_model
 from src.gepa.types import DataInstWithInput, RolloutOutput
 
@@ -218,16 +218,19 @@ def main():
     print(f"Training survival distribution: {train_survival_counts}")
     print(f"Holdout survival distribution: {holdout_survival_counts}")
     
-    # Convert to GEPA dataset format
-    dataset = create_dataset_from_dicts(
+    # Convert to GEPA dataset format and split into train/val
+    trainset, valset = prepare_train_val_sets(
         train_data,
         input_model=PassengerInput,
         input_keys=['passenger_class', 'sex', 'age', 'siblings_spouses', 
                    'parents_children', 'fare', 'embarked'],
         metadata_keys=['label'],
+        train_ratio=0.7,
+        shuffle=True,
+        random_seed=42,
     )
     
-    print(f"Created training dataset with {len(dataset)} examples")
+    print(f"Created dataset: {len(trainset)} training, {len(valset)} validation examples")
     
     # Configure the optimization
     reflection_model = "gpt-4.1-mini"
@@ -246,9 +249,9 @@ def main():
         output_type=SurvivalPrediction,
         
         # Data and evaluation
-        dataset=dataset,
+        trainset=trainset,
+        valset=valset,
         metric=survival_metric,
-        train_ratio=0.7,  # 70% for training, 30% for validation
         
         # Optimization parameters
         max_metric_calls=50,  # More calls for better optimization
@@ -276,8 +279,8 @@ def main():
     print("Task: Titanic Survival Prediction")
     print(f"Model: {config.agent_model}")
     print(f"Reflection Model: {config.reflection_model}")
-    print(f"Dataset size: {len(config.dataset)} passengers")
-    print(f"Train/Val split: {config.train_ratio:.0%} / {1-config.train_ratio:.0%}")
+    print(f"Training set: {len(config.trainset)} passengers")
+    print(f"Validation set: {len(config.valset) if config.valset else 0} passengers")
     print(f"Max metric calls: {config.max_metric_calls}")
     print("="*70 + "\n")
     

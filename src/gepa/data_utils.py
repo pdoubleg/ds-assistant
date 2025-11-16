@@ -364,3 +364,79 @@ def create_dataset_from_dicts(
         dataset.append(data_inst)
 
     return dataset
+
+
+def prepare_train_val_sets(
+    data: list[dict[str, Any]],
+    input_model: type[InputModelT],
+    input_keys: list[str],
+    train_ratio: float = 0.7,
+    shuffle: bool = True,
+    random_seed: int | None = 42,
+    metadata_keys: list[str] | None = None,
+    case_id_key: str | None = None,
+) -> tuple[list[DataInstWithInput[InputModelT]], list[DataInstWithInput[InputModelT]]]:
+    """Create and split a dataset from dictionaries into train and validation sets.
+
+    This is a convenience function that combines dataset creation and splitting
+    into a single step, making it easy to prepare data for GEPA optimization.
+
+    Args:
+        data: List of dictionaries containing the data.
+        input_model: The Pydantic model class for structured inputs.
+        input_keys: List of dictionary keys to use for creating input model instances.
+        train_ratio: Ratio of data to use for training (default: 0.7).
+        shuffle: Whether to shuffle the dataset before splitting (default: True).
+        random_seed: Random seed for reproducible shuffling (default: 42).
+        metadata_keys: List of keys to include in metadata dict. If None, all keys
+            not in input_keys are included. Default: None.
+        case_id_key: Key to use for case IDs. If None, uses array index. Default: None.
+
+    Returns:
+        Tuple of (trainset, valset) as lists of DataInstWithInput instances.
+
+    Raises:
+        ValueError: If data is empty, train_ratio is invalid, or dataset is too small.
+
+    Example:
+        >>> from pydantic import BaseModel, Field
+        >>> from src.gepa.data_utils import prepare_train_val_sets
+        >>>
+        >>> class SentimentInput(BaseModel):
+        ...     text: str = Field(description="Text to classify")
+        >>>
+        >>> data = [
+        ...     {'text': 'Great product!', 'label': 'positive'},
+        ...     {'text': 'Terrible service', 'label': 'negative'},
+        ...     # ... more examples
+        ... ]
+        >>>
+        >>> trainset, valset = prepare_train_val_sets(
+        ...     data,
+        ...     input_model=SentimentInput,
+        ...     input_keys=['text'],
+        ...     metadata_keys=['label'],
+        ...     train_ratio=0.8,
+        ...     shuffle=True,
+        ...     random_seed=42
+        ... )
+        >>> print(f"Training: {len(trainset)}, Validation: {len(valset)}")
+    """
+    # Create the full dataset
+    dataset = create_dataset_from_dicts(
+        data=data,
+        input_model=input_model,
+        input_keys=input_keys,
+        metadata_keys=metadata_keys,
+        case_id_key=case_id_key,
+    )
+
+    # Split into train and validation sets
+    trainset, valset = split_dataset(
+        dataset=dataset,
+        train_ratio=train_ratio,
+        shuffle=shuffle,
+        random_seed=random_seed,
+    )
+
+    return trainset, valset

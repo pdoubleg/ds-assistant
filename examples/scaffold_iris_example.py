@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.gepa.scaffold import GepaConfig, run_optimization_pipeline
-from src.gepa.data_utils import create_dataset_from_dicts
+from src.gepa.data_utils import prepare_train_val_sets
 from src.gepa.types import DataInstWithInput, RolloutOutput
 
 
@@ -228,15 +228,18 @@ def main():
     print(f"Training species distribution: {train_species_counts}")
     print(f"Holdout species distribution: {holdout_species_counts}")
     
-    # Convert to GEPA dataset format
-    dataset = create_dataset_from_dicts(
+    # Convert to GEPA dataset format and split into train/val
+    trainset, valset = prepare_train_val_sets(
         train_data,
         input_model=IrisInput,
         input_keys=['sepal_length', 'sepal_width', 'petal_length', 'petal_width'],
         metadata_keys=['label'],
+        train_ratio=0.7,
+        shuffle=True,
+        random_seed=42,
     )
     
-    print(f"Created training dataset with {len(dataset)} examples")
+    print(f"Created dataset: {len(trainset)} training, {len(valset)} validation examples")
     
     # Configure the optimization
     reflection_model = "gpt-4.1-mini"
@@ -256,9 +259,9 @@ def main():
         output_type=IrisClassification,
         
         # Data and evaluation
-        dataset=dataset,
+        trainset=trainset,
+        valset=valset,
         metric=iris_metric,
-        train_ratio=0.7,  # 70% for training, 30% for validation
         
         # Optimization parameters
         max_metric_calls=100,  # More calls for better optimization
@@ -289,8 +292,8 @@ def main():
     print("Task: Iris Flower Classification")
     print(f"Model: {config.agent_model}")
     print(f"Reflection Model: {reflection_model}")
-    print(f"Dataset size: {len(config.dataset)} flowers")
-    print(f"Train/Val split: {config.train_ratio:.0%} / {1-config.train_ratio:.0%}")
+    print(f"Training set: {len(config.trainset)} flowers")
+    print(f"Validation set: {len(config.valset) if config.valset else 0} flowers")
     print(f"Max metric calls: {config.max_metric_calls}")
     print("="*70 + "\n")
     

@@ -6,7 +6,6 @@ GEPA optimization for a sentiment classification task with minimal boilerplate.
 
 from typing import Literal
 
-from numpy import True_
 from pydantic import BaseModel, Field
 
 import sys
@@ -16,7 +15,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.gepa.scaffold import GepaConfig, run_optimization_pipeline
-from src.gepa.data_utils import create_dataset_from_dicts
+from src.gepa.data_utils import prepare_train_val_sets
 from src.gepa.types import DataInstWithInput, RolloutOutput
 
 
@@ -122,15 +121,18 @@ sample_data = [
     },
 ]
 
-# Convert data to GEPA format using the helper function
-dataset = create_dataset_from_dicts(
+# Convert data to GEPA format and split into train/val using the helper function
+trainset, valset = prepare_train_val_sets(
     sample_data,
     input_model=SentimentInput,
     input_keys=["text", "context"],
     metadata_keys=["label"],
+    train_ratio=0.7,
+    shuffle=True,
+    random_seed=42,
 )
 
-print(f"Loaded {len(dataset)} examples for training and validation")
+print(f"Loaded {len(trainset)} training and {len(valset)} validation examples")
 
 
 # Step 3: Define your evaluation metric
@@ -186,9 +188,9 @@ def main():
         output_type=SentimentOutput,
         
         # Data and evaluation
-        dataset=dataset,
+        trainset=trainset,
+        valset=valset,
         metric=sentiment_metric,
-        train_ratio=0.7,  # 70% for training, 30% for validation
         
         # Optimization parameters
         max_metric_calls=50,  # Limit for demonstration purposes
@@ -202,7 +204,7 @@ def main():
         track_best_outputs=True,
         
         # Caching (optional, speeds up repeated runs)
-        enable_cache=True_,
+        enable_cache=True,
         cache_dir=".gepa_cache",
         
         # Output settings
@@ -215,8 +217,8 @@ def main():
     print("="*70)
     print("Task: Sentiment Classification")
     print(f"Model: {config.agent_model}")
-    print(f"Dataset size: {len(config.dataset)} examples")
-    print(f"Train/Val split: {config.train_ratio:.0%} / {1-config.train_ratio:.0%}")
+    print(f"Training set: {len(config.trainset)} examples")
+    print(f"Validation set: {len(config.valset) if config.valset else 0} examples")
     print(f"Max metric calls: {config.max_metric_calls}")
     print("="*70 + "\n")
     

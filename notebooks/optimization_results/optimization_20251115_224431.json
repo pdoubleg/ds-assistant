@@ -1,0 +1,53 @@
+{
+  "best_candidate": {
+    "instructions": "Given a set of passenger features, predict whether the passenger would have survived the Titanic disaster. Take into account historically significant survival factors relevant to the Titanic, such as passenger class, sex (women and children had higher survival rates), age, number of relatives aboard, fare paid, and port of embarkation. Your prediction should be based strictly on features observed in the Titanic dataset, not on speculative or external factors.",
+    "tool:final_result:description": "Provide a clear prediction indicating whether the passenger survived (1) or not (0) in the Titanic disaster. Also offer a confidence score and a concise explanation based on feature analysis.",
+    "tool:final_result:param:survived": "Prediction outcome: 1 if the passenger survived, 0 if not. Base this on learned Titanic survival patterns from the dataset.",
+    "tool:final_result:param:confidence": "Confidence score as a float between 0 and 1, reflecting how certain you are in your prediction based on passenger features and the distribution in the Titanic dataset.",
+    "tool:final_result:param:reasoning": "Provide a brief but clear explanation of which features contributed the most to your survival prediction. Reference historical statistics when possible (e.g., women and children, first class, higher fare paid, and embarkation point C had higher survival rates).",
+    "signature:PassengerInput:instructions": "These are the passenger features you should use to predict survival. Use only the provided features. Do not infer or use outside information.",
+    "signature:PassengerInput:passenger_class:desc": "Ticket class of passenger (1 = First Class, 2 = Second Class, 3 = Third Class). First class had a much higher survival rate than third class.",
+    "signature:PassengerInput:sex:desc": "Passenger's gender. Women had a much higher survival rate than men in the Titanic disaster.",
+    "signature:PassengerInput:age:desc": "Passenger's age in years. Children under 15 generally had a higher chance of survival.",
+    "signature:PassengerInput:siblings_spouses:desc": "Number of siblings or spouses aboard (SibSp) with the passenger. Traveling with family correlated with survival in some cases.",
+    "signature:PassengerInput:parents_children:desc": "Number of parents or children aboard (Parch) with the passenger. Children traveling with parents often had a higher survival rate.",
+    "signature:PassengerInput:fare:desc": "Passenger fare paid (in British pounds). Higher fares typically indicate wealthier passengers, which correlated weakly with higher survival rates.",
+    "signature:PassengerInput:embarked:desc": "Port of embarkation: C=Cherbourg, Q=Queenstown, S=Southampton. Passengers embarking at Cherbourg often had a higher chance of survival."
+  },
+  "best_score": 0.8547222222222217,
+  "original_candidate": {
+    "instructions": "Predict Titanic survival based on the passenger's features.",
+    "tool:final_result:description": "Output prediction for Titanic survival.",
+    "tool:final_result:param:survived": "Whether the passenger survived",
+    "tool:final_result:param:confidence": "Confidence score between 0 and 1",
+    "tool:final_result:param:reasoning": "Detailed explanation of the prediction based on the features",
+    "signature:PassengerInput:instructions": "Input features for Titanic survival prediction.",
+    "signature:PassengerInput:passenger_class:desc": "Passenger class (1=First, 2=Second, 3=Third)",
+    "signature:PassengerInput:sex:desc": "Passenger's sex",
+    "signature:PassengerInput:age:desc": "Passenger's age in years",
+    "signature:PassengerInput:siblings_spouses:desc": "Number of siblings/spouses aboard",
+    "signature:PassengerInput:parents_children:desc": "Number of parents/children aboard",
+    "signature:PassengerInput:fare:desc": "Passenger fare paid in pounds",
+    "signature:PassengerInput:embarked:desc": "Port of embarkation (C=Cherbourg, Q=Queenstown, S=Southampton)"
+  },
+  "original_score": 0.5276388888888888,
+  "num_iterations": 5,
+  "num_metric_calls": 204,
+  "gepa_usage": {
+    "input_tokens": 302112,
+    "cache_write_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 26334,
+    "input_audio_tokens": 0,
+    "cache_audio_read_tokens": 0,
+    "output_audio_tokens": 0,
+    "details": {
+      "accepted_prediction_tokens": 0,
+      "audio_tokens": 0,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": 0
+    },
+    "requests": 190,
+    "tool_calls": 0
+  }
+}

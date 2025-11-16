@@ -40,17 +40,18 @@ class GepaConfig:
         agent_instructions: System instructions for the agent.
         input_type: Pydantic model class defining the structured input format.
         output_type: Pydantic model class defining the expected output format.
-        dataset: List of DataInstWithInput instances for training and validation.
+        trainset: List of DataInstWithInput instances for training.
         metric: Function that evaluates agent outputs, returning (score, feedback).
-        train_ratio: Ratio of dataset to use for training (default: 0.7).
-        agent_tools: Optional list of tool functions to register with the agent.
+        valset: Optional list of DataInstWithInput instances for validation. If None, trainset is used.
+        auto: Automatically set the budget based on the dataset size. Can be 'light', 'medium', or 'heavy'.
+        max_full_evals: Maximum number of full evaluations (budget).
+        max_metric_calls: Maximum number of metric evaluations (budget).
         optimize_tools: Whether to optimize tool descriptions (default: True).
         seed_candidate: Optional initial candidate prompts to start optimization from.
         reflection_model: Model to use for reflection/mutation (default: None, uses agent_model).
         reflection_minibatch_size: Number of examples to use for reflection in each proposal (default: 3).
         perfect_score: The perfect score value to achieve (default: 1).
         skip_perfect_score: Whether to skip updating if perfect score achieved on minibatch (default: True).
-        max_metric_calls: Maximum number of metric evaluations (default: 100).
         module_selector: Which components to optimize - "all", "round_robin", etc. (default: "round_robin").
         candidate_selection_strategy: Strategy for selecting candidates - "pareto", "current_best", "epsilon_greedy", etc. (default: "pareto").
         use_merge: Whether to use the merge strategy for combining candidates (default: False).
@@ -59,7 +60,7 @@ class GepaConfig:
         stop_callbacks: Stopper conditions for stopping optimization (default: None).
         display_progress_bar: Whether to show progress bar during optimization (default: True).
         track_best_outputs: Whether to track best outputs for analysis (default: True).
-        enable_cache: Whether to enable caching of metric results (default: False).
+        enable_cache: Whether to enable caching of metric results (default: True).
         cache_dir: Directory for cache storage (default: ".gepa_cache").
         cache_verbose: Whether to print cache statistics (default: False).
         output_dir: Directory to save optimization results (default: "optimization_results").
@@ -68,7 +69,7 @@ class GepaConfig:
     Example:
         >>> from pydantic import BaseModel, Field
         >>> from src.gepa.scaffold import GepaConfig, run_optimization_pipeline
-        >>> from src.gepa.data_utils import dataframe_to_dataset
+        >>> from src.gepa.data_utils import dataframe_to_dataset, split_dataset
         >>>
         >>> class MyInput(BaseModel):
         ...     text: str = Field(description="Input text")
@@ -81,13 +82,18 @@ class GepaConfig:
         ...         return 1.0 if output.result.category == data_inst.metadata["label"] else 0.0, None
         ...     return 0.0, "Failed to produce output"
         >>>
+        >>> # Split dataset into train and validation
+        >>> trainset, valset = split_dataset(my_dataset, train_ratio=0.7)
+        >>>
         >>> config = GepaConfig(
         ...     agent_model="gpt-4.1-mini",
         ...     agent_instructions="Classify the input text",
         ...     input_type=MyInput,
         ...     output_type=MyOutput,
-        ...     dataset=my_dataset,
+        ...     trainset=trainset,
+        ...     valset=valset,
         ...     metric=my_metric,
+        ...     auto="light",
         ... )
         >>> result = run_optimization_pipeline(config)
     """
@@ -99,11 +105,16 @@ class GepaConfig:
     output_type: type[BaseModel]
 
     # Dataset and evaluation
-    dataset: Sequence[DataInstWithInput[Any]]
+    trainset: Sequence[DataInstWithInput[Any]]
     metric: Callable[
         [DataInstWithInput[Any], RolloutOutput[Any]], tuple[float, str | None]
     ]
-    train_ratio: float = 0.7
+    valset: Sequence[DataInstWithInput[Any]] | None = None
+    
+    # Budget configuration (exactly one must be set)
+    auto: Literal["light", "medium", "heavy"] | None = None
+    max_full_evals: int | None = None
+    max_metric_calls: int | None = None
 
     # Optimize tools (e.g., output model schema text components)
     optimize_tools: bool = True
@@ -113,14 +124,13 @@ class GepaConfig:
     reflection_model: str | None = None
     reflection_minibatch_size: int = 3
     perfect_score: int = 1
-    max_metric_calls: int = 100
     skip_perfect_score: bool = True
     # Component selection options
-    module_selector: ReflectionComponentSelector | Literal["round_robin", "all"] = "round_robin"
+    module_selector: ReflectionComponentSelector | Literal["round_robin", "all"] = "all"
     candidate_selection_strategy: CandidateSelector | Literal['pareto', 'current_best', 'epsilon_greedy'] = "pareto"
     
     # Merge options
-    use_merge: bool = False
+    use_merge: bool = True
     max_merge_invocations: int = 5
     merge_val_overlap_floor: int = 5
     
@@ -142,18 +152,21 @@ class GepaConfig:
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
-        if not 0 < self.train_ratio < 1:
-            raise ValueError(
-                f"train_ratio must be between 0 and 1, got {self.train_ratio}"
-            )
-
-        if len(self.dataset) == 0:
-            raise ValueError("dataset cannot be empty")
-
-        if self.max_metric_calls < 1:
-            raise ValueError(
-                f"max_metric_calls must be positive, got {self.max_metric_calls}"
-            )
+        if len(self.trainset) == 0:
+            raise ValueError("trainset cannot be empty")
+            
+        # Validate that exactly one budget option is set
+        assert (
+            (self.max_metric_calls is not None) +
+            (self.max_full_evals is not None) +
+            (self.auto is not None)
+            == 1
+        ), (
+            "Exactly one of max_metric_calls, max_full_evals, auto must be set. "
+            f"You set max_metric_calls={self.max_metric_calls}, "
+            f"max_full_evals={self.max_full_evals}, "
+            f"auto={self.auto}."
+        )
 
 
 def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
@@ -161,7 +174,7 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
 
     This function orchestrates the complete optimization workflow:
     1. Validates the configuration
-    2. Splits dataset into training and validation sets
+    2. Uses provided train and validation sets
     3. Creates the agent with specified configuration
     4. Wraps agent with SignatureAgent for structured input support
     5. Runs GEPA optimization
@@ -178,17 +191,22 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
         RuntimeError: If optimization fails.
 
     Example:
+        >>> from src.gepa.data_utils import split_dataset
+        >>>
+        >>> # Split your dataset
+        >>> trainset, valset = split_dataset(my_dataset, train_ratio=0.7)
+        >>>
         >>> config = GepaConfig(
         ...     agent_model="gpt-4.1-mini",
         ...     agent_instructions="Classify sentiment as positive, negative, or neutral",
         ...     input_type=SentimentInput,
         ...     output_type=SentimentOutput,
-        ...     dataset=training_data,
+        ...     trainset=trainset,
+        ...     valset=valset,
         ...     metric=sentiment_metric,
-        ...     train_ratio=0.7,
-        ...     max_metric_calls=50,
+        ...     auto="light",
         ... )
-        >>> result = setup_optimization(config)
+        >>> result = run_optimization_pipeline(config)
         >>> print(f"Best score: {result.best_score:.4f}")
         >>> print(f"Improvement: {result.improvement_ratio():.2%}")
         >>>
@@ -197,22 +215,15 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
         ...     output = agent.run_sync("This is great!")
     """
 
-    # Validate configuration
-    if len(config.dataset) < 2:
-        raise ValueError("Dataset must contain at least 2 examples for train/val split")
+    # Use provided trainset and valset
+    trainset = config.trainset
+    valset = config.valset
 
-    # Split dataset into train and validation sets
-    split_index = int(len(config.dataset) * config.train_ratio)
-    if split_index == 0 or split_index == len(config.dataset):
-        raise ValueError(
-            f"Invalid train_ratio {config.train_ratio} for dataset size {len(config.dataset)}. "
-            f"Results in empty train or validation set."
-        )
-
-    trainset = config.dataset[:split_index]
-    valset = config.dataset[split_index:]
-
-    print(f"Dataset split: {len(trainset)} training, {len(valset)} validation examples")
+    # Print dataset info
+    if valset is not None:
+        print(f"Dataset: {len(trainset)} training, {len(valset)} validation examples")
+    else:
+        print(f"Dataset: {len(trainset)} training examples (valset=None, will use trainset for validation)")
 
     # Create the base agent
     model = get_openai_model(config.agent_model)
@@ -239,6 +250,9 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
         module_selector=config.module_selector,
         metric=config.metric,
         input_type=config.input_type,
+        max_metric_calls=config.max_metric_calls,
+        max_full_evals=config.max_full_evals,
+        auto=config.auto,
         reflection_model=config.reflection_model,
         reflection_minibatch_size=config.reflection_minibatch_size,
         perfect_score=config.perfect_score,
@@ -247,7 +261,6 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
         use_merge=config.use_merge,
         max_merge_invocations=config.max_merge_invocations,
         merge_val_overlap_floor=config.merge_val_overlap_floor,
-        max_metric_calls=config.max_metric_calls,
         stop_callbacks=config.stop_callbacks,
         display_progress_bar=config.display_progress_bar,
         track_best_outputs=config.track_best_outputs,
