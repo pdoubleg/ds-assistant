@@ -52,4 +52,5 @@ dependencies = [
     "gepa>=0.0.12",
     "cloudpickle>=3.0.0",
     "pydantic-evals>=1.0.10",
+    "graphviz>=0.21",
 ]

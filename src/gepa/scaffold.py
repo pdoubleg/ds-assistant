@@ -10,13 +10,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeVar
+import json
+from datetime import datetime
 
-from gepa.proposer.reflective_mutation.base import ReflectionComponentSelector
+from gepa.proposer.reflective_mutation.base import ReflectionComponentSelector, CandidateSelector
+from gepa.utils import StopperProtocol
 from pydantic import BaseModel
 from pydantic_ai import Agent
-from pydantic_ai.models import KnownModelName, Model
 
 from .runner import GepaOptimizationResult, optimize_agent_prompts
+from .lm import get_openai_model
 from .signature_agent import SignatureAgent
 from .types import DataInstWithInput, RolloutOutput
 
@@ -33,7 +36,7 @@ class GepaConfig:
     providing a clean interface for users to configure their optimization runs.
 
     Args:
-        agent_model: The model name or Model instance for the agent (e.g., "openai:gpt-4.1-mini").
+        agent_model: The model name or Model instance for the agent (e.g., "gpt-4.1-mini").
         agent_instructions: System instructions for the agent.
         input_type: Pydantic model class defining the structured input format.
         output_type: Pydantic model class defining the expected output format.
@@ -44,8 +47,16 @@ class GepaConfig:
         optimize_tools: Whether to optimize tool descriptions (default: True).
         seed_candidate: Optional initial candidate prompts to start optimization from.
         reflection_model: Model to use for reflection/mutation (default: None, uses agent_model).
+        reflection_minibatch_size: Number of examples to use for reflection in each proposal (default: 3).
+        perfect_score: The perfect score value to achieve (default: 1).
+        skip_perfect_score: Whether to skip updating if perfect score achieved on minibatch (default: True).
         max_metric_calls: Maximum number of metric evaluations (default: 100).
-        module_selector: Which components to optimize - "all", "instructions", etc. (default: "all").
+        module_selector: Which components to optimize - "all", "round_robin", etc. (default: "round_robin").
+        candidate_selection_strategy: Strategy for selecting candidates - "pareto", "current_best", "epsilon_greedy", etc. (default: "pareto").
+        use_merge: Whether to use the merge strategy for combining candidates (default: False).
+        max_merge_invocations: Maximum number of merge invocations to perform (default: 5).
+        merge_val_overlap_floor: Minimum number of validation examples to overlap between merge candidates (default: 5).
+        stop_callbacks: Stopper conditions for stopping optimization (default: None).
         display_progress_bar: Whether to show progress bar during optimization (default: True).
         track_best_outputs: Whether to track best outputs for analysis (default: True).
         enable_cache: Whether to enable caching of metric results (default: False).
@@ -56,7 +67,7 @@ class GepaConfig:
 
     Example:
         >>> from pydantic import BaseModel, Field
-        >>> from src.gepa.scaffold import GepaConfig, setup_optimization
+        >>> from src.gepa.scaffold import GepaConfig, run_optimization_pipeline
         >>> from src.gepa.data_utils import dataframe_to_dataset
         >>>
         >>> class MyInput(BaseModel):
@@ -71,18 +82,18 @@ class GepaConfig:
         ...     return 0.0, "Failed to produce output"
         >>>
         >>> config = GepaConfig(
-        ...     agent_model="openai:gpt-4.1-mini",
+        ...     agent_model="gpt-4.1-mini",
         ...     agent_instructions="Classify the input text",
         ...     input_type=MyInput,
         ...     output_type=MyOutput,
         ...     dataset=my_dataset,
         ...     metric=my_metric,
         ... )
-        >>> result = setup_optimization(config)
+        >>> result = run_optimization_pipeline(config)
     """
 
     # Core agent configuration
-    agent_model: Model | KnownModelName | str
+    agent_model: str
     agent_instructions: str
     input_type: type[BaseModel]
     output_type: type[BaseModel]
@@ -94,22 +105,34 @@ class GepaConfig:
     ]
     train_ratio: float = 0.7
 
-    # Agent tools configuration
-    agent_tools: list[Callable[..., Any]] | None = None
+    # Optimize tools (e.g., output model schema text components)
     optimize_tools: bool = True
 
     # Optimization parameters
     seed_candidate: dict[str, str] | None = None
-    reflection_model: Model | KnownModelName | str | None = None
+    reflection_model: str | None = None
+    reflection_minibatch_size: int = 3
+    perfect_score: int = 1
     max_metric_calls: int = 100
-    module_selector: ReflectionComponentSelector | str = "all" # "round_robin"
+    skip_perfect_score: bool = True
+    # Component selection options
+    module_selector: ReflectionComponentSelector | Literal["round_robin", "all"] = "round_robin"
+    candidate_selection_strategy: CandidateSelector | Literal['pareto', 'current_best', 'epsilon_greedy'] = "pareto"
+    
+    # Merge options
+    use_merge: bool = False
+    max_merge_invocations: int = 5
+    merge_val_overlap_floor: int = 5
+    
+    # Stopping options
+    stop_callbacks: StopperProtocol | Sequence[StopperProtocol] | None = None
 
     # Runtime options
     display_progress_bar: bool = True
     track_best_outputs: bool = True
 
     # Caching options
-    enable_cache: bool = False
+    enable_cache: bool = True
     cache_dir: str = ".gepa_cache"
     cache_verbose: bool = False
 
@@ -156,7 +179,7 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
 
     Example:
         >>> config = GepaConfig(
-        ...     agent_model="openai:gpt-4.1-mini",
+        ...     agent_model="gpt-4.1-mini",
         ...     agent_instructions="Classify sentiment as positive, negative, or neutral",
         ...     input_type=SentimentInput,
         ...     output_type=SentimentOutput,
@@ -173,8 +196,6 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
         >>> with result.apply_best(agent):
         ...     output = agent.run_sync("This is great!")
     """
-    import json
-    from datetime import datetime
 
     # Validate configuration
     if len(config.dataset) < 2:
@@ -194,16 +215,12 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
     print(f"Dataset split: {len(trainset)} training, {len(valset)} validation examples")
 
     # Create the base agent
+    model = get_openai_model(config.agent_model)
     agent = Agent(
-        model=config.agent_model,
+        model=model,
         instructions=config.agent_instructions,
         output_type=config.output_type,
     )
-
-    # Register tools if provided
-    if config.agent_tools:
-        for tool_func in config.agent_tools:
-            agent.tool(tool_func)
 
     # Wrap with SignatureAgent for structured input support
     signature_agent = SignatureAgent(
@@ -223,7 +240,15 @@ def run_optimization_pipeline(config: GepaConfig) -> GepaOptimizationResult:
         metric=config.metric,
         input_type=config.input_type,
         reflection_model=config.reflection_model,
+        reflection_minibatch_size=config.reflection_minibatch_size,
+        perfect_score=config.perfect_score,
+        skip_perfect_score=config.skip_perfect_score,
+        candidate_selection_strategy=config.candidate_selection_strategy,
+        use_merge=config.use_merge,
+        max_merge_invocations=config.max_merge_invocations,
+        merge_val_overlap_floor=config.merge_val_overlap_floor,
         max_metric_calls=config.max_metric_calls,
+        stop_callbacks=config.stop_callbacks,
         display_progress_bar=config.display_progress_bar,
         track_best_outputs=config.track_best_outputs,
         enable_cache=config.enable_cache,

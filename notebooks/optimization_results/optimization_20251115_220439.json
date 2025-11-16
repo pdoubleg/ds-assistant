@@ -1,0 +1,53 @@
+{
+  "best_candidate": {
+    "instructions": "Predict Titanic survival from the provided passenger features. Produce a single structured prediction using the tool final_result with three fields: survived, confidence, and reasoning. Use domain knowledge from the Titanic passenger dataset: females had much higher survival rates than males; first-class passengers survived more often than second- and third-class; children (commonly <16) were prioritized; higher fare is correlated with higher survival (proxy for class); very large family groups often reduced survival chances; and embarkation at Cherbourg (C) had a slightly higher survival rate. Strategy: compute a weighted evidence score by starting from a dataset baseline probability (\u22480.38) then add/subtract feature weights (see suggested weights below), convert the score to a probability (clamp 0\u20131, optionally with logistic transform), and set survived=1 if probability >=0.5 else 0. Suggested baseline and weights (guideline only): baseline=0.38; sex: female +0.50, male -0.10; pclass: 1 +0.20, 2 +0.05, 3 -0.15; age: if <16 +0.10; fare: >50 +0.05, 20\u201350 +0.02, <20 -0.03; sibsp: >2 -0.10, 1 neutral; parch: >2 -0.08; embarked: C +0.03, Q -0.02, S 0. Handle missing values by stating assumptions and using the baseline plus available feature adjustments. Calculate confidence from the strength and consistency of signals: strong consistent signals \u2192 high confidence; conflicting or many missing values \u2192 lower confidence. Provide concise, transparent reasoning that cites the most influential features and any assumptions.",
+    "tool:final_result:description": "Return a structured prediction object describing whether the passenger survived. The object must contain: survived (0 or 1), confidence (float between 0.0 and 1.0), and reasoning (short plain-text explanation of which features drove the prediction, the calculation approach, and any assumptions for missing/ambiguous fields).",
+    "tool:final_result:param:survived": "Integer 0 (did not survive) or 1 (survived). Determine by converting the computed probability to a binary decision using threshold 0.5 (probability >=0.5 -> 1).",
+    "tool:final_result:param:confidence": "Float between 0.0 and 1.0 representing the calibrated probability (or model confidence) that the passenger survived. Compute from the weighted evidence/probability. Round to two decimal places. Lower the confidence when input features are missing or signals conflict; raise confidence when multiple features provide consistent, strong evidence.",
+    "tool:final_result:param:reasoning": "Concise (\u2264150 words) explanation describing: 1) the key input features that influenced the prediction and their direction (+/-); 2) a brief summary of how the weighted evidence was combined (e.g., baseline + weights \u2192 probability) and the final probability; and 3) any assumptions for missing/ambiguous inputs. If a numeric calculation is used, show the main terms and final probability.",
+    "signature:PassengerInput:instructions": "Provide the passenger features exactly as specified. All fields are required unless unknown \u2014 indicate unknowns with null. Use integers for class and family counts, 'male' or 'female' for sex, numeric values for age and fare, and one of 'C', 'Q', or 'S' for embarked. The predictor will handle nulls by applying population priors and stating any assumptions in reasoning. Example: { passenger_class: 1, sex: 'female', age: 29, siblings_spouses: 0, parents_children: 0, fare: 100.0, embarked: 'C' }",
+    "signature:PassengerInput:passenger_class:desc": "Passenger class as integer: 1 = First, 2 = Second, 3 = Third. Higher classes are correlated with higher survival probability; use this as a strong positive/negative signal.",
+    "signature:PassengerInput:sex:desc": "Passenger sex: 'male' or 'female'. Sex is one of the strongest predictors\u2014females had significantly higher survival rates than males.",
+    "signature:PassengerInput:age:desc": "Age in years (numeric). Treat children (commonly <16) as having higher survival; infants/very young children may receive additional positive weight. If unknown, treat as population median (approx 28\u201330) and state the assumption.",
+    "signature:PassengerInput:siblings_spouses:desc": "Number of siblings/spouses aboard (integer). Very large numbers (>2) often correlate with lower survival (logistical difficulty), while 0\u20131 may be neutral or slightly positive.",
+    "signature:PassengerInput:parents_children:desc": "Number of parents/children aboard (integer). Small counts (1\u20132) can be neutral or slightly positive (family prioritized), large counts can reduce survival probability.",
+    "signature:PassengerInput:fare:desc": "Fare paid in pounds (numeric). Higher fares generally correlate with higher survival because fare is a proxy for socio-economic status and cabin location. Use bands (e.g., >50, 20\u201350, <20) to apply small incremental adjustments.",
+    "signature:PassengerInput:embarked:desc": "Port of embarkation: 'C' = Cherbourg, 'Q' = Queenstown, 'S' = Southampton. Cherbourg passengers had slightly higher survival rates on average; treat as a small positive/negative adjustment rather than a primary determinant."
+  },
+  "best_score": 0.7465333333333333,
+  "original_candidate": {
+    "instructions": "Predict Titanic survival based on the passenger's features.",
+    "tool:final_result:description": "Output prediction for Titanic survival.",
+    "tool:final_result:param:survived": "Whether the passenger survived",
+    "tool:final_result:param:confidence": "Confidence score between 0 and 1",
+    "tool:final_result:param:reasoning": "Detailed explanation of the prediction based on the features",
+    "signature:PassengerInput:instructions": "Input features for Titanic survival prediction.",
+    "signature:PassengerInput:passenger_class:desc": "Passenger class (1=First, 2=Second, 3=Third)",
+    "signature:PassengerInput:sex:desc": "Passenger's sex",
+    "signature:PassengerInput:age:desc": "Passenger's age in years",
+    "signature:PassengerInput:siblings_spouses:desc": "Number of siblings/spouses aboard",
+    "signature:PassengerInput:parents_children:desc": "Number of parents/children aboard",
+    "signature:PassengerInput:fare:desc": "Passenger fare paid in pounds",
+    "signature:PassengerInput:embarked:desc": "Port of embarkation (C=Cherbourg, Q=Queenstown, S=Southampton)"
+  },
+  "original_score": 0.0,
+  "num_iterations": 3,
+  "num_metric_calls": 57,
+  "gepa_usage": {
+    "input_tokens": 107725,
+    "cache_write_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 13130,
+    "input_audio_tokens": 0,
+    "cache_audio_read_tokens": 0,
+    "output_audio_tokens": 0,
+    "details": {
+      "accepted_prediction_tokens": 0,
+      "audio_tokens": 0,
+      "reasoning_tokens": 2496,
+      "rejected_prediction_tokens": 0
+    },
+    "requests": 41,
+    "tool_calls": 0
+  }
+}

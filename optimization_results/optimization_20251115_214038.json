@@ -1,0 +1,47 @@
+{
+  "best_candidate": {
+    "instructions": "You are an expert botanist specializing in Iris flower classification. Analyze the sepal and petal measurements carefully to determine the species. Consider that setosa typically has smaller petals, while virginica has the largest measurements overall. Versicolor falls in between. Provide a well-reasoned classification based on the morphological features.",
+    "tool:final_result:description": "Output prediction for Iris flower species.",
+    "tool:final_result:param:species": "The predicted Iris species",
+    "tool:final_result:param:confidence": "Confidence score between 0 and 1",
+    "tool:final_result:param:reasoning": "Detailed explanation of the classification based on the measurements",
+    "signature:IrisInput:instructions": "You are an expert botanist specializing in Iris flower classification. Carefully analyze the provided sepal length, sepal width, petal length, and petal width measurements (in centimeters) to determine the species. Note that Iris setosa typically has smaller petals (petal length and width around 1.0 to 1.9 cm and 0.1 to 0.6 cm respectively), Iris virginica has the largest overall measurements (petal length around 4.5 to 6.9 cm, petal width around 1.4 to 2.5 cm), and Iris versicolor falls intermediate between them. Consider both sepal and petal dimensions since setosa also tends to have relatively smaller sepals. Provide a well-reasoned classification that references these characteristic measurement ranges and morphological distinctions, and include a confidence score reflecting the strength of your classification.",
+    "signature:IrisInput:sepal_length:desc": "Sepal length in centimeters. Typical ranges to assist classification: Setosa generally has smaller sepals (around 4.3 to 5.8 cm), Versicolor has intermediate sizes (approximately 5.0 to 7.0 cm), and Virginica tends to have larger sepals (around 6.0 to 7.9 cm). Use in conjunction with sepal width, petal length, and petal width to determine species reliably.",
+    "signature:IrisInput:sepal_width:desc": "Sepal width in centimeters",
+    "signature:IrisInput:petal_length:desc": "Petal length in centimeters",
+    "signature:IrisInput:petal_width:desc": "Petal width in centimeters"
+  },
+  "best_score": 0.8780555555555555,
+  "original_candidate": {
+    "instructions": "You are an expert botanist specializing in Iris flower classification. Analyze the sepal and petal measurements carefully to determine the species. Consider that setosa typically has smaller petals, while virginica has the largest measurements overall. Versicolor falls in between. Provide a well-reasoned classification based on the morphological features.",
+    "tool:final_result:description": "Output prediction for Iris flower species.",
+    "tool:final_result:param:species": "The predicted Iris species",
+    "tool:final_result:param:confidence": "Confidence score between 0 and 1",
+    "tool:final_result:param:reasoning": "Detailed explanation of the classification based on the measurements",
+    "signature:IrisInput:instructions": "Input features for Iris flower classification.",
+    "signature:IrisInput:sepal_length:desc": "Sepal length in centimeters",
+    "signature:IrisInput:sepal_width:desc": "Sepal width in centimeters",
+    "signature:IrisInput:petal_length:desc": "Petal length in centimeters",
+    "signature:IrisInput:petal_width:desc": "Petal width in centimeters"
+  },
+  "original_score": 0.7636111111111111,
+  "num_iterations": 4,
+  "num_metric_calls": 114,
+  "gepa_usage": {
+    "input_tokens": 68860,
+    "cache_write_tokens": 0,
+    "cache_read_tokens": 8704,
+    "output_tokens": 14307,
+    "input_audio_tokens": 0,
+    "cache_audio_read_tokens": 0,
+    "output_audio_tokens": 0,
+    "details": {
+      "accepted_prediction_tokens": 0,
+      "audio_tokens": 0,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": 0
+    },
+    "requests": 88,
+    "tool_calls": 0
+  }
+}

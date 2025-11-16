@@ -4,19 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 import gepa.api
 from gepa.core.result import GEPAResult
 from gepa.logging.logger import LoggerProtocol
+from gepa.utils import StopperProtocol
 from gepa.proposer.reflective_mutation.base import (
-    LanguageModel,
     ReflectionComponentSelector,
+    CandidateSelector,
 )
 from pydantic import BaseModel, ConfigDict, Field
-
-from pydantic_ai import Agent
-from pydantic_ai.models import KnownModelName, Model
 
 from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
 from .cache import CacheManager
@@ -28,15 +26,16 @@ from .components import (
 )
 from .signature import InputSpec
 from .types import DataInst, RolloutOutput
-
+from .lm import GEPALanguageModel
+from pydantic_ai import usage as _usage
 # Type variable for the DataInst type
 DataInstT = TypeVar("DataInstT", bound=DataInst)
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
-    from pydantic_ai.models import Model
-
-
+    from .lm import GEPALanguageModel
+    
+    
 def _normalize_candidate(
     candidate: dict[str, Any] | None,
 ) -> dict[str, str]:
@@ -73,6 +72,9 @@ class GepaOptimizationResult(BaseModel):
         default=None, exclude=True, repr=False
     )
     """The raw GEPA optimization result (for advanced users)."""
+
+    gepa_usage: _usage.RunUsage
+    """The GEPA usage of the optimization."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -121,17 +123,6 @@ class GepaOptimizationResult(BaseModel):
             yield
 
 
-class DefaultLanguageModel:
-    """Simple LanguageModel wrapper using a pydantic-ai Agent returning text."""
-
-    def __init__(self, model: Any | None):
-        self._agent = Agent(model, output_type=str)
-
-    def __call__(self, prompt: str) -> str:
-        result = self._agent.run_sync(prompt)
-        return result.output
-
-
 def optimize_agent_prompts(
     agent: AbstractAgent[Any, Any],
     trainset: Sequence[DataInstT],
@@ -141,9 +132,8 @@ def optimize_agent_prompts(
     input_type: InputSpec[BaseModel] | None = None,
     seed_candidate: dict[str, str] | None = None,
     # Reflection-based configuration
-    reflection_lm: LanguageModel | None = None,
-    reflection_model: Model | KnownModelName | str | None = None,
-    candidate_selection_strategy: str = "pareto",
+    reflection_model: str | None = None,
+    candidate_selection_strategy: CandidateSelector | Literal['pareto', 'current_best', 'epsilon_greedy'] = "pareto",
     skip_perfect_score: bool = True,
     reflection_minibatch_size: int = 3,
     perfect_score: int = 1,
@@ -152,8 +142,11 @@ def optimize_agent_prompts(
     # Merge-based configuration
     use_merge: bool = False,
     max_merge_invocations: int = 5,
+    merge_val_overlap_floor: int = 5,
     # Budget
     max_metric_calls: int = 200,
+    # Stopping
+    stop_callbacks: StopperProtocol | Sequence[StopperProtocol] | None = None,
     # Caching configuration
     enable_cache: bool = False,
     cache_dir: str | None = None,
@@ -172,8 +165,6 @@ def optimize_agent_prompts(
     # Reproducibility
     seed: int = 0,
     raise_on_exception: bool = True,
-    # Testing support
-    deterministic_proposer: Any | None = None,
     # Reflection sampler
     reflection_sampler: ReflectionSampler | None = None,
 ) -> GepaOptimizationResult:
@@ -193,9 +184,7 @@ def optimize_agent_prompts(
             field descriptions should be optimized alongside the agent's prompts.
 
         # Reflection-based configuration
-        reflection_lm: LanguageModel to use for reflection (proposing new prompts).
-        reflection_model: Model to use for reflection (proposing new prompts).
-                         Can be a Model instance or a string like 'openai:gpt-4o'.
+        reflection_model: Model name to use for reflection (proposing new prompts).
         candidate_selection_strategy: Strategy for selecting candidates ('pareto' or 'current_best').
         skip_perfect_score: Whether to skip updating if perfect score achieved on minibatch.
         reflection_minibatch_size: Number of examples to use for reflection in each proposal.
@@ -208,6 +197,7 @@ def optimize_agent_prompts(
         # Merge-based configuration
         use_merge: Whether to use the merge strategy for combining candidates.
         max_merge_invocations: Maximum number of merge invocations to perform.
+        merge_val_overlap_floor: Minimum number of validation examples to overlap between merge candidates.
 
         # Budget
         max_metric_calls: Maximum number of metric evaluations (budget).
@@ -232,9 +222,6 @@ def optimize_agent_prompts(
         # Reproducibility
         seed: Random seed for reproducibility.
         raise_on_exception: Whether to raise exceptions or continue on errors.
-
-        # Testing support
-        deterministic_proposer: For testing - a deterministic proposal function.
 
         # Reflection sampler
         reflection_sampler: Optional sampler for reflection records. If provided,
@@ -287,9 +274,12 @@ def optimize_agent_prompts(
         reflection_model=reflection_model,
         cache_manager=cache_manager,
     )
-
-    if reflection_lm is None:
-        reflection_lm = DefaultLanguageModel(reflection_model)
+    # If no reflection model is provided, use the agent's model
+    if not reflection_model:
+        reflection_model = agent.model.model_name
+        
+    # Create a default language model for GEPA reflection
+    reflection_lm = GEPALanguageModel(reflection_model)
 
     # Adjust module_selector based on number of components if needed
     # If only one component and module_selector is still default, use 'all'
@@ -307,14 +297,17 @@ def optimize_agent_prompts(
         # Reflection-based configuration
         reflection_lm=reflection_lm,
         candidate_selection_strategy=candidate_selection_strategy,
-        skip_perfect_score=skip_perfect_score,
         reflection_minibatch_size=reflection_minibatch_size,
         perfect_score=perfect_score,
+        skip_perfect_score=skip_perfect_score,
         # Component selection configuration
         module_selector=module_selector,
         # Merge-based configuration
         use_merge=use_merge,
         max_merge_invocations=max_merge_invocations,
+        merge_val_overlap_floor=merge_val_overlap_floor,
+        # Stopping
+        stop_callbacks=stop_callbacks,
         # Logging
         logger=logger,
         run_dir=run_dir,
@@ -368,6 +361,7 @@ def optimize_agent_prompts(
         num_iterations=raw_result.num_full_val_evals or len(raw_result.candidates),
         num_metric_calls=raw_result.total_metric_calls or 0,
         raw_result=raw_result,
+        gepa_usage=adapter.gepa_usage,
     )
 
     # Log cache stats if caching was enabled

@@ -1,7 +1,7 @@
-"""Complete example demonstrating GEPA scaffolding with the Iris dataset.
+"""Complete example demonstrating GEPA scaffolding with the Titanic dataset.
 
-This example shows how to use the scaffolding system to optimize a flower species
-classification task using the classic Iris dataset with sepal and petal measurements.
+This example shows how to use the scaffolding system to optimize a survival
+prediction task using the classic Titanic dataset with interesting passenger features.
 """
 
 from typing import Literal
@@ -15,32 +15,42 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.gepa.scaffold import GepaConfig, run_optimization_pipeline
 from src.gepa.data_utils import create_dataset_from_dicts
+from src.gepa.lm import get_openai_model
 from src.gepa.types import DataInstWithInput, RolloutOutput
 
 
 # Step 1: Define input and output models
-class IrisInput(BaseModel):
-    """Input features for Iris flower classification."""
+class PassengerInput(BaseModel):
+    """Input features for Titanic survival prediction."""
     
-    sepal_length: float = Field(
-        description="Sepal length in centimeters"
+    passenger_class: Literal[1, 2, 3] = Field(
+        description="Passenger class (1=First, 2=Second, 3=Third)"
     )
-    sepal_width: float = Field(
-        description="Sepal width in centimeters"
+    sex: Literal["male", "female"] = Field(
+        description="Passenger's sex"
     )
-    petal_length: float = Field(
-        description="Petal length in centimeters"
+    age: float = Field(
+        description="Passenger's age in years"
     )
-    petal_width: float = Field(
-        description="Petal width in centimeters"
+    siblings_spouses: int = Field(
+        description="Number of siblings/spouses aboard"
+    )
+    parents_children: int = Field(
+        description="Number of parents/children aboard"
+    )
+    fare: float = Field(
+        description="Passenger fare paid in pounds"
+    )
+    embarked: Literal["C", "Q", "S", "Unknown"] = Field(
+        description="Port of embarkation (C=Cherbourg, Q=Queenstown, S=Southampton)"
     )
 
 
-class IrisClassification(BaseModel):
-    """Output prediction for Iris flower species."""
+class SurvivalPrediction(BaseModel):
+    """Output prediction for Titanic survival."""
     
-    species: Literal["setosa", "versicolor", "virginica"] = Field(
-        description="The predicted Iris species"
+    survived: Literal["yes", "no"] = Field(
+        description="Whether the passenger survived"
     )
     confidence: float = Field(
         description="Confidence score between 0 and 1",
@@ -48,61 +58,61 @@ class IrisClassification(BaseModel):
         le=1.0
     )
     reasoning: str = Field(
-        description="Detailed explanation of the classification based on the measurements"
+        description="Detailed explanation of the prediction based on the features"
     )
 
 
-# Step 2: Load and prepare the Iris dataset
-def load_iris_data(n_train: int = 60, n_holdout: int = 15) -> tuple[list[dict], list[dict]]:
-    """Load and prepare Iris dataset for GEPA with holdout test set.
+# Step 2: Load and prepare the Titanic dataset
+def load_titanic_data(n_train: int = 50, n_holdout: int = 15) -> tuple[list[dict], list[dict]]:
+    """Load and prepare Titanic dataset for GEPA with holdout test set.
     
     Args:
-        n_train: Number of samples to use for training/validation (default 60)
+        n_train: Number of samples to use for training/validation (default 50)
         n_holdout: Number of samples to hold out for final testing (default 15)
         
     Returns:
         Tuple of (training_data, holdout_data) as lists of dictionaries
-        
-    Example:
-        >>> train_data, holdout_data = load_iris_data(n_train=60, n_holdout=15)
-        >>> print(f"Training samples: {len(train_data)}")
-        Training samples: 60
     """
-    # Load Iris dataset from sklearn
+    # Load Titanic dataset from seaborn
     try:
-        from sklearn.datasets import load_iris
-        iris = load_iris(as_frame=True)
-        df = iris.frame
+        import seaborn as sns
+        df = sns.load_dataset('titanic')
     except Exception as e:
         print(f"Error loading dataset: {e}")
-        print("Make sure scikit-learn is installed: pip install scikit-learn")
+        print("Make sure seaborn is installed: pip install seaborn")
         raise
     
-    # Rename columns for clarity
-    df.columns = ['sepal_length', 'sepal_width', 'petal_length', 'petal_width', 'target']
+    # Select interesting features and clean data
+    df = df[['pclass', 'sex', 'age', 'sibsp', 'parch', 'fare', 'embarked', 'survived']].copy()
     
-    # Map target to species names
-    species_map = {0: 'setosa', 1: 'versicolor', 2: 'virginica'}
-    df['species'] = df['target'].map(species_map)
+    # Drop rows with missing critical values
+    df = df.dropna(subset=['age', 'fare'])
     
-    # Sample diverse examples - stratified by species
+    # Fill missing embarked with 'Unknown'
+    df['embarked'] = df['embarked'].fillna('Unknown')
+    
+    # Convert survived to string labels
+    df['survived_label'] = df['survived'].map({0: 'no', 1: 'yes'})
+    
+    # Sample diverse examples - stratified by survival and class
     # First, separate into train and holdout sets
     train_dfs = []
     holdout_dfs = []
     
-    for species_id in [0, 1, 2]:
-        subset = df[df['target'] == species_id]
-        if len(subset) > 0:
-            # Calculate proportional samples for this stratum
-            n_train_stratum = min(len(subset), max(1, n_train // 3))
-            n_holdout_stratum = min(len(subset) - n_train_stratum, max(1, n_holdout // 3))
-            
-            # Shuffle and split
-            subset_shuffled = subset.sample(frac=1.0, random_state=42)
-            train_dfs.append(subset_shuffled.iloc[:n_train_stratum])
-            
-            if n_holdout_stratum > 0 and len(subset_shuffled) > n_train_stratum:
-                holdout_dfs.append(subset_shuffled.iloc[n_train_stratum:n_train_stratum + n_holdout_stratum])
+    for survived in [0, 1]:
+        for pclass in [1, 2, 3]:
+            subset = df[(df['survived'] == survived) & (df['pclass'] == pclass)]
+            if len(subset) > 0:
+                # Calculate proportional samples for this stratum
+                n_train_stratum = min(len(subset), max(1, n_train // 6))
+                n_holdout_stratum = min(len(subset) - n_train_stratum, max(1, n_holdout // 6))
+                
+                # Shuffle and split
+                subset_shuffled = subset.sample(frac=1.0, random_state=42)
+                train_dfs.append(subset_shuffled.iloc[:n_train_stratum])
+                
+                if n_holdout_stratum > 0 and len(subset_shuffled) > n_train_stratum:
+                    holdout_dfs.append(subset_shuffled.iloc[n_train_stratum:n_train_stratum + n_holdout_stratum])
     
     # Combine and limit to requested sizes
     df_train = pd.concat(train_dfs, ignore_index=True)
@@ -115,22 +125,18 @@ def load_iris_data(n_train: int = 60, n_holdout: int = 15) -> tuple[list[dict], 
     
     # Convert to list of dicts
     def df_to_dict_list(df: pd.DataFrame) -> list[dict]:
-        """Convert DataFrame to list of dictionaries.
-        
-        Args:
-            df: DataFrame containing Iris data
-            
-        Returns:
-            List of dictionaries with features and labels
-        """
+        """Convert DataFrame to list of dictionaries."""
         data = []
         for _, row in df.iterrows():
             data.append({
-                'sepal_length': float(row['sepal_length']),
-                'sepal_width': float(row['sepal_width']),
-                'petal_length': float(row['petal_length']),
-                'petal_width': float(row['petal_width']),
-                'label': str(row['species'])
+                'passenger_class': int(row['pclass']),
+                'sex': str(row['sex']),
+                'age': float(row['age']),
+                'siblings_spouses': int(row['sibsp']),
+                'parents_children': int(row['parch']),
+                'fare': float(row['fare']),
+                'embarked': str(row['embarked']),
+                'label': str(row['survived_label'])
             })
         return data
     
@@ -141,13 +147,13 @@ def load_iris_data(n_train: int = 60, n_holdout: int = 15) -> tuple[list[dict], 
 
 
 # Step 3: Define evaluation metric
-def iris_metric(
-    data_inst: DataInstWithInput[IrisInput],
-    output: RolloutOutput[IrisClassification],
+def survival_metric(
+    data_inst: DataInstWithInput[PassengerInput],
+    output: RolloutOutput[SurvivalPrediction],
 ) -> tuple[float, str | None]:
-    """Evaluate Iris classification accuracy.
+    """Evaluate survival prediction accuracy.
     
-    This metric checks if the predicted species matches the ground truth.
+    This metric checks if the predicted survival matches the ground truth.
     It also considers confidence calibration as a bonus.
     
     Args:
@@ -156,18 +162,13 @@ def iris_metric(
         
     Returns:
         Tuple of (score, feedback) where score is between 0.0 and 1.0.
-        
-    Example:
-        >>> # Assuming data_inst and output are properly constructed
-        >>> score, feedback = iris_metric(data_inst, output)
-        >>> assert 0.0 <= score <= 1.0
     """
     # Check if the agent execution was successful
     if not output.success or output.result is None:
         return 0.0, output.error_message or "Agent failed to produce output"
     
-    # Extract predicted species
-    predicted_species = output.result.species
+    # Extract predicted survival
+    predicted_survival = output.result.survived
     confidence = output.result.confidence
     
     # Extract ground truth from metadata
@@ -177,62 +178,52 @@ def iris_metric(
         return 0.0, "No ground truth label found in metadata"
     
     # Base score: correct prediction gets 1.0, incorrect gets 0.0
-    if predicted_species == ground_truth:
+    if predicted_survival == ground_truth:
         # Bonus for high confidence on correct predictions
         score = 0.7 + (0.3 * confidence)
-        feedback = f"✓ Correct: {predicted_species} (confidence: {confidence:.2f})"
+        feedback = f"✓ Correct: {predicted_survival} (confidence: {confidence:.2f})"
     else:
         # Penalty scales with confidence on wrong predictions
         score = 0.3 * (1 - confidence)
-        feedback = f"✗ Incorrect: predicted {predicted_species}, expected {ground_truth} (confidence: {confidence:.2f})"
+        feedback = f"✗ Incorrect: predicted {predicted_survival}, expected {ground_truth} (confidence: {confidence:.2f})"
     
     return score, feedback
 
 
 # Step 4: Main optimization pipeline
 def main():
-    """Run the GEPA optimization for Iris flower classification.
-    
-    This function orchestrates the entire optimization process:
-    1. Loads the Iris dataset
-    2. Configures the GEPA optimization
-    3. Runs the optimization pipeline
-    4. Evaluates on a holdout test set
-    5. Displays comprehensive results
-    
-    Returns:
-        OptimizationResult: The result object containing the best configuration
-    """
+    """Run the GEPA optimization for Titanic survival prediction."""
     
     print("\n" + "="*70)
-    print("Loading Iris Dataset")
+    print("Loading Titanic Dataset")
     print("="*70)
     
     # Load the data with train/holdout split
-    train_data, holdout_data = load_iris_data(n_train=60, n_holdout=15)
+    train_data, holdout_data = load_titanic_data(n_train=50, n_holdout=5)
     
     print(f"Loaded {len(train_data)} training records")
     print(f"Loaded {len(holdout_data)} holdout test records")
     
     # Show some statistics
-    train_species_counts = {}
+    train_survival_counts = {}
     for record in train_data:
         label = record['label']
-        train_species_counts[label] = train_species_counts.get(label, 0) + 1
+        train_survival_counts[label] = train_survival_counts.get(label, 0) + 1
     
-    holdout_species_counts = {}
+    holdout_survival_counts = {}
     for record in holdout_data:
         label = record['label']
-        holdout_species_counts[label] = holdout_species_counts.get(label, 0) + 1
+        holdout_survival_counts[label] = holdout_survival_counts.get(label, 0) + 1
     
-    print(f"Training species distribution: {train_species_counts}")
-    print(f"Holdout species distribution: {holdout_species_counts}")
+    print(f"Training survival distribution: {train_survival_counts}")
+    print(f"Holdout survival distribution: {holdout_survival_counts}")
     
     # Convert to GEPA dataset format
     dataset = create_dataset_from_dicts(
         train_data,
-        input_model=IrisInput,
-        input_keys=['sepal_length', 'sepal_width', 'petal_length', 'petal_width'],
+        input_model=PassengerInput,
+        input_keys=['passenger_class', 'sex', 'age', 'siblings_spouses', 
+                   'parents_children', 'fare', 'embarked'],
         metadata_keys=['label'],
     )
     
@@ -240,32 +231,28 @@ def main():
     
     # Configure the optimization
     reflection_model = "gpt-4.1-mini"
-    agent_model = "gpt-4.1-mini"
+    agent_model="gpt-4.1-mini"
     
     config = GepaConfig(
         # Agent configuration
         agent_model=agent_model,
         agent_instructions=(
-            "You are an expert botanist specializing in Iris flower classification. "
-            "Analyze the sepal and petal measurements carefully to determine the species. "
-            "Consider that setosa typically has smaller petals, while virginica has the "
-            "largest measurements overall. Versicolor falls in between. Provide a "
-            "well-reasoned classification based on the morphological features."
+            "You are an expert at predicting Titanic passenger survival. "
+            "Analyze the passenger's features carefully, considering historical "
+            "patterns like 'women and children first', class privileges, and "
+            "family dynamics. Provide a well-reasoned prediction."
         ),
-        input_type=IrisInput,
-        output_type=IrisClassification,
+        input_type=PassengerInput,
+        output_type=SurvivalPrediction,
         
         # Data and evaluation
         dataset=dataset,
-        metric=iris_metric,
+        metric=survival_metric,
         train_ratio=0.7,  # 70% for training, 30% for validation
         
         # Optimization parameters
-        max_metric_calls=100,  # More calls for better optimization
-        module_selector="round_robin",  # Optimize instructions, signature, and tools
-        
-        # Merge options
-        use_merge=False,
+        max_metric_calls=50,  # More calls for better optimization
+        module_selector="all",  # Optimize instructions, signature, and tools
         
         # LLM for reflection
         reflection_model=reflection_model,
@@ -286,10 +273,10 @@ def main():
     print("\n" + "="*70)
     print("Starting GEPA Optimization")
     print("="*70)
-    print("Task: Iris Flower Classification")
+    print("Task: Titanic Survival Prediction")
     print(f"Model: {config.agent_model}")
-    print(f"Reflection Model: {reflection_model}")
-    print(f"Dataset size: {len(config.dataset)} flowers")
+    print(f"Reflection Model: {config.reflection_model}")
+    print(f"Dataset size: {len(config.dataset)} passengers")
     print(f"Train/Val split: {config.train_ratio:.0%} / {1-config.train_ratio:.0%}")
     print(f"Max metric calls: {config.max_metric_calls}")
     print("="*70 + "\n")
@@ -313,15 +300,12 @@ def main():
     print(f"Metric Calls: {result.num_metric_calls}")
     print(f"GEPA Input Tokens: {result.gepa_usage.input_tokens}")
     print(f"GEPA Output Tokens: {result.gepa_usage.output_tokens}")
+   
     
     print("\nOptimized Components:")
     for component_name, component_value in result.best_candidate.items():
         print(f"\n{component_name}:")
-        # Truncate long values for display
-        if isinstance(component_value, str) and len(component_value) > 300:
-            print(f"  {component_value[:300]}...")
-        else:
-            print(f"  {component_value}")
+        print(f"  {component_value}")
     
     print("\n" + "="*70)
     
@@ -331,18 +315,17 @@ def main():
     
     from pydantic_ai import Agent
     from src.gepa.signature_agent import SignatureAgent
-    from src.gepa.lm import get_openai_model
     
     # Create and configure agent
     test_agent = Agent(
         model=get_openai_model(config.agent_model),
         instructions=config.agent_instructions,
-        output_type=IrisClassification,
+        output_type=SurvivalPrediction,
     )
     
     test_signature_agent = SignatureAgent(
         test_agent,
-        input_type=IrisInput,
+        input_type=PassengerInput,
     )
     
     # Track results
@@ -351,14 +334,17 @@ def main():
     results_table = []
     
     # Apply optimized configuration and test on holdout set
-    with result.apply_best_to(agent=test_agent, input_type=IrisInput):
+    with result.apply_best_to(agent=test_agent, input_type=PassengerInput):
         for i, test_record in enumerate(holdout_data, 1):
             # Create input from test record
-            test_input = IrisInput(
-                sepal_length=test_record['sepal_length'],
-                sepal_width=test_record['sepal_width'],
-                petal_length=test_record['petal_length'],
-                petal_width=test_record['petal_width']
+            test_input = PassengerInput(
+                passenger_class=test_record['passenger_class'],
+                sex=test_record['sex'],
+                age=test_record['age'],
+                siblings_spouses=test_record['siblings_spouses'],
+                parents_children=test_record['parents_children'],
+                fare=test_record['fare'],
+                embarked=test_record['embarked']
             )
             
             # Get ground truth
@@ -367,7 +353,7 @@ def main():
             # Run prediction
             try:
                 test_result = test_signature_agent.run_signature_sync(test_input)
-                predicted = test_result.output.species
+                predicted = test_result.output.survived
                 confidence = test_result.output.confidence
                 reasoning = test_result.output.reasoning
                 
@@ -380,10 +366,9 @@ def main():
                 # Store result
                 results_table.append({
                     'case': i,
-                    'sepal_length': test_input.sepal_length,
-                    'sepal_width': test_input.sepal_width,
-                    'petal_length': test_input.petal_length,
-                    'petal_width': test_input.petal_width,
+                    'class': test_input.passenger_class,
+                    'sex': test_input.sex,
+                    'age': test_input.age,
                     'predicted': predicted,
                     'actual': actual,
                     'confidence': confidence,
@@ -395,10 +380,9 @@ def main():
                 print(f"\n⚠️  Error on test case {i}: {e}")
                 results_table.append({
                     'case': i,
-                    'sepal_length': test_input.sepal_length,
-                    'sepal_width': test_input.sepal_width,
-                    'petal_length': test_input.petal_length,
-                    'petal_width': test_input.petal_width,
+                    'class': test_input.passenger_class,
+                    'sex': test_input.sex,
+                    'age': test_input.age,
                     'predicted': 'ERROR',
                     'actual': actual,
                     'confidence': 0.0,
@@ -407,38 +391,22 @@ def main():
                 })
     
     # Print results table
-    print(f"\nHoldout Test Results ({len(holdout_data)} flowers):")
-    print("-" * 120)
-    print(f"{'#':<4} {'SepL':<6} {'SepW':<6} {'PetL':<6} {'PetW':<6} {'Predicted':<12} {'Actual':<12} {'Conf':<6} {'Result':<8}")
-    print("-" * 120)
+    print(f"\nHoldout Test Results ({len(holdout_data)} passengers):")
+    print("-" * 100)
+    print(f"{'#':<4} {'Class':<6} {'Sex':<7} {'Age':<5} {'Predicted':<10} {'Actual':<10} {'Conf':<6} {'Result':<8}")
+    print("-" * 100)
     
     for row in results_table:
         result_symbol = "✓" if row['correct'] else "✗"
-        print(f"{row['case']:<4} {row['sepal_length']:<6.1f} {row['sepal_width']:<6.1f} "
-              f"{row['petal_length']:<6.1f} {row['petal_width']:<6.1f} "
-              f"{row['predicted']:<12} {row['actual']:<12} {row['confidence']:<6.2f} {result_symbol:<8}")
+        print(f"{row['case']:<4} {row['class']:<6} {row['sex']:<7} {row['age']:<5.0f} "
+              f"{row['predicted']:<10} {row['actual']:<10} {row['confidence']:<6.2f} {result_symbol:<8}")
     
-    print("-" * 120)
+    print("-" * 100)
     
     # Calculate and display accuracy
     if total_predictions > 0:
         accuracy = correct_predictions / total_predictions
         print(f"\n📊 Holdout Test Accuracy: {accuracy:.2%} ({correct_predictions}/{total_predictions})")
-    
-    # Calculate per-species accuracy
-    species_stats = {}
-    for row in results_table:
-        species = row['actual']
-        if species not in species_stats:
-            species_stats[species] = {'correct': 0, 'total': 0}
-        species_stats[species]['total'] += 1
-        if row['correct']:
-            species_stats[species]['correct'] += 1
-    
-    print("\nPer-Species Accuracy:")
-    for species, stats in sorted(species_stats.items()):
-        acc = stats['correct'] / stats['total'] if stats['total'] > 0 else 0
-        print(f"  {species.capitalize():<12}: {acc:.2%} ({stats['correct']}/{stats['total']})")
     
     # Show a few detailed examples
     print("\n" + "="*70)
@@ -448,8 +416,7 @@ def main():
     for i, row in enumerate(results_table[:5], 1):  # Show first 5
         result_symbol = "✓ CORRECT" if row['correct'] else "✗ INCORRECT"
         print(f"\n--- Case {row['case']} ({result_symbol}) ---")
-        print(f"Measurements: Sepal L={row['sepal_length']:.1f}cm W={row['sepal_width']:.1f}cm, "
-              f"Petal L={row['petal_length']:.1f}cm W={row['petal_width']:.1f}cm")
+        print(f"Passenger: Class {row['class']}, {row['sex']}, age {row['age']:.0f}")
         print(f"Predicted: {row['predicted'].upper()} (confidence: {row['confidence']:.2%})")
         print(f"Actual: {row['actual'].upper()}")
         print(f"Reasoning: {row['reasoning'][:150]}..." if len(row['reasoning']) > 150 else f"Reasoning: {row['reasoning']}")

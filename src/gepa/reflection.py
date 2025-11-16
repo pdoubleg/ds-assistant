@@ -2,8 +2,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from pydantic_ai import Agent
-from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai import Agent, AgentRunResult
+
+from src.gepa.lm import get_openai_model
 
 from .components import normalize_component_text
 from .signature_agent import SignatureAgent
@@ -61,19 +62,12 @@ class ProposalOutput(BaseModel):
     )
 
 
-agent = Agent(output_type=ProposalOutput)
-signature_agent = SignatureAgent(
-    agent,
-    input_type=ReflectionInput,
-)
-
-
 def propose_new_texts(
     candidate: dict[str, str],
     reflective_dataset: dict[str, list[dict[str, Any]]],
     components_to_update: list[str],
-    reflection_model: Model | KnownModelName | str | None = None,
-) -> dict[str, str]:
+    reflection_model: str | None = None,
+) -> AgentRunResult[ProposalOutput]:
     """Analyze agent performance and propose optimized prompt components.
 
     This implementation uses a structured reflection agent that:
@@ -111,8 +105,14 @@ def propose_new_texts(
         reflection_dataset=reflective_dataset,
         components_to_update=components_to_update,
     )
-    result = signature_agent.run_signature_sync(signature, model=reflection_model)
-    return {
-        component.component_name: component.optimized_value
-        for component in result.output.updated_components
-    }
+    
+    model = get_openai_model(reflection_model)
+    agent = Agent(model=model, output_type=ProposalOutput)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=ReflectionInput,
+    )
+    
+    result = signature_agent.run_signature_sync(signature)
+    return result
+

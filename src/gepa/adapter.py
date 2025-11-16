@@ -12,7 +12,7 @@ from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.messages import ModelRequest
-from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai import usage as _usage
 
 from .components import apply_candidate_to_agent
 from .reflection import propose_new_texts
@@ -67,7 +67,7 @@ class PydanticAIGEPAAdapter(
         *,
         input_type: InputSpec[BaseModel] | None = None,
         reflection_sampler: ReflectionSampler | None = None,
-        reflection_model: Model | KnownModelName | str | None = None,
+        reflection_model: str | None = None,
         cache_manager: CacheManager | None = None,
     ):
         """Initialize the adapter.
@@ -82,7 +82,7 @@ class PydanticAIGEPAAdapter(
             reflection_sampler: Optional sampler for reflection records. If provided,
                                it will be called to sample records when needed. If None,
                                all reflection records are kept without sampling.
-            reflection_model: The model to use for reflection.
+            reflection_model: The model to use for reflection. If None, the agent's model will be used.
             cache_manager: The cache manager to use for caching.
         """
         self.agent = agent
@@ -91,8 +91,22 @@ class PydanticAIGEPAAdapter(
             build_input_spec(input_type) if input_type else None
         )
         self.reflection_sampler = reflection_sampler
-        self.reflection_model = reflection_model
         self.cache_manager = cache_manager
+        if reflection_model:
+            self.reflection_model = reflection_model
+        else:
+            self.reflection_model = agent.model.model_name
+        self._gepa_usage = _usage.RunUsage()
+        
+        
+    def _record_gepa_usage(self, run_usage: _usage.RunUsage | None) -> None:
+        """Record GEPA usage."""
+        if run_usage:
+            self._gepa_usage.incr(run_usage)
+            
+    @property
+    def gepa_usage(self) -> _usage.RunUsage:
+        return self._gepa_usage
 
     def evaluate(
         self,
@@ -294,6 +308,7 @@ class PydanticAIGEPAAdapter(
                 )
 
             messages = result.new_messages()
+            self._record_gepa_usage(result.usage())
             final_output = result.output
             target_agent = self.agent
             if isinstance(target_agent, WrapperAgent):
@@ -346,7 +361,8 @@ class PydanticAIGEPAAdapter(
                     instance.input,
                     message_history=instance.message_history,
                 )
-
+                
+            self._record_gepa_usage(result.usage())
             return RolloutOutput.from_success(result.output)
         except Exception as e:
             logger.exception(
@@ -428,9 +444,17 @@ class PydanticAIGEPAAdapter(
         reflective_dataset: dict[str, list[dict[str, Any]]],
         components_to_update: list[str],
     ) -> dict[str, str]:
-        return propose_new_texts(
+       
+        signature_result =  propose_new_texts(
             candidate,
             reflective_dataset,
             components_to_update,
             self.reflection_model,
         )
+        self._record_gepa_usage(signature_result.usage())
+        
+        proposal_output = {
+            component.component_name: component.optimized_value
+            for component in signature_result.output.updated_components
+        }
+        return proposal_output
