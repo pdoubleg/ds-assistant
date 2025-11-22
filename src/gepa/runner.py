@@ -44,9 +44,30 @@ AUTO_RUN_SETTINGS = {
 }
 
 
-def auto_budget(num_preds, num_candidates, valset_size: int, minibatch_size: int = 35, full_eval_steps: int = 5) -> int:
+def auto_budget(num_candidates: int, valset_size: int, minibatch_size: int = 35, full_eval_steps: int = 5) -> int:
+    """Calculate the total budget for GEPA optimization based on configuration parameters.
+    
+    This function estimates the total number of metric calls needed for a GEPA optimization
+    run based on the number of candidates, validation set size, minibatch size, and 
+    full evaluation frequency.
+    
+    Note: Logic is based on this DSPy version: https://github.com/stanfordnlp/dspy/blob/main/dspy/teleprompt/gepa/gepa.py
+        
+    Args:
+        num_candidates: Number of candidate programs to generate.
+        valset_size: Size of the validation set.
+        minibatch_size: Size of minibatches for evaluation. Defaults to 35.
+        full_eval_steps: Number of steps between full evaluations. Defaults to 5.
+        
+    Returns:
+        Total estimated number of metric calls needed.
+        
+    Raises:
+        ValueError: If num_trials, valset_size, or minibatch_size are negative,
+                   or if full_eval_steps is less than 1.
+    """
     import numpy as np
-    num_trials = int(max(2 * (num_preds * 2) * np.log2(num_candidates), 1.5 * num_candidates))
+    num_trials = int(max(2 * (1 * 2) * np.log2(num_candidates), 1.5 * num_candidates))
     if num_trials < 0 or valset_size < 0 or minibatch_size < 0:
         raise ValueError("num_trials, valset_size, and minibatch_size must be >= 0.")
     if full_eval_steps < 1:
@@ -60,7 +81,7 @@ def auto_budget(num_preds, num_candidates, valset_size: int, minibatch_size: int
     # Initial full evaluation on the default program
     total = V
 
-    # Assume upto 5 trials for bootstrapping each candidate
+    # Assume upto 5 trials for each candidate
     total += num_candidates * 5
 
     # N minibatch evaluations
@@ -87,7 +108,28 @@ def _normalize_candidate(
     }
     
 
-def dag_to_dot(parent_program_for_candidate, dominator_program_ids, best_program_idx, full_eval_scores):
+def dag_to_dot(
+    parent_program_for_candidate: list[list[int | None]], 
+    dominator_program_ids: set[int], 
+    best_program_idx: int, 
+    full_eval_scores: list[float]
+) -> str:
+    """Generate a DOT graph representation of the program evolution DAG.
+    
+    Creates a directed acyclic graph (DAG) visualization showing the evolution
+    of programs during optimization, with special highlighting for the best
+    program and dominator programs.
+    
+    Args:
+        parent_program_for_candidate: List where each index represents a program
+            and contains a list of parent program indices (or None for no parent).
+        dominator_program_ids: Set of program indices that are dominators in the DAG.
+        best_program_idx: Index of the best performing program.
+        full_eval_scores: List of evaluation scores for each program.
+        
+    Returns:
+        DOT format string representing the program evolution graph.
+    """
     dot_lines = [
         "digraph G {",
         "    node [style=filled, shape=circle, fontsize=50];"
@@ -338,10 +380,8 @@ def optimize_agent_prompts(
             )
             
     # Set budget
-    num_preds = 1 if module_selector == "all" else len(seed_candidate)
     if auto is not None:
         max_metric_calls = auto_budget(
-            num_preds=num_preds,
             num_candidates=AUTO_RUN_SETTINGS[auto]["n"],
             valset_size=len(valset) if valset is not None else len(trainset),
         )
