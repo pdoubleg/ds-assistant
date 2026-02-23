@@ -1,0 +1,514 @@
+[
+  {
+    "total_page_number": 22
+  },
+  {
+    "total_token": 19176
+  },
+  {
+    "toc_content": null,
+    "toc_page_list": [],
+    "page_index_given_in_toc": "no"
+  },
+  {
+    "message": "len(group_texts): 1"
+  },
+  {
+    "message": "generate_toc: [{'structure': '1', 'title': 'AGREEMENT', 'physical_index': '<physical_index_1>'}, {'structure': '2', 'title': 'DEFINITIONS', 'physical_index': '<physical_index_1>'}, {'structure': '3', 'title': 'DEDUCTIBLE', 'physical_index': '<physical_index_3>'}, {'structure': '4', 'title': 'SECTION I \u2013 PROPERTY COVERAGES', 'physical_index': '<physical_index_3>'}, {'structure': '4.1', 'title': 'Coverage A \u2013 Dwelling', 'physical_index': '<physical_index_3>'}, {'structure': '4.2', 'title': 'Coverage B \u2013 Other Structures', 'physical_index': '<physical_index_3>'}, {'structure': '4.3', 'title': 'Coverage C \u2013 Personal Property', 'physical_index': '<physical_index_3>'}, {'structure': '4.4', 'title': 'Coverage D \u2013 Loss Of Use', 'physical_index': '<physical_index_5>'}, {'structure': '4.5', 'title': 'Additional Coverages', 'physical_index': '<physical_index_5>'}, {'structure': '4.5.1', 'title': 'Debris Removal', 'physical_index': '<physical_index_5>'}, {'structure': '4.5.2', 'title': 'Reasonable Repairs', 'physical_index': '<physical_index_6>'}, {'structure': '4.5.3', 'title': 'Trees, Shrubs And Other Plants', 'physical_index': '<physical_index_6>'}, {'structure': '4.5.4', 'title': 'Fire Department Service Charge', 'physical_index': '<physical_index_6>'}, {'structure': '4.5.5', 'title': 'Property Removed', 'physical_index': '<physical_index_6>'}, {'structure': '4.5.6', 'title': 'Credit Card, Electronic Fund Transfer Card Or Access Device, Forgery And Counterfeit Money', 'physical_index': '<physical_index_6>'}, {'structure': '4.5.7', 'title': 'Loss Assessment', 'physical_index': '<physical_index_7>'}, {'structure': '4.5.8', 'title': 'Collapse', 'physical_index': '<physical_index_7>'}, {'structure': '4.5.9', 'title': 'Glass Or Safety Glazing Material', 'physical_index': '<physical_index_7>'}, {'structure': '4.5.10', 'title': \"Landlord's Furnishings\", 'physical_index': '<physical_index_8>'}, {'structure': '4.5.11', 'title': 'Ordinance Or Law', 'physical_index': '<physical_index_8>'}, {'structure': '4.5.12', 'title': 'Grave Markers', 'physical_index': '<physical_index_8>'}, {'structure': '4.6', 'title': 'SECTION I \u2013 PERILS INSURED AGAINST', 'physical_index': '<physical_index_8>'}, {'structure': '4.6.1', 'title': 'Coverage A \u2013 Dwelling And Coverage B \u2013 Other Structures', 'physical_index': '<physical_index_8>'}, {'structure': '4.6.2', 'title': 'Coverage C \u2013 Personal Property', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.1', 'title': 'Fire Or Lightning', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.2', 'title': 'Windstorm Or Hail', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.3', 'title': 'Explosion', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.4', 'title': 'Riot Or Civil Commotion', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.5', 'title': 'Aircraft', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.6', 'title': 'Vehicles', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.7', 'title': 'Smoke', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.8', 'title': 'Vandalism Or Malicious Mischief', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.9', 'title': 'Theft', 'physical_index': '<physical_index_9>'}, {'structure': '4.6.2.10', 'title': 'Falling Objects', 'physical_index': '<physical_index_10>'}, {'structure': '4.6.2.11', 'title': 'Weight Of Ice, Snow Or Sleet', 'physical_index': '<physical_index_10>'}, {'structure': '4.6.2.12', 'title': 'Accidental Discharge Or Overflow Of Water Or Steam', 'physical_index': '<physical_index_11>'}, {'structure': '4.6.2.13', 'title': 'Sudden And Accidental Tearing Apart, Cracking, Burning Or Bulging', 'physical_index': '<physical_index_11>'}, {'structure': '4.6.2.14', 'title': 'Freezing', 'physical_index': '<physical_index_11>'}, {'structure': '4.6.2.15', 'title': 'Sudden And Accidental Damage From Artificially Generated Electrical Current', 'physical_index': '<physical_index_11>'}, {'structure': '4.6.2.16', 'title': 'Volcanic Eruption', 'physical_index': '<physical_index_11>'}, {'structure': '5', 'title': 'SECTION I \u2013 EXCLUSIONS', 'physical_index': '<physical_index_11>'}, {'structure': '5.A', 'title': 'We do not insure for loss caused directly or indirectly by any of the following', 'physical_index': '<physical_index_11>'}, {'structure': '5.A.1', 'title': 'Ordinance Or Law', 'physical_index': '<physical_index_11>'}, {'structure': '5.A.2', 'title': 'Earth Movement', 'physical_index': '<physical_index_12>'}, {'structure': '5.A.3', 'title': 'Water Damage', 'physical_index': '<physical_index_12>'}, {'structure': '5.A.4', 'title': 'Power Failure', 'physical_index': '<physical_index_12>'}, {'structure': '5.A.5', 'title': 'Neglect', 'physical_index': '<physical_index_12>'}, {'structure': '5.A.6', 'title': 'War', 'physical_index': '<physical_index_12>'}, {'structure': '5.A.7', 'title': 'Nuclear Hazard', 'physical_index': '<physical_index_12>'}, {'structure': '5.A.8', 'title': 'Intentional Loss', 'physical_index': '<physical_index_12>'}, {'structure': '5.A.9', 'title': 'Governmental Action', 'physical_index': '<physical_index_12>'}, {'structure': '5.B', 'title': 'We do not insure for loss to property described in Coverages A and B caused by any of the following', 'physical_index': '<physical_index_12>'}, {'structure': '6', 'title': 'SECTION I \u2013 CONDITIONS', 'physical_index': '<physical_index_13>'}, {'structure': '6.A', 'title': 'Insurable Interest And Limit Of Liability', 'physical_index': '<physical_index_13>'}, {'structure': '6.B', 'title': 'Duties After Loss', 'physical_index': '<physical_index_13>'}, {'structure': '6.C', 'title': 'Loss Settlement', 'physical_index': '<physical_index_13>'}, {'structure': '6.D', 'title': 'Loss To A Pair Or Set', 'physical_index': '<physical_index_14>'}, {'structure': '6.E', 'title': 'Appraisal', 'physical_index': '<physical_index_14>'}, {'structure': '6.F', 'title': 'Other Insurance And Service Agreement', 'physical_index': '<physical_index_14>'}, {'structure': '6.G', 'title': 'Suit Against Us', 'physical_index': '<physical_index_14>'}, {'structure': '6.H', 'title': 'Our Option', 'physical_index': '<physical_index_15>'}, {'structure': '6.I', 'title': 'Loss Payment', 'physical_index': '<physical_index_15>'}, {'structure': '6.J', 'title': 'Abandonment Of Property', 'physical_index': '<physical_index_15>'}, {'structure': '6.K', 'title': 'Mortgage Clause', 'physical_index': '<physical_index_15>'}, {'structure': '6.L', 'title': 'No Benefit To Bailee', 'physical_index': '<physical_index_15>'}, {'structure': '6.M', 'title': 'Nuclear Hazard Clause', 'physical_index': '<physical_index_15>'}, {'structure': '6.N', 'title': 'Recovered Property', 'physical_index': '<physical_index_15>'}, {'structure': '6.O', 'title': 'Volcanic Eruption Period', 'physical_index': '<physical_index_15>'}, {'structure': '6.P', 'title': 'Policy Period', 'physical_index': '<physical_index_15>'}, {'structure': '6.Q', 'title': 'Concealment Or Fraud', 'physical_index': '<physical_index_15>'}, {'structure': '6.R', 'title': 'Loss Payable Clause', 'physical_index': '<physical_index_16>'}, {'structure': '7', 'title': 'SECTION II \u2013 LIABILITY COVERAGES', 'physical_index': '<physical_index_16>'}, {'structure': '7.A', 'title': 'Coverage E \u2013 Personal Liability', 'physical_index': '<physical_index_16>'}, {'structure': '7.B', 'title': 'Coverage F \u2013 Medical Payments To Others', 'physical_index': '<physical_index_16>'}, {'structure': '8', 'title': 'SECTION II \u2013 EXCLUSIONS', 'physical_index': '<physical_index_16>'}, {'structure': '8.A', 'title': '\"Motor Vehicle Liability\"', 'physical_index': '<physical_index_16>'}, {'structure': '8.B', 'title': '\"Watercraft Liability\"', 'physical_index': '<physical_index_17>'}, {'structure': '8.C', 'title': '\"Aircraft Liability\"', 'physical_index': '<physical_index_17>'}, {'structure': '8.D', 'title': '\"Hovercraft Liability\"', 'physical_index': '<physical_index_17>'}, {'structure': '8.E', 'title': 'Coverage E \u2013 Personal Liability And Coverage F \u2013 Medical Payments To Others', 'physical_index': '<physical_index_17>'}, {'structure': '8.E.1', 'title': 'Expected Or Intended Injury', 'physical_index': '<physical_index_17>'}, {'structure': '8.E.2', 'title': '\"Business\"', 'physical_index': '<physical_index_17>'}, {'structure': '8.E.3', 'title': 'Professional Services', 'physical_index': '<physical_index_18>'}, {'structure': '8.E.4', 'title': '\"Insured\\'s\" Premises Not An \"Insured Location\"', 'physical_index': '<physical_index_18>'}, {'structure': '8.E.5', 'title': 'War', 'physical_index': '<physical_index_18>'}, {'structure': '8.E.6', 'title': 'Communicable Disease', 'physical_index': '<physical_index_18>'}, {'structure': '8.E.7', 'title': 'Sexual Molestation, Corporal Punishment Or Physical Or Mental Abuse', 'physical_index': '<physical_index_18>'}, {'structure': '8.E.8', 'title': 'Controlled Substance', 'physical_index': '<physical_index_18>'}, {'structure': '8.F', 'title': 'Coverage E \u2013 Personal Liability', 'physical_index': '<physical_index_18>'}, {'structure': '8.G', 'title': 'Coverage F \u2013 Medical Payments To Others', 'physical_index': '<physical_index_19>'}, {'structure': '9', 'title': 'SECTION II \u2013 ADDITIONAL COVERAGES', 'physical_index': '<physical_index_19>'}, {'structure': '9.A', 'title': 'Claim Expenses', 'physical_index': '<physical_index_19>'}, {'structure': '9.B', 'title': 'First Aid Expenses', 'physical_index': '<physical_index_19>'}, {'structure': '9.C', 'title': 'Damage To Property Of Others', 'physical_index': '<physical_index_19>'}, {'structure': '9.D', 'title': 'Loss Assessment', 'physical_index': '<physical_index_20>'}, {'structure': '10', 'title': 'SECTION II \u2013 CONDITIONS', 'physical_index': '<physical_index_20>'}, {'structure': '10.A', 'title': 'Limit Of Liability', 'physical_index': '<physical_index_20>'}, {'structure': '10.B', 'title': 'Severability Of Insurance', 'physical_index': '<physical_index_20>'}, {'structure': '10.C', 'title': 'Duties After \"Occurrence\"', 'physical_index': '<physical_index_20>'}, {'structure': '10.D', 'title': 'Duties Of An Injured Person \u2013 Coverage F \u2013 Medical Payments To Others', 'physical_index': '<physical_index_21>'}, {'structure': '10.E', 'title': 'Payment Of Claim \u2013 Coverage F \u2013 Medical Payments To Others', 'physical_index': '<physical_index_21>'}, {'structure': '10.F', 'title': 'Suit Against Us', 'physical_index': '<physical_index_21>'}, {'structure': '10.G', 'title': 'Bankruptcy Of An \"Insured\"', 'physical_index': '<physical_index_21>'}, {'structure': '10.H', 'title': 'Other Insurance', 'physical_index': '<physical_index_21>'}, {'structure': '10.I', 'title': 'Policy Period', 'physical_index': '<physical_index_21>'}, {'structure': '10.J', 'title': 'Concealment Or Fraud', 'physical_index': '<physical_index_21>'}, {'structure': '11', 'title': 'SECTIONS I AND II \u2013 CONDITIONS', 'physical_index': '<physical_index_22>'}, {'structure': '11.A', 'title': 'Liberalization Clause', 'physical_index': '<physical_index_22>'}, {'structure': '11.B', 'title': 'Waiver Or Change Of Policy Provisions', 'physical_index': '<physical_index_22>'}, {'structure': '11.C', 'title': 'Cancellation', 'physical_index': '<physical_index_22>'}, {'structure': '11.C.1', 'title': 'You may cancel this policy at any time', 'physical_index': '<physical_index_22>'}, {'structure': '11.C.2', 'title': 'We may cancel this policy only for the reasons stated below', 'physical_index': '<physical_index_22>'}, {'structure': '11.C.2.a', 'title': 'When you have not paid the premium', 'physical_index': '<physical_index_22>'}, {'structure': '11.C.2.b', 'title': 'When this policy has been in effect for less than 60 days and is not a renewal with us', 'physical_index': '<physical_index_22>'}, {'structure': '11.C.2.c', 'title': 'When this policy has been in effect for 60 days or more, or at any time if it is a renewal with us', 'physical_index': '<physical_index_22>'}, {'structure': '11.C.2.d', 'title': 'When this policy is written for a period of more than one year, we may cancel for any reason at anniversary', 'physical_index': '<physical_index_22>'}, {'structure': '11.C.3', 'title': 'When this policy is canceled, the premium for the period from the date of cancellation to the expiration date will be refunded pro rata', 'physical_index': '<physical_index_22>'}, {'structure': '11.C.4', 'title': 'If the return premium is not refunded with the notice of cancellation or when this policy is returned to us, we will refund it within a reasonable time after the date cancellation takes effect', 'physical_index': '<physical_index_22>'}, {'structure': '11.D', 'title': 'Nonrenewal', 'physical_index': '<physical_index_22>'}, {'structure': '11.E', 'title': 'Assignment', 'physical_index': '<physical_index_22>'}, {'structure': '11.F', 'title': 'Subrogation', 'physical_index': '<physical_index_22>'}, {'structure': '11.G', 'title': 'Death', 'physical_index': '<physical_index_22>'}]"
+  },
+  {
+    "message": "convert_physical_index_to_int: [{'structure': '1', 'title': 'AGREEMENT', 'physical_index': 1}, {'structure': '2', 'title': 'DEFINITIONS', 'physical_index': 1}, {'structure': '3', 'title': 'DEDUCTIBLE', 'physical_index': 3}, {'structure': '4', 'title': 'SECTION I \u2013 PROPERTY COVERAGES', 'physical_index': 3}, {'structure': '4.1', 'title': 'Coverage A \u2013 Dwelling', 'physical_index': 3}, {'structure': '4.2', 'title': 'Coverage B \u2013 Other Structures', 'physical_index': 3}, {'structure': '4.3', 'title': 'Coverage C \u2013 Personal Property', 'physical_index': 3}, {'structure': '4.4', 'title': 'Coverage D \u2013 Loss Of Use', 'physical_index': 5}, {'structure': '4.5', 'title': 'Additional Coverages', 'physical_index': 5}, {'structure': '4.5.1', 'title': 'Debris Removal', 'physical_index': 5}, {'structure': '4.5.2', 'title': 'Reasonable Repairs', 'physical_index': 6}, {'structure': '4.5.3', 'title': 'Trees, Shrubs And Other Plants', 'physical_index': 6}, {'structure': '4.5.4', 'title': 'Fire Department Service Charge', 'physical_index': 6}, {'structure': '4.5.5', 'title': 'Property Removed', 'physical_index': 6}, {'structure': '4.5.6', 'title': 'Credit Card, Electronic Fund Transfer Card Or Access Device, Forgery And Counterfeit Money', 'physical_index': 6}, {'structure': '4.5.7', 'title': 'Loss Assessment', 'physical_index': 7}, {'structure': '4.5.8', 'title': 'Collapse', 'physical_index': 7}, {'structure': '4.5.9', 'title': 'Glass Or Safety Glazing Material', 'physical_index': 7}, {'structure': '4.5.10', 'title': \"Landlord's Furnishings\", 'physical_index': 8}, {'structure': '4.5.11', 'title': 'Ordinance Or Law', 'physical_index': 8}, {'structure': '4.5.12', 'title': 'Grave Markers', 'physical_index': 8}, {'structure': '4.6', 'title': 'SECTION I \u2013 PERILS INSURED AGAINST', 'physical_index': 8}, {'structure': '4.6.1', 'title': 'Coverage A \u2013 Dwelling And Coverage B \u2013 Other Structures', 'physical_index': 8}, {'structure': '4.6.2', 'title': 'Coverage C \u2013 Personal Property', 'physical_index': 9}, {'structure': '4.6.2.1', 'title': 'Fire Or Lightning', 'physical_index': 9}, {'structure': '4.6.2.2', 'title': 'Windstorm Or Hail', 'physical_index': 9}, {'structure': '4.6.2.3', 'title': 'Explosion', 'physical_index': 9}, {'structure': '4.6.2.4', 'title': 'Riot Or Civil Commotion', 'physical_index': 9}, {'structure': '4.6.2.5', 'title': 'Aircraft', 'physical_index': 9}, {'structure': '4.6.2.6', 'title': 'Vehicles', 'physical_index': 9}, {'structure': '4.6.2.7', 'title': 'Smoke', 'physical_index': 9}, {'structure': '4.6.2.8', 'title': 'Vandalism Or Malicious Mischief', 'physical_index': 9}, {'structure': '4.6.2.9', 'title': 'Theft', 'physical_index': 9}, {'structure': '4.6.2.10', 'title': 'Falling Objects', 'physical_index': 10}, {'structure': '4.6.2.11', 'title': 'Weight Of Ice, Snow Or Sleet', 'physical_index': 10}, {'structure': '4.6.2.12', 'title': 'Accidental Discharge Or Overflow Of Water Or Steam', 'physical_index': 11}, {'structure': '4.6.2.13', 'title': 'Sudden And Accidental Tearing Apart, Cracking, Burning Or Bulging', 'physical_index': 11}, {'structure': '4.6.2.14', 'title': 'Freezing', 'physical_index': 11}, {'structure': '4.6.2.15', 'title': 'Sudden And Accidental Damage From Artificially Generated Electrical Current', 'physical_index': 11}, {'structure': '4.6.2.16', 'title': 'Volcanic Eruption', 'physical_index': 11}, {'structure': '5', 'title': 'SECTION I \u2013 EXCLUSIONS', 'physical_index': 11}, {'structure': '5.A', 'title': 'We do not insure for loss caused directly or indirectly by any of the following', 'physical_index': 11}, {'structure': '5.A.1', 'title': 'Ordinance Or Law', 'physical_index': 11}, {'structure': '5.A.2', 'title': 'Earth Movement', 'physical_index': 12}, {'structure': '5.A.3', 'title': 'Water Damage', 'physical_index': 12}, {'structure': '5.A.4', 'title': 'Power Failure', 'physical_index': 12}, {'structure': '5.A.5', 'title': 'Neglect', 'physical_index': 12}, {'structure': '5.A.6', 'title': 'War', 'physical_index': 12}, {'structure': '5.A.7', 'title': 'Nuclear Hazard', 'physical_index': 12}, {'structure': '5.A.8', 'title': 'Intentional Loss', 'physical_index': 12}, {'structure': '5.A.9', 'title': 'Governmental Action', 'physical_index': 12}, {'structure': '5.B', 'title': 'We do not insure for loss to property described in Coverages A and B caused by any of the following', 'physical_index': 12}, {'structure': '6', 'title': 'SECTION I \u2013 CONDITIONS', 'physical_index': 13}, {'structure': '6.A', 'title': 'Insurable Interest And Limit Of Liability', 'physical_index': 13}, {'structure': '6.B', 'title': 'Duties After Loss', 'physical_index': 13}, {'structure': '6.C', 'title': 'Loss Settlement', 'physical_index': 13}, {'structure': '6.D', 'title': 'Loss To A Pair Or Set', 'physical_index': 14}, {'structure': '6.E', 'title': 'Appraisal', 'physical_index': 14}, {'structure': '6.F', 'title': 'Other Insurance And Service Agreement', 'physical_index': 14}, {'structure': '6.G', 'title': 'Suit Against Us', 'physical_index': 14}, {'structure': '6.H', 'title': 'Our Option', 'physical_index': 15}, {'structure': '6.I', 'title': 'Loss Payment', 'physical_index': 15}, {'structure': '6.J', 'title': 'Abandonment Of Property', 'physical_index': 15}, {'structure': '6.K', 'title': 'Mortgage Clause', 'physical_index': 15}, {'structure': '6.L', 'title': 'No Benefit To Bailee', 'physical_index': 15}, {'structure': '6.M', 'title': 'Nuclear Hazard Clause', 'physical_index': 15}, {'structure': '6.N', 'title': 'Recovered Property', 'physical_index': 15}, {'structure': '6.O', 'title': 'Volcanic Eruption Period', 'physical_index': 15}, {'structure': '6.P', 'title': 'Policy Period', 'physical_index': 15}, {'structure': '6.Q', 'title': 'Concealment Or Fraud', 'physical_index': 15}, {'structure': '6.R', 'title': 'Loss Payable Clause', 'physical_index': 16}, {'structure': '7', 'title': 'SECTION II \u2013 LIABILITY COVERAGES', 'physical_index': 16}, {'structure': '7.A', 'title': 'Coverage E \u2013 Personal Liability', 'physical_index': 16}, {'structure': '7.B', 'title': 'Coverage F \u2013 Medical Payments To Others', 'physical_index': 16}, {'structure': '8', 'title': 'SECTION II \u2013 EXCLUSIONS', 'physical_index': 16}, {'structure': '8.A', 'title': '\"Motor Vehicle Liability\"', 'physical_index': 16}, {'structure': '8.B', 'title': '\"Watercraft Liability\"', 'physical_index': 17}, {'structure': '8.C', 'title': '\"Aircraft Liability\"', 'physical_index': 17}, {'structure': '8.D', 'title': '\"Hovercraft Liability\"', 'physical_index': 17}, {'structure': '8.E', 'title': 'Coverage E \u2013 Personal Liability And Coverage F \u2013 Medical Payments To Others', 'physical_index': 17}, {'structure': '8.E.1', 'title': 'Expected Or Intended Injury', 'physical_index': 17}, {'structure': '8.E.2', 'title': '\"Business\"', 'physical_index': 17}, {'structure': '8.E.3', 'title': 'Professional Services', 'physical_index': 18}, {'structure': '8.E.4', 'title': '\"Insured\\'s\" Premises Not An \"Insured Location\"', 'physical_index': 18}, {'structure': '8.E.5', 'title': 'War', 'physical_index': 18}, {'structure': '8.E.6', 'title': 'Communicable Disease', 'physical_index': 18}, {'structure': '8.E.7', 'title': 'Sexual Molestation, Corporal Punishment Or Physical Or Mental Abuse', 'physical_index': 18}, {'structure': '8.E.8', 'title': 'Controlled Substance', 'physical_index': 18}, {'structure': '8.F', 'title': 'Coverage E \u2013 Personal Liability', 'physical_index': 18}, {'structure': '8.G', 'title': 'Coverage F \u2013 Medical Payments To Others', 'physical_index': 19}, {'structure': '9', 'title': 'SECTION II \u2013 ADDITIONAL COVERAGES', 'physical_index': 19}, {'structure': '9.A', 'title': 'Claim Expenses', 'physical_index': 19}, {'structure': '9.B', 'title': 'First Aid Expenses', 'physical_index': 19}, {'structure': '9.C', 'title': 'Damage To Property Of Others', 'physical_index': 19}, {'structure': '9.D', 'title': 'Loss Assessment', 'physical_index': 20}, {'structure': '10', 'title': 'SECTION II \u2013 CONDITIONS', 'physical_index': 20}, {'structure': '10.A', 'title': 'Limit Of Liability', 'physical_index': 20}, {'structure': '10.B', 'title': 'Severability Of Insurance', 'physical_index': 20}, {'structure': '10.C', 'title': 'Duties After \"Occurrence\"', 'physical_index': 20}, {'structure': '10.D', 'title': 'Duties Of An Injured Person \u2013 Coverage F \u2013 Medical Payments To Others', 'physical_index': 21}, {'structure': '10.E', 'title': 'Payment Of Claim \u2013 Coverage F \u2013 Medical Payments To Others', 'physical_index': 21}, {'structure': '10.F', 'title': 'Suit Against Us', 'physical_index': 21}, {'structure': '10.G', 'title': 'Bankruptcy Of An \"Insured\"', 'physical_index': 21}, {'structure': '10.H', 'title': 'Other Insurance', 'physical_index': 21}, {'structure': '10.I', 'title': 'Policy Period', 'physical_index': 21}, {'structure': '10.J', 'title': 'Concealment Or Fraud', 'physical_index': 21}, {'structure': '11', 'title': 'SECTIONS I AND II \u2013 CONDITIONS', 'physical_index': 22}, {'structure': '11.A', 'title': 'Liberalization Clause', 'physical_index': 22}, {'structure': '11.B', 'title': 'Waiver Or Change Of Policy Provisions', 'physical_index': 22}, {'structure': '11.C', 'title': 'Cancellation', 'physical_index': 22}, {'structure': '11.C.1', 'title': 'You may cancel this policy at any time', 'physical_index': 22}, {'structure': '11.C.2', 'title': 'We may cancel this policy only for the reasons stated below', 'physical_index': 22}, {'structure': '11.C.2.a', 'title': 'When you have not paid the premium', 'physical_index': 22}, {'structure': '11.C.2.b', 'title': 'When this policy has been in effect for less than 60 days and is not a renewal with us', 'physical_index': 22}, {'structure': '11.C.2.c', 'title': 'When this policy has been in effect for 60 days or more, or at any time if it is a renewal with us', 'physical_index': 22}, {'structure': '11.C.2.d', 'title': 'When this policy is written for a period of more than one year, we may cancel for any reason at anniversary', 'physical_index': 22}, {'structure': '11.C.3', 'title': 'When this policy is canceled, the premium for the period from the date of cancellation to the expiration date will be refunded pro rata', 'physical_index': 22}, {'structure': '11.C.4', 'title': 'If the return premium is not refunded with the notice of cancellation or when this policy is returned to us, we will refund it within a reasonable time after the date cancellation takes effect', 'physical_index': 22}, {'structure': '11.D', 'title': 'Nonrenewal', 'physical_index': 22}, {'structure': '11.E', 'title': 'Assignment', 'physical_index': 22}, {'structure': '11.F', 'title': 'Subrogation', 'physical_index': 22}, {'structure': '11.G', 'title': 'Death', 'physical_index': 22}]"
+  },
+  {
+    "mode": "process_toc_with_page_numbers",
+    "accuracy": 0.8688524590163934,
+    "incorrect_results": [
+      {
+        "list_index": 10,
+        "answer": "no",
+        "title": "Reasonable Repairs",
+        "page_number": 6
+      },
+      {
+        "list_index": 23,
+        "answer": "no",
+        "title": "Coverage C \u2013 Personal Property",
+        "page_number": 9
+      },
+      {
+        "list_index": 24,
+        "answer": "no",
+        "title": "Fire Or Lightning",
+        "page_number": 9
+      },
+      {
+        "list_index": 25,
+        "answer": "no",
+        "title": "Windstorm Or Hail",
+        "page_number": 9
+      },
+      {
+        "list_index": 26,
+        "answer": "no",
+        "title": "Explosion",
+        "page_number": 9
+      },
+      {
+        "list_index": 27,
+        "answer": "no",
+        "title": "Riot Or Civil Commotion",
+        "page_number": 9
+      },
+      {
+        "list_index": 28,
+        "answer": "no",
+        "title": "Aircraft",
+        "page_number": 9
+      },
+      {
+        "list_index": 29,
+        "answer": "no",
+        "title": "Vehicles",
+        "page_number": 9
+      },
+      {
+        "list_index": 30,
+        "answer": "no",
+        "title": "Smoke",
+        "page_number": 9
+      },
+      {
+        "list_index": 106,
+        "answer": "no",
+        "title": "SECTIONS I AND II \u2013 CONDITIONS",
+        "page_number": 22
+      },
+      {
+        "list_index": 107,
+        "answer": "no",
+        "title": "Liberalization Clause",
+        "page_number": 22
+      },
+      {
+        "list_index": 108,
+        "answer": "no",
+        "title": "Waiver Or Change Of Policy Provisions",
+        "page_number": 22
+      },
+      {
+        "list_index": 110,
+        "answer": "no",
+        "title": "You may cancel this policy at any time",
+        "page_number": 22
+      },
+      {
+        "list_index": 111,
+        "answer": "no",
+        "title": "We may cancel this policy only for the reasons stated below",
+        "page_number": 22
+      },
+      {
+        "list_index": 112,
+        "answer": "no",
+        "title": "When you have not paid the premium",
+        "page_number": 22
+      },
+      {
+        "list_index": 113,
+        "answer": "no",
+        "title": "When this policy has been in effect for less than 60 days and is not a renewal with us",
+        "page_number": 22
+      }
+    ]
+  },
+  {
+    "message": "incorrect_results_and_range_logs: [{'list_index': 10, 'title': 'Reasonable Repairs', 'prev_correct': 5, 'next_correct': 6}, {'list_index': 23, 'title': 'Coverage C \u2013 Personal Property', 'prev_correct': 8, 'next_correct': 9}, {'list_index': 24, 'title': 'Fire Or Lightning', 'prev_correct': 8, 'next_correct': 9}, {'list_index': 25, 'title': 'Windstorm Or Hail', 'prev_correct': 8, 'next_correct': 9}, {'list_index': 26, 'title': 'Explosion', 'prev_correct': 8, 'next_correct': 9}, {'list_index': 27, 'title': 'Riot Or Civil Commotion', 'prev_correct': 8, 'next_correct': 9}, {'list_index': 28, 'title': 'Aircraft', 'prev_correct': 8, 'next_correct': 9}, {'list_index': 29, 'title': 'Vehicles', 'prev_correct': 8, 'next_correct': 9}, {'list_index': 30, 'title': 'Smoke', 'prev_correct': 8, 'next_correct': 9}, {'list_index': 106, 'title': 'SECTIONS I AND II \u2013 CONDITIONS', 'prev_correct': 21, 'next_correct': 22}, {'list_index': 107, 'title': 'Liberalization Clause', 'prev_correct': 21, 'next_correct': 22}, {'list_index': 108, 'title': 'Waiver Or Change Of Policy Provisions', 'prev_correct': 21, 'next_correct': 22}, {'list_index': 110, 'title': 'You may cancel this policy at any time', 'prev_correct': 22, 'next_correct': 22}, {'list_index': 111, 'title': 'We may cancel this policy only for the reasons stated below', 'prev_correct': 22, 'next_correct': 22}, {'list_index': 112, 'title': 'When you have not paid the premium', 'prev_correct': 22, 'next_correct': 22}, {'list_index': 113, 'title': 'When this policy has been in effect for less than 60 days and is not a renewal with us', 'prev_correct': 22, 'next_correct': 22}]"
+  },
+  {
+    "message": "invalid_results: [{'list_index': 8, 'title': 'Fire Or Lightning', 'physical_index': None}, {'list_index': 8, 'title': 'Windstorm Or Hail', 'physical_index': None}, {'list_index': 8, 'title': 'Explosion', 'physical_index': None}, {'list_index': 8, 'title': 'Riot Or Civil Commotion', 'physical_index': None}, {'list_index': 8, 'title': 'Aircraft', 'physical_index': None}, {'list_index': 8, 'title': 'Vehicles', 'physical_index': None}, {'list_index': 8, 'title': 'Smoke', 'physical_index': None}, {'list_index': 21, 'title': 'We may cancel this policy only for the reasons stated below', 'physical_index': 22}, {'list_index': 21, 'title': 'When you have not paid the premium', 'physical_index': None}, {'list_index': 21, 'title': 'When this policy has been in effect for less than 60 days and is not a renewal with us', 'physical_index': 22}]"
+  },
+  {
+    "message": "incorrect_results_and_range_logs: [{'list_index': 8, 'title': 'Fire Or Lightning', 'prev_correct': 5, 'next_correct': 5}, {'list_index': 8, 'title': 'Windstorm Or Hail', 'prev_correct': 5, 'next_correct': 5}, {'list_index': 8, 'title': 'Explosion', 'prev_correct': 5, 'next_correct': 5}, {'list_index': 8, 'title': 'Riot Or Civil Commotion', 'prev_correct': 5, 'next_correct': 5}, {'list_index': 8, 'title': 'Aircraft', 'prev_correct': 5, 'next_correct': 5}, {'list_index': 8, 'title': 'Vehicles', 'prev_correct': 5, 'next_correct': 5}, {'list_index': 8, 'title': 'Smoke', 'prev_correct': 5, 'next_correct': 5}, {'list_index': 21, 'title': 'We may cancel this policy only for the reasons stated below', 'prev_correct': 8, 'next_correct': 8}, {'list_index': 21, 'title': 'When you have not paid the premium', 'prev_correct': 8, 'next_correct': 8}, {'list_index': 21, 'title': 'When this policy has been in effect for less than 60 days and is not a renewal with us', 'prev_correct': 8, 'next_correct': 8}]"
+  },
+  {
+    "message": "invalid_results: [{'list_index': 4, 'title': 'Fire Or Lightning', 'physical_index': None}, {'list_index': 4, 'title': 'Explosion', 'physical_index': None}, {'list_index': 4, 'title': 'Riot Or Civil Commotion', 'physical_index': None}, {'list_index': 4, 'title': 'Aircraft', 'physical_index': None}, {'list_index': 4, 'title': 'Vehicles', 'physical_index': None}, {'list_index': 4, 'title': 'Smoke', 'physical_index': None}, {'list_index': 7, 'title': 'We may cancel this policy only for the reasons stated below', 'physical_index': None}, {'list_index': 7, 'title': 'When you have not paid the premium', 'physical_index': None}, {'list_index': 7, 'title': 'When this policy has been in effect for less than 60 days and is not a renewal with us', 'physical_index': None}]"
+  },
+  {
+    "message": "incorrect_results_and_range_logs: [{'list_index': 4, 'title': 'Fire Or Lightning', 'prev_correct': 3, 'next_correct': 5}, {'list_index': 4, 'title': 'Explosion', 'prev_correct': 3, 'next_correct': 5}, {'list_index': 4, 'title': 'Riot Or Civil Commotion', 'prev_correct': 3, 'next_correct': 5}, {'list_index': 4, 'title': 'Aircraft', 'prev_correct': 3, 'next_correct': 5}, {'list_index': 4, 'title': 'Vehicles', 'prev_correct': 3, 'next_correct': 5}, {'list_index': 4, 'title': 'Smoke', 'prev_correct': 3, 'next_correct': 5}, {'list_index': 7, 'title': 'We may cancel this policy only for the reasons stated below', 'prev_correct': 3, 'next_correct': 8}, {'list_index': 7, 'title': 'When you have not paid the premium', 'prev_correct': 3, 'next_correct': 8}, {'list_index': 7, 'title': 'When this policy has been in effect for less than 60 days and is not a renewal with us', 'prev_correct': 3, 'next_correct': 8}]"
+  },
+  {
+    "message": "invalid_results: [{'list_index': 4, 'title': 'Fire Or Lightning', 'physical_index': None}, {'list_index': 4, 'title': 'Explosion', 'physical_index': None}, {'list_index': 4, 'title': 'Riot Or Civil Commotion', 'physical_index': None}, {'list_index': 4, 'title': 'Vehicles', 'physical_index': None}, {'list_index': 4, 'title': 'Smoke', 'physical_index': None}, {'list_index': 7, 'title': 'We may cancel this policy only for the reasons stated below', 'physical_index': None}, {'list_index': 7, 'title': 'When you have not paid the premium', 'physical_index': None}, {'list_index': 7, 'title': 'When this policy has been in effect for less than 60 days and is not a renewal with us', 'physical_index': None}]"
+  },
+  {
+    "message": "Maximum fix attempts reached"
+  },
+  {
+    "message": "Checking title appearance in start concurrently"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with multiple other sections and content before the section titled 'Recovered Property' appears. The section 'Recovered Property' is found after sections H through M, indicating it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with copyright information and content from previous sections before the 'I. Policy Period' section title appears. Therefore, the 'Policy Period' section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to exclusions and loss assessment, followed by Section II \u2013 Conditions, and then the subsection A. Limit Of Liability. The section title 'Severability Of Insurance' appears only after these contents, indicating it does not start at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to policy cancellation and nonrenewal, followed by assignment. The section titled 'Subrogation' appears after these sections, indicating that it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with a header 'HO 00 03 10 00 Copyright, Insurance Services Office, Inc., 1999 Page 13 of 22' before the section title 'SECTION I \u2013 CONDITIONS' appears. Therefore, the section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to exclusions and definitions before the section title 'Neglect' appears. The section 'Neglect' is found after several other numbered sections and explanations, indicating that it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': 'The page_text begins with copyright information and content related to deductibles and Coverage A and B before reaching Coverage C \u2013 Personal Property. Therefore, the section Coverage C \u2013 Personal Property does not start at the beginning of the page_text.', 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with the title 'HOMEOWNERS' and some other header information before the section title 'AGREEMENT' appears. Therefore, the section 'AGREEMENT' does not start at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to other perils and exclusions before the section titled 'Ordinance Or Law' appears. The section 'Ordinance Or Law' is found well into the text, after multiple other headings and paragraphs, indicating it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with the title 'HOMEOWNERS' and several lines of introductory text before the section title 'DEFINITIONS' appears. Therefore, the section 'DEFINITIONS' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content unrelated to the section title 'Aircraft Liability', including copyright information and details about 'Watercraft Liability'. The section 'Aircraft Liability' appears later in the text, not at the beginning.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with copyright information and page numbering before the section title 'Accidental Discharge Or Overflow Of Water Or Steam' appears. Therefore, the section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to exclusions and other clauses before the section title '3. Water Damage'. The section title 'Water Damage' appears after several lines of text, indicating that the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with copyright information and content from previous sections, including sections labeled C and D, before reaching the section titled 'E. Payment Of Claim \u2013 Coverage F \u2013 Medical Payments To Others'. Therefore, the current section title does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with policy identification and deductible information before the section title 'SECTION I \u2013 PROPERTY COVERAGES' appears. Therefore, the section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Trees, Shrubs And Other Plants', including copyright information and other policy details. The section title 'Trees, Shrubs And Other Plants' appears after these contents, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to previous sections (such as coverage for trees, shrubs, fire department service charge) before the section titled 'Property Removed' appears. Therefore, the section 'Property Removed' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with copyright information and content related to water supply and damage exclusions, with no mention of the section title 'Aircraft' at the beginning. Therefore, the section 'Aircraft' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to previous sections, including clauses and definitions, before the section title 'SECTION II \u2013 LIABILITY COVERAGES' appears. Therefore, the current section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with copyright information and page numbering before the section title 'Loss Assessment' appears. Therefore, the section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to 'Loss Assessment' and other insurance details before the section titled '8. Collapse' appears. Therefore, the section 'Collapse' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple sections and content before the 'War' section, including sections 3, 4, and other text. The 'War' section appears after these contents, so it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Hovercraft Liability'. The section 'Hovercraft Liability' appears later in the text, after sections on 'Watercraft Liability' and 'Aircraft Liability'. Therefore, the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and sections before the section titled 'First Aid Expenses'. The text includes other coverage details and a heading 'SECTION II \u2013 ADDITIONAL COVERAGES' followed by 'A. Claim Expenses' and then 'B. First Aid Expenses'. Therefore, the section 'First Aid Expenses' does not start at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and content before the section title 'F. Coverage E \u2013 Personal Liability' appears. Therefore, the section title is not the first content in the page_text and does not start at the beginning.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with copyright information and a continuation of content related to water supply and exclusions, with no mention of the section title 'Windstorm Or Hail' at the beginning. Therefore, the section 'Windstorm Or Hail' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with copyright information and content related to credit cards and water or steam exclusions before the section title 'D. Coverage D \u2013 Loss Of Use' appears. Therefore, the section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple sections and content before the 'Governmental Action' section title appears. The text starts with exclusions related to earth movement, water damage, power failure, neglect, war, nuclear hazard, and intentional loss before reaching the 'Governmental Action' section. Therefore, the 'Governmental Action' section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Loss Assessment'. The first lines discuss exclusions related to motor vehicles and then continue with other clauses before the 'D. Loss Assessment' section appears. Therefore, the 'Loss Assessment' section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to plumbing, heating, and water damage exclusions before listing various perils under Coverage C. The section title 'Falling Objects' appears after several other perils have already been listed, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with copyright information and content related to water supply and damage exclusions, with no mention of the section title 'Coverage C \u2013 Personal Property' at the beginning. Therefore, the current section title does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with copyright information and a previous section titled 'SECTION I \u2013 CONDITIONS' with subsection A. Insurable Interest And Limit Of Liability before the section titled 'B. Duties After Loss' appears. Therefore, the section 'Duties After Loss' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': 'The page_text begins with content related to exclusions and Loss Assessment, followed by Section II \u2013 Conditions, and then the subsection C. Duties After \"Occurrence\". Since there is other content before the section title \\'Duties After \"Occurrence\"\\', the section does not start at the beginning of the page_text.', 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to coverage details and other sections before the 'Ordinance Or Law' section title appears. Therefore, the 'Ordinance Or Law' section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and content before the section title 'Professional Services' appears. The section title 'Professional Services' is preceded by other numbered sections and text, indicating that it does not start at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to other sections such as 'H. Our Option', 'I. Loss Payment', 'J. Abandonment Of Property', and continues through multiple sections before reaching 'P. Policy Period'. Therefore, the section titled 'Policy Period' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text contains a large amount of content before the section title 'SECTION II \u2013 ADDITIONAL COVERAGES' appears. The section title is not the first content in the page_text; it appears after multiple paragraphs and clauses.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to 'Accidental Discharge Or Overflow Of Water Or Steam' and continues with other sections before reaching the section titled 'Sudden And Accidental Damage From Artificially Generated Electrical Current'. Therefore, the given section title does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with copyright information and then contains the section titled 'SECTION I \u2013 CONDITIONS' followed by subsections A and B before reaching subsection C titled 'Loss Settlement'. Therefore, the section 'Loss Settlement' does not start at the beginning of the page_text; it appears after other content.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Claim Expenses', including copyright information and other policy details. The section 'Claim Expenses' appears later in the text, after other sections and content. Therefore, the section 'Claim Expenses' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Communicable Disease'. The section '6. Communicable Disease' appears later in the text, after multiple other numbered exclusions and clauses. Therefore, the section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple sections before the 'War' section, including 'Water Damage', 'Power Failure', and 'Neglect'. The 'War' section appears only after these sections, so it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to watercraft liability and other exclusions before the section titled 'Coverage E \u2013 Personal Liability And Coverage F \u2013 Medical Payments To Others' appears. Therefore, the current section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and sections before the section titled 'Glass Or Safety Glazing Material'. The section 'Glass Or Safety Glazing Material' appears well after other content such as 'Loss Assessment' and 'Collapse'. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content unrelated to the section title 'Coverage F \u2013 Medical Payments To Others'. The section title appears after multiple paragraphs and exclusions, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and content before the section title 'Landlord's Furnishings' appears. The section title '10. Landlord's Furnishings' is found after other coverage details and clauses, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to exclusions and definitions before the section title '4. Power Failure' appears later in the text. Therefore, the section 'Power Failure' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to loss settlement and appraisal sections, and the section titled 'Other Insurance And Service Agreement' appears later in the text, not at the very beginning. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to watercraft liability and other exclusions before the section titled 'Business' appears as part of Exclusion E.2. Therefore, the section titled 'Business' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to coverage exclusions and other sections such as Landlord's Furnishings and Ordinance Or Law before the section titled '12. Grave Markers' appears. Therefore, the section 'Grave Markers' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to loss settlement provisions and other insurance conditions, followed by sections D, E, and F before reaching section G titled 'Suit Against Us'. Therefore, the section 'Suit Against Us' does not start at the beginning of the page_text; it appears later after other content.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Suit Against Us', including previous sections and clauses. The section 'F. Suit Against Us' appears later in the text, not at the very beginning. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Loss Payable Clause'. The section title 'Loss Payable Clause' appears after some preceding text, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with page and copyright information followed by content from a previous section about policy cancellation and conditions. The current section title 'When this policy is canceled, the premium for the period from the date of cancellation to the expiration date will be refunded pro rata.' appears as item 3 within the text, not at the very beginning. Therefore, the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and sections before the given section title 'Sexual Molestation, Corporal Punishment Or Physical Or Mental Abuse' appears. The title is found after several other exclusions and clauses, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and sections before the section titled 'Weight Of Ice, Snow Or Sleet' appears. The section title 'Weight Of Ice, Snow Or Sleet' is found well after other content, indicating it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content unrelated to the section title 'Duties Of An Injured Person \u2013 Coverage F \u2013 Medical Payments To Others'. The section title appears after several paragraphs and numbered points, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Coverage E \u2013 Personal Liability', including clauses about fraudulent conduct and a Loss Payable Clause. The section title 'Coverage E \u2013 Personal Liability' appears later in the text, after other content. Therefore, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content unrelated to the section title 'Explosion'. The text includes various insurance policy clauses and exclusions before any mention of the section title 'Explosion'. Therefore, the section 'Explosion' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with copyright information and a detailed list of exclusions related to water damage and other perils. The section title 'Vehicles' does not appear at the beginning or anywhere near the start of the page_text. Therefore, the current section 'Vehicles' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to policy cancellation and nonrenewal, followed by the section titled 'E. Assignment'. Since there is other content before the 'Assignment' section title, the 'Assignment' section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to water supply, freezing, theft, vandalism, mold, and other exclusions before the section title 'Smoke' appears at the very end of the text. Since there is substantial content before the word 'Smoke', the section 'Smoke' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to loss settlement provisions and other clauses before the section titled 'E. Appraisal' appears later in the text. Since there is substantial content before the 'Appraisal' section title, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the given section title 'Insured's' Premises Not An 'Insured Location'. The section title appears later in the text after other exclusions and clauses have already been listed, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to exclusions and loss assessment under Section II, followed by detailed clauses and subclauses. The section title 'SECTION II \u2013 CONDITIONS' appears well after other content, indicating that the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Mortgage Clause', including previous sections such as 'H. Our Option', 'I. Loss Payment', and 'J. Abandonment Of Property'. The 'Mortgage Clause' section appears later in the text, indicating it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to other perils such as Accidental Discharge Or Overflow Of Water, Sudden And Accidental Tearing Apart, Freezing, and others before reaching the section titled 'Volcanic Eruption'. Therefore, the section 'Volcanic Eruption' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': 'The given page_text starts with content related to duties, claims, and other sections before the section titled \\'Bankruptcy Of An \"Insured\"\\'. The section \\'G. Bankruptcy Of An \"Insured\"\\' appears well into the text, not at the beginning. Therefore, the current section does not start at the beginning of the page_text.', 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to exclusions and definitions before the section titled '8. Intentional Loss'. The section 'Intentional Loss' appears later in the text, not at the very beginning. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to 'Accidental Discharge Or Overflow Of Water Or Steam' and other perils before the section titled 'Sudden And Accidental Tearing Apart, Cracking, Burning Or Bulging' appears. Therefore, the current section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and content before the section title 'Coverage A \u2013 Dwelling And Coverage B \u2013 Other Structures' appears. The section title is found after several paragraphs and other numbered items, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to water supply, freezing, theft, vandalism, mold, and other exclusions, which are clearly part of a preceding section. The section title 'Fire Or Lightning' does not appear at the beginning or anywhere near the start of the page_text. Therefore, the current section 'Fire Or Lightning' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text contains content related to policy cancellation, nonrenewal, assignment, subrogation, and death before the section title 'SECTION I \u2013 PERILS INSURED AGAINST' appears. Since there is substantial content before the section title, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to Coverage D \u2013 Loss Of Use and Additional Coverages, with no mention or appearance of the section title 'Coverage B \u2013 Other Structures' at the beginning or anywhere before these contents. Therefore, the section 'Coverage B \u2013 Other Structures' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to policy cancellation and other clauses before the section titled 'Nonrenewal'. The section title 'Nonrenewal' appears after several paragraphs and is not the first content on the page. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains a lengthy section labeled 'C. Loss Settlement' with multiple subsections before the section titled 'D. Loss To A Pair Or Set' appears. Since the given section title is 'Loss To A Pair Or Set' and it appears after other content, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to water supply, plumbing systems, and exclusions, which is unrelated to the section title 'Riot Or Civil Commotion'. The section title does not appear at the beginning or anywhere near the start of the page_text, indicating that the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to previous sections and clauses, including 'Loss Payable Clause' and 'SECTION II \u2013 LIABILITY COVERAGES A. Coverage E \u2013 Personal Liability' before reaching 'B. Coverage F \u2013 Medical Payments To Others'. Therefore, the section 'Coverage F \u2013 Medical Payments To Others' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with 'HO 00 03 10 00 Copyright, Insurance Services Office, Inc., 1999 Page 3 of 22' before the section title 'DEDUCTIBLE' appears. Since there is content before the section title, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to policy cancellation and other clauses before the section title 'We may cancel this policy only for the reasons stated below.' appears. The section title is not the first content in the page_text; there is preceding text and clauses before it.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple sections and content before the section titled 'Death'. The section 'G. Death' appears well after other sections such as 'D. Nonrenewal', 'E. Assignment', and 'F. Subrogation'. Therefore, the section 'Death' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to insurance coverage details and other sections such as 'Trees, Shrubs And Other Plants', 'Fire Department Service Charge', and 'Property Removed' before the section titled 'Credit Card, Electronic Fund Transfer Card Or Access Device, Forgery And Counterfeit Money' appears. Therefore, the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Loss Payment', including copyright information and a previous section titled 'H. Our Option'. The section 'I. Loss Payment' appears after these contents, indicating that the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to exclusions and definitions before the section title 'We do not insure for loss to property described in Coverages A and B caused by any of the following.' appears. The section title is found later in the text, indicating that the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to water supply, freezing, theft, and vandalism, but the exact section title 'Vandalism Or Malicious Mischief' does not appear at the beginning. Instead, the text includes a clause about 'Vandalism and malicious mischief' as part of a list under a previous section. Therefore, the current section title does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple sections and content before the 'Nuclear Hazard' section, including sections 3, 4, 5, 6, and part of 7. The 'Nuclear Hazard' section appears after these contents, so it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to previous sections such as 'H. Our Option', 'I. Loss Payment', 'J. Abandonment Of Property', and 'K. Mortgage Clause' before reaching the section titled 'L. No Benefit To Bailee'. Therefore, the section 'No Benefit To Bailee' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to policy cancellation, nonrenewal, assignment, subrogation, and death provisions. The section title 'Waiver Or Change Of Policy Provisions' does not appear at the beginning or anywhere in the provided text. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with multiple other contents including policy codes, copyright information, and several other section titles and paragraphs before reaching the section titled 'We do not insure for loss caused directly or indirectly by any of the following.' Therefore, the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to coverage limits and exclusions, and the section title 'Coverage A \u2013 Dwelling' does not appear at the start or anywhere near the beginning of the text. Instead, the text starts with other insurance coverage details and exclusions before any mention of the section title. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': 'The page_text begins with copyright information and other content before the section title \\'B. \"Watercraft Liability\"\\' appears. Therefore, the section title \\'Watercraft Liability\\' does not start at the very beginning of the page_text.', 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to water supply, freezing, theft exclusions, and other insurance provisions, but the section title 'Theft' does not appear at the very beginning. Instead, the text includes multiple paragraphs before any mention of 'Theft'. Therefore, the section titled 'Theft' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to policy cancellation and other clauses such as Nonrenewal, Assignment, Subrogation, and Death. The section title 'You may cancel this policy at any time.' does not appear at the beginning of the page_text, and there is other content before it. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to exclusions and Loss Assessment, followed by Section II \u2013 Conditions. The section titled 'Limit Of Liability' appears after these contents, not at the very beginning of the page_text. Therefore, the current section 'Limit Of Liability' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with 'HO 00 03 10 00 Copyright, Insurance Services Office, Inc., 1999 Page 15 of 22H.' which is content before the section title 'Our Option'. The section title 'Our Option' appears after this initial content, so it does not start at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Abandonment Of Property', including copyright information and other sections such as 'H. Our Option' and 'I. Loss Payment'. The section 'J. Abandonment Of Property' appears later in the text, indicating that the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Fire Department Service Charge'. The section '3. Trees, Shrubs And Other Plants' appears first, followed by '4. Fire Department Service Charge'. Therefore, the section 'Fire Department Service Charge' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple sections and content before the section titled 'Volcanic Eruption Period'. The section 'O. Volcanic Eruption Period' appears well after other sections such as 'H. Our Option', 'I. Loss Payment', 'J. Abandonment Of Property', 'K. Mortgage Clause', 'L. No Benefit To Bailee', 'M. Nuclear Hazard Clause', and 'N. Recovered Property'. Therefore, the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with 'Page 22 of 22 Copyright, Insurance Services Office, Inc., 1999 HO 00 03 10 00c.' before the section title 'When this policy has been in effect for 60 days or more, or at any time if it is a renewal with us.' appears. Therefore, the section title is not the first content in the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to previous sections, including 'Loss Payable Clause' and 'SECTION II \u2013 LIABILITY COVERAGES' with its subsections A and B. The given section title 'SECTION II \u2013 EXCLUSIONS' appears later in the text, after other content. Therefore, the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple paragraphs and sections before the section titled 'Damage To Property Of Others'. The section 'Damage To Property Of Others' appears after sections G. Coverage F \u2013 Medical Payments To Others and SECTION II \u2013 ADDITIONAL COVERAGES with subsections A. Claim Expenses and B. First Aid Expenses. Therefore, the section 'Damage To Property Of Others' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to other perils such as 'Accidental Discharge Or Overflow Of Water Or Steam' and 'Sudden And Accidental Tearing Apart, Cracking, Burning Or Bulging' before the section titled '14. Freezing' appears. Therefore, the section 'Freezing' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Motor Vehicle Liability', including clauses about fraudulent conduct, loss payable clause, and coverage details under SECTION II \u2013 LIABILITY COVERAGES. The section 'Motor Vehicle Liability' appears later within the text, under SECTION II \u2013 EXCLUSIONS, indicating it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with 'HO 00 03 10 00 Copyright, Insurance Services Office, Inc., 1999 Page 13 of 22SECTION I \u2013 CONDITIONS' before the section title 'A. Insurable Interest And Limit Of Liability'. Since there is content before the section title, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The section title 'Controlled Substance' appears after multiple other sections and content in the given page_text. The page_text starts with exclusions numbered (a), (b), (c), then sections 3, 4, 5, 6, 7, and only then section 8 titled 'Controlled Substance'. Therefore, the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with copyright information and policy details before any mention of the section title 'Cancellation'. The section title 'Cancellation' does not appear at the very beginning of the page_text, indicating that the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given section title 'When this policy is written for a period of more than one year, we may cancel for any reason at anniversary' appears in the page_text but not at the very beginning. The page_text starts with other content including 'Page 22 of 22 Copyright, Insurance Services Office, Inc., 1999 HO 00 03 10 00c.' and earlier cancellation conditions before the section title is mentioned. Therefore, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to various perils and their definitions, including Accidental Discharge or Overflow of Water, Sudden and Accidental Tearing Apart, Freezing, and others. The section title 'SECTION I \u2013 EXCLUSIONS' appears only after these contents, indicating that the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to policy cancellation and other clauses before the section titled 'If the return premium is not refunded with the notice of cancellation or when this policy is returned to us, we will refund it within a reasonable time after the date cancellation takes effect.' This section appears as item 4 in a list, indicating that the section title is not at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to other sections and clauses before the section titled 'J. Concealment Or Fraud' appears. The section title 'Concealment Or Fraud' is found well into the text, not at the very beginning, indicating that the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Other Insurance', including copyright information and multiple paragraphs under different headings (such as D. Duties Of An Injured Person, E. Payment Of Claim, F. Suit Against Us, G. Bankruptcy Of An 'Insured'). The section 'H. Other Insurance' appears well into the text, not at the beginning. Therefore, the section 'Other Insurance' does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to exclusions and definitions of various terms such as landslide, water damage, power failure, neglect, war, nuclear hazard, intentional loss, governmental action, and other insurance policy clauses. The section title 'Earth Movement' does not appear at the beginning of the page_text, nor is there any indication that the page_text starts with this section. Instead, the text appears to be mid-discussion of exclusions and definitions, indicating that the 'Earth Movement' section does not start at the beginning of this page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to various liability coverages (Watercraft, Aircraft, Hovercraft) and only later introduces the section titled 'E. Coverage E \u2013 Personal Liability And Coverage F \u2013 Medical Payments To Others' followed by the subsection '1. Expected Or Intended Injury'. Since there is substantial content before the 'Expected Or Intended Injury' section title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to other clauses such as 'H. Our Option', 'I. Loss Payment', 'J. Abandonment Of Property', 'K. Mortgage Clause', and 'L. No Benefit To Bailee' before reaching the 'M. Nuclear Hazard Clause'. Therefore, the 'Nuclear Hazard Clause' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content related to coverage details and numbered items (10, 11, 12) before the section titled 'SECTION I \u2013 PERILS INSURED AGAINST'. The given section title 'Additional Coverages' does not appear at the start or anywhere near the start of the page_text. Since there is other content before the section title 'Additional Coverages' (in fact, the section title itself is not present), the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to policy cancellation, nonrenewal, assignment, subrogation, and death, which are sections or subsections preceding the section titled 'When you have not paid the premium.' Since the section title 'When you have not paid the premium.' does not appear at the very beginning of the page_text and there is other content before it, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to insurance coverage details and numbered subsections (3, 4, 5, 6) before the section titled 'Reasonable Repairs' is mentioned. Since the section title 'Reasonable Repairs' does not appear at the very beginning of the page_text and there is other content preceding it, the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with content related to policy cancellation, nonrenewal, assignment, subrogation, and death, which are sections or clauses preceding the 'Liberalization Clause'. The section title 'Liberalization Clause' does not appear at the beginning or anywhere in the provided text, indicating that the current section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with content unrelated to the section title 'Debris Removal', including copyright information and coverage details under other headings such as 'Coverage D \u2013 Loss Of Use' and 'Additional Coverages'. The section 'Debris Removal' appears later within the text, not at the very beginning.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with copyright information and policy cancellation details before the section title 'SECTIONS I AND II \u2013 CONDITIONS' appears. There is no indication that the section title is the first content on the page. Therefore, the current section does not start at the beginning of the given page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The given page_text starts with 'Page 22 of 22 Copyright, Insurance Services Office, Inc., 1999 HO 00 03 10 00c.' followed by the section titled 'When this policy has been in effect for 60 days or more, or at any time if it is a renewal with us,' which is different from the given section title 'When this policy has been in effect for less than 60 days and is not a renewal with us.' Therefore, the current section title does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text contains multiple sections and clauses before the section titled 'Concealment Or Fraud'. The section 'Q. Concealment Or Fraud' appears well after other sections such as 'H. Our Option', 'I. Loss Payment', 'J. Abandonment Of Property', 'K. Mortgage Clause', 'L. No Benefit To Bailee', 'M. Nuclear Hazard Clause', 'N. Recovered Property', 'O. Volcanic Eruption Period', and 'P. Policy Period'. Therefore, the section 'Concealment Or Fraud' does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  }
+]

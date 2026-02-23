@@ -13,3 +13,6 @@ data/
 results/
 
 .gepa_cache/
+src/mcp/.cache/
+**/node_modules/
+**/agui_v2/frontend/node_modules/
