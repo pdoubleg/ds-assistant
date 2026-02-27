@@ -5,9 +5,10 @@ This agent uses StateDeps for bidirectional state sync with the frontend
 via the AG-UI protocol, enabling seamless CopilotKit integration.
 
 Two independent tools are available:
-    analyze_documents – Reviews docs, produces stats, and generates UI
-                        components (summary card, topics table, risk chart).
-    generate_audit_form – Reads docs directly and generates the audit
+    run_analysis – Analyzes claim documents and generates visual insight
+                   components (timeline, summary card, findings, tables,
+                   charts) to brief the auditor before review.
+    generate_audit_form – Reads docs directly and generates the TFR
                           question set rendered as an AuditQuestionForm.
 
 The main agent decides which tools to call (either, both, or neither)
@@ -27,9 +28,12 @@ from ag_ui.core import EventType, StateSnapshotEvent
 from model_config import get_agent_model
 from a2ui_generator import (
     generate_audit_question_form,
-    generate_text_box,
+    generate_claim_timeline,
     generate_data_table,
+    generate_finding_card,
     generate_simple_chart,
+    generate_summary_card,
+    generate_text_box,
 )
 
 
@@ -41,10 +45,10 @@ class AuditState(BaseModel):
     chat | documents | generative UI output.
 
     Attributes:
-        documents: Uploaded document metadata (+ extracted content).
+        documents: Uploaded document metadata conforming to the Document schema.
         components: Generated A2UI components for the output pane.
-        audit_questions: Raw audit question data.
-        document_review: Lightweight review stats from analyze_documents.
+        audit_questions: Raw TFR question data.
+        analysis_result: Raw analysis output from run_analysis.
         status: Current processing status.
         progress: Completion percentage (0-100).
         current_step: Human-readable description of current activity.
@@ -54,7 +58,7 @@ class AuditState(BaseModel):
     documents: list[dict[str, Any]] = Field(default_factory=list)
     components: list[dict[str, Any]] = Field(default_factory=list)
     audit_questions: list[dict[str, Any]] = Field(default_factory=list)
-    document_review: dict[str, Any] = Field(default_factory=dict)
+    analysis_result: dict[str, Any] = Field(default_factory=dict)
 
     status: str = "idle"  # idle | analyzing | generating | complete | error
     progress: int = 0
@@ -70,20 +74,23 @@ class AuditState(BaseModel):
 def _build_doc_payloads(state: AuditState) -> list[dict[str, Any]]:
     """Extract document payloads from shared state for LLM consumption.
 
+    Maps from the Document schema shape used in state to the simple
+    payload dicts consumed by the orchestrator functions.
+
     Args:
         state: The current ``AuditState`` with documents list.
 
     Returns:
         List of dicts with ``title``, ``content``, ``file_type``, and
-        ``page_count`` suitable for the orchestrator functions.
+        ``document_type`` suitable for the orchestrator functions.
     """
     payloads: list[dict[str, Any]] = []
     for doc in state.documents:
         payloads.append({
-            "title": doc.get("title", "Untitled"),
-            "content": doc.get("content", doc.get("summary", "")),
-            "file_type": doc.get("file_type", "unknown"),
-            "page_count": doc.get("page_count") or 0,
+            "title": doc.get("file_name", doc.get("content_url", "Untitled")),
+            "content": doc.get("content", doc.get("text", "")),
+            "file_type": doc.get("mime_type", "unknown"),
+            "document_type": doc.get("document_type", ""),
         })
     return payloads
 
@@ -113,12 +120,25 @@ agent = Agent(
     name="audit_agent",
     deps_type=StateDeps[AuditState],
     instructions=dedent("""
-        You are a helpful audit assistant. You have two independent tools:
+        You are an insurance claim audit assistant. You help auditors
+        understand a property claim before they begin their Technical File
+        Review (TFR). You have two independent tools:
 
-        • analyze_documents — Summarize uploaded documents and generate
-          visual insight components (summary card, topic table, risk chart).
+        • run_analysis — Analyze claim documents (estimates, notes, policy
+          details, vendor reports, scope sheets) and generate visual insight
+          components: a claim timeline, summary metrics, findings, data
+          tables, and charts. Pass an optional *focus* string to steer
+          the analysis (e.g. "timeline and damaged items"). The tool uses
+          the same document context as the audit (whatever is selected
+          and/or uploaded). Documents can also be None.
+          If the user asks for an example, demo, or sample analysis
+          (and no documents are uploaded), call run_analysis with a
+          descriptive focus like "example property claim with wind damage"
+          — the sub-agent will generate realistic fictional data.
         • generate_audit_form — Read uploaded documents and generate a
-          structured audit questionnaire.
+          structured TFR audit questionnaire with peril determination,
+          questions, sub-questions with reasoning and citations, and
+          an overall outcome assessment.
 
         Use whichever tool(s) make sense for the user's request. You can
         call one, both, or neither. They are completely independent.
@@ -144,7 +164,7 @@ def get_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
         return_value = "No documents uploaded yet."
     else:
         return_value = "\n".join(
-            f"- {d.get('title', 'Untitled')} ({d.get('file_type', 'unknown')})"
+            f"- {d.get('file_name', d.get('content_url', 'Untitled'))} ({d.get('mime_type', 'unknown')})"
             for d in docs
         )
     return ToolReturn(
@@ -159,99 +179,141 @@ def get_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
 
 
 # =========================================================================
-# Tool: analyze documents → stats + UI components
+# Tool: run_analysis → claim insight components
 # =========================================================================
 
 @agent.tool
-async def analyze_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
-    """Review uploaded documents and generate visual insight components.
+async def run_analysis(
+    ctx: RunContext[StateDeps[AuditState]],
+    focus: str = "General claim review",
+) -> ToolReturn:
+    """Analyze claim documents and generate visual insight components.
 
-    Calls the document-review sub-agent to produce lightweight stats
-    (key topics, risk areas, summary), then renders TextBox, DataTable,
-    and SimpleChart A2UI components from those stats.
+    Calls the analysis sub-agent which returns an ``AnalysisResult`` with
+    optional sections (timeline, metrics, findings, tables, charts). Each
+    populated section is mapped to one or more A2UI components and appended
+    to ``AuditState.components``.
+
+    Args:
+        ctx: Pydantic AI run context carrying the shared ``AuditState``.
+        focus: User-supplied focus area forwarded to the sub-agent
+            (e.g. "timeline and damaged items").
 
     Returns:
         ToolReturn with a summary string for the LLM and a
         StateSnapshotEvent to sync updated state with the frontend.
     """
-    from llm_orchestrator import review_documents
+    from llm_orchestrator import run_analysis as _run_analysis
 
     state = ctx.deps.state
-    doc_payloads = _build_doc_payloads(state)
+    doc_payloads = _build_doc_payloads(state) or None  # None when empty
 
-    print(f"[TOOL] analyze_documents: {len(doc_payloads)} document(s)")
+    print(f"[TOOL] run_analysis: {len(doc_payloads or [])} document(s), focus='{focus}'")
 
     state.status = "analyzing"
     state.progress = 10
-    state.current_step = "Reviewing documents..."
-    _log(state, "Starting document review")
+    state.current_step = "Analyzing claim documents..."
+    _log(state, f"Starting analysis — focus: {focus}")
 
-    # ── LLM review ──────────────────────────────────────────────────────
-    review = await review_documents(doc_payloads)
-    state.document_review = review.model_dump()
+    # ── LLM analysis ────────────────────────────────────────────────────
+    analysis = await _run_analysis(doc_payloads, focus=focus)
+    state.analysis_result = analysis.model_dump()
     state.progress = 50
     state.current_step = "Building insight components..."
-    _log(state, f"Review done — {review.document_type}, {len(review.key_topics)} topics", "completed")
+    _log(state, "Analysis complete — building components", "completed")
 
-    # ── Component 1: Summary TextBox ────────────────────────────────────
-    summary_text = (
-        f"{review.summary}\n\n"
-        f"Reviewed {review.total_pages} pages across {review.doc_count} document(s). "
-        f"Found {len(review.key_topics)} key topics and {len(review.risk_areas)} risk areas."
-    )
+    # ── Map AnalysisResult sections → A2UI components ───────────────────
+    components_before = len(state.components)
+
+    # 1. Overview text box (always present)
     state.components.append(
         generate_text_box(
-            title="Document Review Summary",
-            content=summary_text.strip(),
+            title="Claim Overview",
+            content=analysis.claim_overview,
             variant="info",
         ).model_dump()
     )
 
-    # ── Component 2: Key Topics Table ───────────────────────────────────
-    if review.key_topics:
+    # 2. Summary metrics card
+    if analysis.summary_metrics:
         state.components.append(
-            generate_data_table(
-                headers=["#", "Topic"],
-                rows=[[str(i + 1), t] for i, t in enumerate(review.key_topics)],
-                caption="Key Topics Identified",
-                sortable=True,
+            generate_summary_card(
+                title="Claim Summary",
+                metrics=[m.model_dump() for m in analysis.summary_metrics],
             ).model_dump()
         )
 
-    # ── Component 3: Risk Area Chart ────────────────────────────────────
-    if review.risk_areas:
-        palette = ["#ef4444", "#f97316", "#f59e0b", "#eab308",
-                    "#84cc16", "#22c55e", "#14b8a6", "#06b6d4"]
+    # 3. Timeline
+    if analysis.timeline_events:
         state.components.append(
-            generate_simple_chart(
-                chart_type="bar",
-                title="Identified Risk Areas",
-                labels=review.risk_areas[:8],
-                values=[1] * min(len(review.risk_areas), 8),
-                colors=palette[:min(len(review.risk_areas), 8)],
+            generate_claim_timeline(
+                title="Claim Timeline",
+                events=[e.model_dump() for e in analysis.timeline_events],
             ).model_dump()
         )
 
-    state.progress = 60
-    state.current_step = f"Generated {len(state.components)} insight components"
-    _log(state, f"Built {len(state.components)} components", "completed")
+    # 4. Findings (one card per finding)
+    if analysis.findings:
+        for finding in analysis.findings:
+            state.components.append(
+                generate_finding_card(
+                    title=finding.title,
+                    content=finding.content,
+                    severity=finding.severity,
+                    category=finding.category,
+                ).model_dump()
+            )
 
-    # Only mark complete if audit form isn't pending
-    if state.status == "analyzing":
-        state.status = "complete"
-        state.progress = 100
-        state.current_step = "Document review complete!"
+    # 5. Tables
+    if analysis.tables:
+        for table in analysis.tables:
+            state.components.append(
+                generate_data_table(
+                    headers=table.headers,
+                    rows=table.rows,
+                    caption=table.caption,
+                ).model_dump()
+            )
 
-    num_components = len(state.components)
-    print(f"[TOOL] analyze_documents: {num_components} components created")
+    # 6. Charts
+    if analysis.charts:
+        for chart in analysis.charts:
+            state.components.append(
+                generate_simple_chart(
+                    chart_type=chart.chart_type,
+                    title=chart.title,
+                    labels=chart.labels,
+                    values=chart.values,
+                    colors=chart.colors,
+                ).model_dump()
+            )
+
+    new_count = len(state.components) - components_before
+    state.progress = 100
+    state.status = "complete"
+    state.current_step = f"Generated {new_count} insight components"
+    _log(state, f"Built {new_count} components", "completed")
+
+    print(f"[TOOL] run_analysis: {new_count} components created")
+
+    # Build a concise return value for the LLM
+    sections = []
+    if analysis.timeline_events:
+        sections.append(f"{len(analysis.timeline_events)} timeline events")
+    if analysis.summary_metrics:
+        sections.append(f"{len(analysis.summary_metrics)} summary metrics")
+    if analysis.findings:
+        sections.append(f"{len(analysis.findings)} findings")
+    if analysis.tables:
+        sections.append(f"{len(analysis.tables)} tables")
+    if analysis.charts:
+        sections.append(f"{len(analysis.charts)} charts")
 
     return ToolReturn(
         return_value=(
-            f"Document review complete. Reviewed {review.total_pages} pages "
-            f"across {review.doc_count} document(s). Found "
-            f"{len(review.key_topics)} key topics, "
-            f"{len(review.risk_areas)} risk areas. "
-            f"Generated {num_components} insight components."
+            f"Claim analysis complete. Generated {new_count} insight components: "
+            f"{', '.join(sections) if sections else 'overview only'}. "
+            f"Components are now visible in the output pane."
         ),
         metadata=[
             StateSnapshotEvent(
@@ -263,16 +325,16 @@ async def analyze_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolRetur
 
 
 # =========================================================================
-# Tool: generate audit form → question set
+# Tool: generate audit form → TFR question set
 # =========================================================================
 
 @agent.tool
 async def generate_audit_form(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
-    """Generate an audit questionnaire from uploaded documents.
+    """Generate a TFR audit questionnaire from uploaded documents.
 
-    Reads raw document content from state, calls the audit-question
-    sub-agent, and renders an AuditQuestionForm A2UI component.
-    Completely independent of ``analyze_documents``.
+    Reads raw document content from state, calls the TFR question
+    sub-agent, and renders an AuditQuestionForm A2UI component with
+    peril determination, questions, and overall outcome.
 
     Returns:
         ToolReturn with a summary string for the LLM and a
@@ -287,30 +349,38 @@ async def generate_audit_form(ctx: RunContext[StateDeps[AuditState]]) -> ToolRet
 
     state.status = "generating"
     state.progress = max(state.progress, 50)
-    state.current_step = "Generating audit questionnaire..."
-    _log(state, "Starting audit question generation")
+    state.current_step = "Generating TFR audit questionnaire..."
+    _log(state, "Starting TFR question generation")
 
     # ── LLM question generation ─────────────────────────────────────────
-    questions = await generate_audit_questions(doc_payloads)
+    tfr_result = await generate_audit_questions(doc_payloads)
 
     # ── Render form component ───────────────────────────────────────────
-    form_component = generate_audit_question_form(questions=questions)
+    form_component = generate_audit_question_form(
+        peril=tfr_result["peril"],
+        questions=tfr_result["questions"],
+        overall_outcome=tfr_result["overall_outcome"],
+        outcome_justification=tfr_result["outcome_justification"],
+        additional_analysis=tfr_result.get("additional_analysis"),
+        follow_ups=tfr_result.get("follow_ups"),
+    )
     state.components.append(form_component.model_dump())
-    state.audit_questions = questions
+    state.audit_questions = tfr_result["questions"]
 
+    num_questions = len(tfr_result["questions"])
     state.status = "complete"
     state.progress = 100
-    state.current_step = f"Generated {len(questions)} audit questions"
-    _log(state, f"Created questionnaire with {len(questions)} questions", "completed")
+    state.current_step = f"Generated {num_questions} TFR questions"
+    _log(state, f"Created TFR questionnaire with {num_questions} questions", "completed")
 
-    num_questions = len(questions)
     print(f"[TOOL] generate_audit_form: {num_questions} questions")
 
     return ToolReturn(
         return_value=(
-            f"Audit questionnaire generated with {num_questions} questions "
-            f"across the uploaded documents. The form has been rendered "
-            f"in the output pane."
+            f"TFR audit questionnaire generated with {num_questions} questions. "
+            f"Peril: {tfr_result['peril']['peril']}. "
+            f"Outcome: {tfr_result['overall_outcome']}. "
+            f"The form has been rendered in the output pane."
         ),
         metadata=[
             StateSnapshotEvent(

@@ -27,6 +27,9 @@ const TYPE_DEFAULT_WIDTHS: Record<string, string> = {
   'a2ui.TextBox': 'full',
   'a2ui.SimpleChart': 'half',
   'a2ui.DocumentCard': 'full',
+  'a2ui.ClaimTimeline': 'full',
+  'a2ui.SummaryCard': 'full',
+  'a2ui.FindingCard': 'half',
 };
 
 /**

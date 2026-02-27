@@ -1,5 +1,5 @@
 /**
- * A2UI Catalog - Component Type Registry (Simplified for Audit Assistant)
+ * A2UI Catalog - Component Type Registry for Audit Assistant
  *
  * This catalog maps backend A2UI component types (a2ui.*) to React components.
  * The A2UIRenderer uses this catalog to dynamically render components based on
@@ -11,12 +11,15 @@
  *   - TextBox: General-purpose text/insight display
  *   - DataTable: Structured tabular data
  *   - SimpleChart: Simple bar/line/pie charts
+ *   - ClaimTimeline: Vertical timeline of claim lifecycle events
+ *   - SummaryCard: Grid of key-value metric tiles
+ *   - FindingCard: Observation card with severity level
  */
 
 import React from 'react';
 import { DocumentCard } from "@/components/A2UI/Documents";
 import { AuditQuestionForm } from "@/components/A2UI/Forms";
-import { TextBox, DataTable, SimpleChart } from "@/components/A2UI/General";
+import { TextBox, DataTable, SimpleChart, ClaimTimeline, SummaryCard, FindingCard } from "@/components/A2UI/General";
 
 /**
  * Semantic zones for component grouping in the three-pane layout.
@@ -68,6 +71,11 @@ export const a2uiCatalog: Record<string, ComponentRenderer> = {
   "a2ui.TextBox": (props) => <TextBox {...props as any} />,
   "a2ui.DataTable": (props) => <DataTable {...props as any} />,
   "a2ui.SimpleChart": (props) => <SimpleChart {...props as any} />,
+
+  // ===== CLAIM ANALYSIS COMPONENTS =====
+  "a2ui.ClaimTimeline": (props) => <ClaimTimeline {...props as any} />,
+  "a2ui.SummaryCard": (props) => <SummaryCard {...props as any} />,
+  "a2ui.FindingCard": (props) => <FindingCard {...props as any} />,
 };
 
 /**

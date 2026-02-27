@@ -46,47 +46,80 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import qbotLogo from "../assets/q-bot.PNG";
 
-// ── Dummy documents for initial display ──────────────────────────
+// ── MIME type helper ─────────────────────────────────────────────
+const EXT_TO_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  tiff: "image/tiff",
+};
+
+function mimeFromExt(ext: string): string {
+  return EXT_TO_MIME[ext.toLowerCase()] || "application/octet-stream";
+}
+
+// ── Dummy documents conforming to Document schema ────────────────
 const DUMMY_DOCUMENTS = [
   {
-    title: "Corporate Information Security Policy v3.2.pdf",
-    file_type: "pdf",
-    file_size: "2.4 MB",
-    page_count: 45,
-    upload_date: "2026-02-15T10:30:00Z",
-    summary:
+    file_name: "Corporate_Security_Policy_v3.2.pdf",
+    claim_number: "CLM-2026-00100",
+    content_id: "doc-001",
+    mime_type: "application/pdf",
+    content_url: "/docs/Corporate_Security_Policy_v3.2.pdf",
+    domain: "claim" as const,
+    document_type: "Policy",
+    document_sub_type: "Information Security",
+    document_description:
       "Comprehensive information security policy covering access control, data protection, incident response, and vendor management.",
-    tags: ["governance", "security", "ISO 27001"],
+    create_date: "2026-02-15T10:30:00Z",
+    source_system: "UPLOAD",
+    company_name: "Acme Corp",
   },
   {
-    title: "SOC 2 Type II Report 2025.pdf",
-    file_type: "pdf",
-    file_size: "8.1 MB",
-    page_count: 120,
-    upload_date: "2026-01-20T14:15:00Z",
-    summary:
+    file_name: "SOC_2_Type_II_Report_2025.pdf",
+    claim_number: "CLM-2026-00100",
+    content_id: "doc-002",
+    mime_type: "application/pdf",
+    content_url: "/docs/SOC_2_Type_II_Report_2025.pdf",
+    domain: "claim" as const,
+    document_type: "Report",
+    document_sub_type: "SOC 2 Audit",
+    document_description:
       "Annual SOC 2 Type II examination report covering security, availability, and confidentiality trust service criteria.",
-    tags: ["SOC 2", "compliance", "audit"],
+    create_date: "2026-01-20T14:15:00Z",
+    source_system: "UPLOAD",
+    company_name: "Acme Corp",
   },
   {
-    title: "IT Risk Assessment Template.xlsx",
-    file_type: "xlsx",
-    file_size: "340 KB",
-    page_count: null,
-    upload_date: "2026-02-10T09:00:00Z",
-    summary:
+    file_name: "IT_Risk_Assessment_Template.xlsx",
+    claim_number: "CLM-2026-00100",
+    content_id: "doc-003",
+    mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    content_url: "/docs/IT_Risk_Assessment_Template.xlsx",
+    domain: "claim" as const,
+    document_type: "Template",
+    document_sub_type: "Risk Assessment",
+    document_description:
       "Spreadsheet template for conducting IT risk assessments with impact and likelihood scoring matrices.",
-    tags: ["risk", "assessment", "template"],
+    create_date: "2026-02-10T09:00:00Z",
+    source_system: "UPLOAD",
   },
   {
-    title: "Access Control Procedures.docx",
-    file_type: "docx",
-    file_size: "1.2 MB",
-    page_count: 28,
-    upload_date: "2026-02-18T16:45:00Z",
-    summary:
+    file_name: "Access_Control_Procedures.docx",
+    claim_number: "CLM-2026-00100",
+    content_id: "doc-004",
+    mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    content_url: "/docs/Access_Control_Procedures.docx",
+    domain: "policy" as const,
+    document_type: "Procedure",
+    document_sub_type: "Access Control",
+    document_description:
       "Detailed procedures for user provisioning, access reviews, privileged account management, and deprovisioning.",
-    tags: ["access control", "procedures"],
+    create_date: "2026-02-18T16:45:00Z",
+    source_system: "UPLOAD",
   },
 ];
 
@@ -104,24 +137,28 @@ const PANE_META: Record<PaneId, PaneMeta> = {
   output: { icon: <LayoutDashboard className="h-4 w-4" />, label: "Output" },
 };
 
-// ── Shared uploaded-docs context ──────────────────────────────────
-// Lets ChatPane push uploaded docs so DocumentsPane sees them instantly.
+// ── Shared uploaded-docs context (Document schema) ───────────────
 
 interface UploadedDoc {
-  title: string;
-  file_type: string;
-  file_size: string;
-  page_count: number | null;
-  upload_date: string;
-  summary: string;
-  tags: string[];
+  file_name: string;
+  claim_number: string;
+  content_id: string;
+  mime_type: string;
+  content_url: string;
+  domain: "claim" | "policy";
+  document_type?: string;
+  document_sub_type?: string;
+  document_description?: string;
+  create_date: string;
+  source_system?: string;
+  company_name?: string;
 }
 
 interface UploadedDocsContextValue {
   uploadedDocs: UploadedDoc[];
   addUploadedDoc: (doc: UploadedDoc) => void;
-  /** Replace an existing entry by title, or append if not found. */
-  updateUploadedDoc: (title: string, doc: UploadedDoc) => void;
+  /** Replace an existing entry by file_name, or append if not found. */
+  updateUploadedDoc: (fileName: string, doc: UploadedDoc) => void;
 }
 
 const UploadedDocsContext = createContext<UploadedDocsContextValue>({
@@ -181,15 +218,12 @@ function ChatPane() {
       id: "welcome",
       role: "assistant",
       content:
-        "Welcome to Q-Bot, your AI-powered quality audit assistant. Upload documents and I'll generate a custom audit questionnaire with insights. You can upload .pdf, .docx, or .xlsx files.",
+        "Welcome to Q-Bot, your AI-powered TFR audit assistant. Upload documents and I'll generate a custom audit questionnaire with insights. You can upload .pdf, .docx, or .xlsx files.",
     },
   ]);
 
-  // Track the last agent message we've already shown so we don't duplicate
   const lastShownRef = useRef<string | null>(null);
 
-  // When the agent finishes and produces a new assistant message, push it
-  // into the local chat history automatically.
   useEffect(() => {
     if (!lastAssistantMessage) return;
     if (isGenerating) return;
@@ -206,8 +240,7 @@ function ChatPane() {
     ]);
   }, [lastAssistantMessage, isGenerating]);
 
-  // Upload a single file to the backend and add it to both the local
-  // context (immediate card) and the agent state (for analysis).
+  // Upload a single file: show card immediately, then call backend
   const uploadFile = useCallback(
     async (file: File) => {
       const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
@@ -215,16 +248,21 @@ function ChatPane() {
         file.size > 1024 * 1024
           ? `${(file.size / 1024 / 1024).toFixed(1)} MB`
           : `${(file.size / 1024).toFixed(1)} KB`;
+      const nowIso = new Date().toISOString();
+      const dummyContentId = crypto.randomUUID();
 
-      // Show the card immediately in DocumentsPane
+      // Show the card immediately with placeholder metadata
       addUploadedDoc({
-        title: file.name,
-        file_type: ext,
-        file_size: friendlySize,
-        page_count: null,
-        upload_date: new Date().toISOString(),
-        summary: "",
-        tags: ["uploading"],
+        file_name: file.name,
+        claim_number: "CLM-UPLOAD-000",
+        content_id: dummyContentId,
+        mime_type: mimeFromExt(ext),
+        content_url: file.name,
+        domain: "claim",
+        document_type: "Upload",
+        document_description: `Uploading ${friendlySize}...`,
+        create_date: nowIso,
+        source_system: "UPLOAD",
       });
 
       const backendUrl =
@@ -240,57 +278,75 @@ function ChatPane() {
         if (!resp.ok) {
           console.error(`Upload failed for ${file.name}:`, await resp.text());
           updateUploadedDoc(file.name, {
-            title: file.name,
-            file_type: ext,
-            file_size: friendlySize,
-            page_count: null,
-            upload_date: new Date().toISOString(),
-            summary: "",
-            tags: ["upload failed"],
+            file_name: file.name,
+            claim_number: "CLM-UPLOAD-000",
+            content_id: dummyContentId,
+            mime_type: mimeFromExt(ext),
+            content_url: file.name,
+            domain: "claim",
+            document_type: "Upload",
+            document_description: "Upload failed",
+            create_date: nowIso,
+            source_system: "UPLOAD",
           });
           return;
         }
 
         const data = await resp.json();
-        // Replace the placeholder card with real metadata from the backend
+
+        // Replace the placeholder card with real metadata
         updateUploadedDoc(file.name, {
-          title: data.filename || file.name,
-          file_type: data.file_type || ext,
-          file_size: data.file_size || friendlySize,
-          page_count: data.page_count ?? null,
-          upload_date: new Date().toISOString(),
-          summary: "",
-          tags: [],
+          file_name: data.filename || file.name,
+          claim_number: "CLM-UPLOAD-000",
+          content_id: dummyContentId,
+          mime_type: mimeFromExt(data.file_type || ext),
+          content_url: data.path || file.name,
+          domain: "claim",
+          document_type: "Upload",
+          document_description: `${data.file_size || friendlySize}, ${data.page_count ?? 0} pages`,
+          create_date: nowIso,
+          source_system: "UPLOAD",
         });
+
+        // Also push into agent state for analysis
         addDocument({
-          title: data.filename,
-          file_type: data.file_type,
-          file_size: data.file_size,
-          page_count: data.page_count ?? null,
-          upload_date: new Date().toISOString(),
-          summary: "",
-          tags: [],
+          file_name: data.filename || file.name,
+          claim_number: "CLM-UPLOAD-000",
+          content_id: dummyContentId,
+          mime_type: mimeFromExt(data.file_type || ext),
+          content_url: data.path || file.name,
+          domain: "claim",
+          document_type: "Upload",
+          document_description: "",
+          create_date: nowIso,
+          source_system: "UPLOAD",
           content: data.content ?? "",
         });
       } catch (err) {
         console.error(`Upload error for ${file.name}:`, err);
         updateUploadedDoc(file.name, {
-          title: file.name,
-          file_type: ext,
-          file_size: friendlySize,
-          page_count: null,
-          upload_date: new Date().toISOString(),
-          summary: "",
-          tags: ["upload failed"],
+          file_name: file.name,
+          claim_number: "CLM-UPLOAD-000",
+          content_id: dummyContentId,
+          mime_type: mimeFromExt(ext),
+          content_url: file.name,
+          domain: "claim",
+          document_type: "Upload",
+          document_description: "Upload failed",
+          create_date: nowIso,
+          source_system: "UPLOAD",
         });
         addDocument({
-          title: file.name,
-          file_type: ext,
-          file_size: friendlySize,
-          page_count: null,
-          upload_date: new Date().toISOString(),
-          summary: "",
-          tags: [],
+          file_name: file.name,
+          claim_number: "CLM-UPLOAD-000",
+          content_id: dummyContentId,
+          mime_type: mimeFromExt(ext),
+          content_url: file.name,
+          domain: "claim",
+          document_type: "Upload",
+          document_description: "",
+          create_date: nowIso,
+          source_system: "UPLOAD",
           content: "",
         });
       }
@@ -306,9 +362,6 @@ function ChatPane() {
         return ["pdf", "docx", "xlsx"].includes(ext || "");
       });
       setAttachedFiles((prev) => [...prev, ...validFiles]);
-
-      // Start uploading each file immediately so cards appear in the
-      // Documents pane right away (no need to wait for Send).
       validFiles.forEach((f) => uploadFile(f));
     },
     [uploadFile]
@@ -323,7 +376,7 @@ function ChatPane() {
 
     const userContent =
       message.trim() ||
-      "Please analyze the uploaded documents and generate an audit questionnaire.";
+      "Please analyze the uploaded documents and generate a TFR audit questionnaire.";
 
     const fileNames = attachedFiles.map((f) => f.name);
 
@@ -404,7 +457,6 @@ function ChatPane() {
         {isGenerating && (
           <div className="flex justify-start">
             <div className="bg-secondary/60 rounded-xl px-4 py-3 border border-border/30 min-w-[220px]">
-              {/* Tool call activity items */}
               {toolActivity.length > 0 && (
                 <div className="space-y-1.5">
                   {toolActivity.map((tc) => (
@@ -425,7 +477,6 @@ function ChatPane() {
                       </span>
                     </div>
                   ))}
-                  {/* Show a finishing-up line when all tools are done but agent is still streaming */}
                   {toolActivity.every((tc) => tc.status === "complete") && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground pt-0.5">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-accent shrink-0" />
@@ -435,7 +486,6 @@ function ChatPane() {
                 </div>
               )}
 
-              {/* Fallback when no tool calls are tracked yet */}
               {toolActivity.length === 0 && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin text-accent" />
@@ -443,7 +493,6 @@ function ChatPane() {
                 </div>
               )}
 
-              {/* Progress bar */}
               {state.progress > 0 && (
                 <div className="mt-2 h-1.5 bg-secondary rounded-full overflow-hidden">
                   <motion.div
@@ -510,7 +559,7 @@ function ChatPane() {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about your documents or request an audit..."
+            placeholder="Ask about your documents or request a TFR audit..."
             rows={1}
             className="flex-1 resize-none bg-secondary/50 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 min-h-[36px] max-h-[120px]"
             style={{
@@ -550,35 +599,39 @@ function DocumentsPane() {
     new Set(["dummy-0", "dummy-1"])
   );
 
-  // Build a unified list with stable IDs — dummies, then locally-uploaded,
-  // then any that arrived via agent state (deduped by title).
+  // Build a unified list: dummies, then locally-uploaded, then agent state (deduped by file_name)
   const allDocs = useMemo(() => {
-    const seenTitles = new Set<string>();
+    const seenNames = new Set<string>();
     const docs: Array<UploadedDoc & { _id: string }> = [];
 
     DUMMY_DOCUMENTS.forEach((d, i) => {
       const id = `dummy-${i}`;
       docs.push({ ...d, _id: id });
-      seenTitles.add(d.title);
+      seenNames.add(d.file_name);
     });
 
     uploadedDocs.forEach((d, i) => {
-      if (seenTitles.has(d.title)) return;
+      if (seenNames.has(d.file_name)) return;
       docs.push({ ...d, _id: `upload-${i}` });
-      seenTitles.add(d.title);
+      seenNames.add(d.file_name);
     });
 
     (state.documents || []).forEach((d, i) => {
-      const title = (d.title as string) || "Untitled";
-      if (seenTitles.has(title)) return;
+      const fileName = (d.file_name as string) || (d.content_url as string) || "Untitled";
+      if (seenNames.has(fileName)) return;
       docs.push({
-        title,
-        file_type: (d.file_type as string) || "pdf",
-        file_size: (d.file_size as string) || "",
-        page_count: (d.page_count as number | null) ?? null,
-        upload_date: (d.upload_date as string) || "",
-        summary: (d.summary as string) || "",
-        tags: (d.tags as string[]) || [],
+        file_name: fileName,
+        claim_number: (d.claim_number as string) || "",
+        content_id: (d.content_id as string) || "",
+        mime_type: (d.mime_type as string) || "application/octet-stream",
+        content_url: (d.content_url as string) || "",
+        domain: (d.domain as "claim" | "policy") || "claim",
+        document_type: (d.document_type as string) || undefined,
+        document_sub_type: (d.document_sub_type as string) || undefined,
+        document_description: (d.document_description as string) || undefined,
+        create_date: (d.create_date as string) || "",
+        source_system: (d.source_system as string) || undefined,
+        company_name: (d.company_name as string) || undefined,
         _id: `agent-${i}`,
       });
     });
@@ -586,7 +639,7 @@ function DocumentsPane() {
     return docs;
   }, [state.documents, uploadedDocs]);
 
-  // Sort so selected cards float to the top
+  // Selected cards float to the top
   const sortedDocs = useMemo(() => {
     return [...allDocs].sort((a, b) => {
       const aSelected = selectedIds.has(a._id) ? 0 : 1;
@@ -628,13 +681,18 @@ function DocumentsPane() {
               transition={{ duration: 0.3 }}
             >
               <DocumentCard
-                title={doc.title}
-                file_type={doc.file_type}
-                file_size={doc.file_size}
-                page_count={doc.page_count}
-                upload_date={doc.upload_date}
-                summary={doc.summary}
-                tags={doc.tags}
+                file_name={doc.file_name}
+                mime_type={doc.mime_type}
+                content_id={doc.content_id}
+                claim_number={doc.claim_number}
+                content_url={doc.content_url}
+                domain={doc.domain}
+                document_type={doc.document_type}
+                document_sub_type={doc.document_sub_type}
+                document_description={doc.document_description}
+                create_date={doc.create_date}
+                source_system={doc.source_system}
+                company_name={doc.company_name}
                 selected={selectedIds.has(doc._id)}
                 onSelectionChange={() => toggleSelection(doc._id)}
               />
@@ -664,7 +722,7 @@ function OutputPane() {
           No Audit Generated Yet
         </h3>
         <p className="text-sm text-muted-foreground max-w-md">
-          Upload documents and ask Q-Bot to generate an audit questionnaire.
+          Upload documents and ask Q-Bot to generate a TFR audit questionnaire.
           The forms, charts, and insights will appear here.
         </p>
         <div className="flex items-center gap-6 mt-8 text-muted-foreground/50">
@@ -680,7 +738,7 @@ function OutputPane() {
           <ChevronRight className="h-4 w-4" />
           <div className="flex flex-col items-center gap-1">
             <ClipboardCheck className="h-8 w-8" />
-            <span className="text-[10px]">Audit Form</span>
+            <span className="text-[10px]">TFR Form</span>
           </div>
         </div>
       </div>
@@ -713,8 +771,8 @@ function OutputPane() {
       </div>
 
       {/* Output content */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="grid grid-cols-12 gap-4 auto-rows-min">
+      <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="grid grid-cols-12 gap-5 auto-rows-min">
           {outputComponents.map((component, index) => (
             <motion.div
               key={component.id || `output-${index}`}
@@ -740,7 +798,6 @@ const PANE_CONTENT: Record<PaneId, React.FC> = {
   output: OutputPane,
 };
 
-// Default flex weights: output gets twice the space
 const PANE_FLEX: Record<PaneId, number> = {
   chat: 1,
   documents: 1,
@@ -752,14 +809,13 @@ const PANE_FLEX: Record<PaneId, number> = {
 function App() {
   const { theme, toggleTheme } = useTheme();
 
-  // Shared uploaded-docs state so ChatPane uploads show in DocumentsPane instantly
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
   const addUploadedDoc = useCallback((doc: UploadedDoc) => {
     setUploadedDocs((prev) => [...prev, doc]);
   }, []);
-  const updateUploadedDoc = useCallback((title: string, doc: UploadedDoc) => {
+  const updateUploadedDoc = useCallback((fileName: string, doc: UploadedDoc) => {
     setUploadedDocs((prev) => {
-      const idx = prev.findIndex((d) => d.title === title);
+      const idx = prev.findIndex((d) => d.file_name === fileName);
       if (idx === -1) return [...prev, doc];
       const next = [...prev];
       next[idx] = doc;
@@ -767,7 +823,6 @@ function App() {
     });
   }, []);
 
-  // Pane visibility — all open by default
   const [expanded, setExpanded] = useState<Record<PaneId, boolean>>({
     chat: true,
     documents: true,
@@ -783,7 +838,6 @@ function App() {
     (id: PaneId) => {
       setExpanded((prev) => {
         const isOpen = prev[id];
-        // Prevent collapsing the last open pane
         if (isOpen && expandedCount <= 1) return prev;
         return { ...prev, [id]: !isOpen };
       });
@@ -799,7 +853,6 @@ function App() {
       {/* ── Header ──────────────────────────────────────────── */}
       <header className="shrink-0 border-b border-primary/20 bg-card/95 backdrop-blur-sm">
         <div className="px-5 py-4 flex items-center gap-5">
-          {/* Logo + Q-Bot name */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="relative">
               <div className="absolute -inset-1 bg-primary/15 rounded-2xl blur-lg" />
@@ -814,15 +867,12 @@ function App() {
             </h1>
           </div>
 
-          {/* Tagline */}
           <p className="text-3xl font-bold tracking-wide text-foreground/70 select-none" style={{ fontFamily: "'Roboto', sans-serif" }}>
             AI-Powered Quality Audit Assistant
           </p>
 
-          {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Light / dark toggle */}
           <Button
             variant="ghost"
             size="icon"
@@ -837,7 +887,6 @@ function App() {
             )}
           </Button>
         </div>
-        {/* Accent gradient line */}
         <div className="h-px bg-linear-to-r from-transparent via-primary/40 to-transparent" />
       </header>
 
@@ -873,7 +922,6 @@ function App() {
                 } ${id === "output" ? "bg-background" : "bg-card/40"}`}
                 style={{ flex: PANE_FLEX[id] }}
               >
-                {/* Collapse button pinned to top-right of each pane */}
                 <div className="relative">
                   {canCollapse && (
                     <button

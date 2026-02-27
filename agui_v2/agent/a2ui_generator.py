@@ -1,16 +1,23 @@
 """
-A2UI Component Generator - Factory functions for creating audit-focused UI components.
+A2UI Component Generator - Factory functions for creating audit UI components.
 
-This module provides factory functions for the simplified component catalog:
-  - DocumentCard: Document display with metadata and checkbox
-  - AuditQuestionForm: Audit questions with sub-questions
-  - TextBox: General-purpose text display
-  - DataTable: Structured tabular data
-  - SimpleChart: Simple bar/line/pie charts
+This module provides factory functions for the A2UI component catalog:
+
+  Audit components (unchanged):
+    - DocumentCard: Document display with metadata and checkbox
+    - AuditQuestionForm: TFR audit questions with sub-questions, peril, and outcome
+
+  Analysis / insight components:
+    - TextBox: General-purpose text display
+    - DataTable: Structured tabular data
+    - SimpleChart: Simple bar/line/pie charts
+    - ClaimTimeline: Vertical timeline of claim lifecycle events
+    - SummaryCard: Grid of key-value metric pairs
+    - FindingCard: Observation card with severity level
 
 Example usage:
     >>> from a2ui_generator import generate_document_card, generate_text_box
-    >>> card = generate_document_card(title="Policy.pdf", file_type="pdf", ...)
+    >>> card = generate_document_card(file_name="Policy.pdf", mime_type="application/pdf")
     >>> text = generate_text_box(title="Summary", content="Analysis results...")
 """
 
@@ -41,111 +48,145 @@ class A2UIComponent(BaseModel):
 # ============================================================================
 
 def generate_document_card(
-    title: str,
-    file_type: str = "pdf",
-    file_size: str = "",
-    page_count: int | None = None,
-    upload_date: str = "",
-    summary: str = "",
+    file_name: str,
+    mime_type: str,
+    content_id: str = "",
+    claim_number: str = "",
+    content_url: str = "",
+    domain: str = "claim",
+    document_type: str | None = None,
+    document_sub_type: str | None = None,
+    document_description: str | None = None,
+    create_date: str = "",
+    source_system: str | None = None,
+    company_name: str | None = None,
     selected: bool = False,
-    tags: list[str] | None = None,
 ) -> A2UIComponent:
-    """Generate a DocumentCard component for displaying an uploaded document.
+    """Generate a DocumentCard component for displaying a claim document.
+
+    Props are aligned with the Document model schema — no text field is
+    included since it should not be displayed in the card UI.
 
     Args:
-        title: Document filename or title.
-        file_type: File extension (pdf, docx, xlsx).
-        file_size: Human-readable file size (e.g., '2.4 MB').
-        page_count: Number of pages in the document.
-        upload_date: ISO date string of when the document was uploaded.
-        summary: Brief summary of document contents.
+        file_name: Document filename (derived from content_url in the model).
+        mime_type: MIME type (e.g. 'application/pdf').
+        content_id: Unique content identifier.
+        claim_number: Associated claim number.
+        content_url: URL where the document can be accessed.
+        domain: 'claim' or 'policy'.
+        document_type: High-level type classification.
+        document_sub_type: Finer-grained type classification.
+        document_description: Human-readable description.
+        create_date: ISO date string of creation time.
+        source_system: Originating system name.
+        company_name: Associated company name.
         selected: Whether the document is currently selected.
-        tags: Optional list of category tags.
 
     Returns:
         A2UIComponent configured as a DocumentCard.
 
     Example:
         >>> card = generate_document_card(
-        ...     title="Corporate Policy v2.1.pdf",
-        ...     file_type="pdf",
-        ...     file_size="2.4 MB",
-        ...     page_count=45,
-        ...     summary="Corporate governance and compliance policy.",
-        ...     tags=["governance", "compliance"]
+        ...     file_name="Policy_v2.1.pdf",
+        ...     mime_type="application/pdf",
+        ...     document_type="Policy",
+        ...     document_description="Corporate governance and compliance policy.",
+        ...     domain="claim",
         ... )
     """
     return A2UIComponent(
         type="a2ui.DocumentCard",
         props={
-            "title": title,
-            "file_type": file_type,
-            "file_size": file_size,
-            "page_count": page_count,
-            "upload_date": upload_date,
-            "summary": summary,
+            "file_name": file_name,
+            "mime_type": mime_type,
+            "content_id": content_id,
+            "claim_number": claim_number,
+            "content_url": content_url,
+            "domain": domain,
+            "document_type": document_type,
+            "document_sub_type": document_sub_type,
+            "document_description": document_description,
+            "create_date": create_date,
+            "source_system": source_system,
+            "company_name": company_name,
             "selected": selected,
-            "tags": tags or [],
         },
         zone="documents",
     )
 
 
 # ============================================================================
-# AUDIT QUESTION FORM
+# AUDIT QUESTION FORM (TFR)
 # ============================================================================
 
 def generate_audit_question_form(
+    peril: dict[str, Any],
     questions: list[dict[str, Any]],
+    overall_outcome: str,
+    outcome_justification: str,
+    additional_analysis: str | None = None,
+    follow_ups: str | None = None,
 ) -> A2UIComponent:
-    """Generate an AuditQuestionForm component for displaying audit questions.
+    """Generate an AuditQuestionForm component for TFR audit questions.
 
-    Each question should have the structure:
+    Each question should conform to the TFRQuestion schema:
         {
-            "id": "AQ-001",
-            "question": "Does the organization have a documented...",
-            "rating": "Yes" | "No" | "NA" | null,
-            "comments": "",
+            "id": "Q1",
+            "text": "Was the estimate completed accurately?",
+            "answer": "Yes" | "No" | "Insufficient information",
             "sub_questions": [
                 {
-                    "id": "AQ-001-a",
-                    "question": "What specific gap was identified?",
-                    "rating": "Yes" | "No" | "NA" | null,
-                    "comments": ""
+                    "id": "Q1.1",
+                    "text": "Specific sub-question text",
+                    "reasoning": "Explanation of the finding",
+                    "citations": "Evidence references"
                 }
-            ]
+            ],
+            "missing_info": "What info is missing (when answer is Insufficient information)"
         }
 
-    Top-level questions are rated Yes/No/NA by the user. When a question
-    is rated "No", at least one sub-question must also be rated "No" to
-    serve as the driver identifying the specific deficiency.
+    The model pre-populates answers, reasoning, and citations. The UI
+    renders them as editable fields so users can refine.
 
     Args:
-        questions: List of audit question dictionaries.
+        peril: PerilDetermination dict with 'peril' (Interior/Exterior) and optional 'notes'.
+        questions: List of TFRQuestion dicts.
+        overall_outcome: 'Meets' or 'Does Not Meet Expectations'.
+        outcome_justification: Concise justification for the outcome.
+        additional_analysis: Optional additional analysis text.
+        follow_ups: Optional follow-up action recommendations.
 
     Returns:
         A2UIComponent configured as an AuditQuestionForm.
 
     Example:
-        >>> form = generate_audit_question_form(questions=[
-        ...     {
-        ...         "id": "AQ-001",
-        ...         "question": "Is there a documented access control policy?",
-        ...         "rating": None,
-        ...         "comments": "",
-        ...         "sub_questions": [
-        ...             {
-        ...                 "id": "AQ-001-a",
-        ...                 "question": "What gaps exist in the current policy?",
-        ...                 "comments": ""
-        ...             }
-        ...         ]
-        ...     }
-        ... ])
+        >>> form = generate_audit_question_form(
+        ...     peril={"peril": "Exterior", "notes": None},
+        ...     questions=[{
+        ...         "id": "Q1",
+        ...         "text": "Was the roof inspection documented?",
+        ...         "answer": "No",
+        ...         "sub_questions": [{
+        ...             "id": "Q1.1",
+        ...             "text": "What documentation is missing?",
+        ...             "reasoning": "No photos of the damaged area were included.",
+        ...             "citations": "Claim file section 3.2",
+        ...         }],
+        ...     }],
+        ...     overall_outcome="Does Not Meet Expectations",
+        ...     outcome_justification="Multiple documentation gaps identified.",
+        ... )
     """
     return A2UIComponent(
         type="a2ui.AuditQuestionForm",
-        props={"questions": questions},
+        props={
+            "peril": peril,
+            "questions": questions,
+            "overall_outcome": overall_outcome,
+            "outcome_justification": outcome_justification,
+            "additional_analysis": additional_analysis,
+            "follow_ups": follow_ups,
+        },
         layout={"width": "full"},
         zone="output",
     )
@@ -272,6 +313,161 @@ def generate_simple_chart(
             "labels": labels,
             "values": values,
             "colors": colors or [],
+        },
+        zone="output",
+    )
+
+
+# ============================================================================
+# CLAIM TIMELINE
+# ============================================================================
+
+def generate_claim_timeline(
+    title: str,
+    events: list[dict[str, Any]],
+) -> A2UIComponent:
+    """Generate a ClaimTimeline component showing claim lifecycle events.
+
+    Renders a vertical timeline with date markers, event cards, category
+    badges, and status indicators. Events are displayed in the order
+    provided (the caller should pre-sort chronologically).
+
+    Each event dict should have:
+        - ``date`` (str): Display date (e.g. "2025-03-15").
+        - ``title`` (str): Short event headline.
+        - ``description`` (str): 1-2 sentence detail.
+        - ``category`` (str): "inspection" | "estimate" | "payment" |
+          "correspondence" | "other".
+        - ``status`` (str): "completed" | "pending" | "flagged".
+
+    Args:
+        title: Timeline heading.
+        events: List of event dicts conforming to the shape above.
+
+    Returns:
+        A2UIComponent configured as a ClaimTimeline.
+
+    Example:
+        >>> timeline = generate_claim_timeline(
+        ...     title="Claim Timeline",
+        ...     events=[
+        ...         {
+        ...             "date": "2025-03-10",
+        ...             "title": "Claim Filed",
+        ...             "description": "Homeowner reported wind damage to roof.",
+        ...             "category": "correspondence",
+        ...             "status": "completed",
+        ...         },
+        ...         {
+        ...             "date": "2025-03-15",
+        ...             "title": "Field Inspection",
+        ...             "description": "Adjuster inspected the property.",
+        ...             "category": "inspection",
+        ...             "status": "completed",
+        ...         },
+        ...     ],
+        ... )
+    """
+    return A2UIComponent(
+        type="a2ui.ClaimTimeline",
+        props={
+            "title": title,
+            "events": events,
+        },
+        layout={"width": "full"},
+        zone="output",
+    )
+
+
+# ============================================================================
+# SUMMARY CARD
+# ============================================================================
+
+def generate_summary_card(
+    title: str,
+    metrics: list[dict[str, Any]],
+) -> A2UIComponent:
+    """Generate a SummaryCard component displaying key claim metrics.
+
+    Renders a responsive grid of metric tiles. Each tile shows a label,
+    a prominent value, and optional trend/icon decorations.
+
+    Each metric dict should have:
+        - ``label`` (str): Metric name (e.g. "Total Estimate").
+        - ``value`` (str): Formatted display value (e.g. "$12,450.00").
+        - ``icon`` (str | None): Optional icon hint — "dollar", "calendar",
+          "user", "shield", "file", "alert".
+        - ``trend`` (str | None): Optional trend — "up", "down", "stable".
+
+    Args:
+        title: Card heading.
+        metrics: List of metric dicts conforming to the shape above.
+
+    Returns:
+        A2UIComponent configured as a SummaryCard.
+
+    Example:
+        >>> card = generate_summary_card(
+        ...     title="Claim Summary",
+        ...     metrics=[
+        ...         {"label": "Total Estimate", "value": "$12,450.00", "icon": "dollar", "trend": "up"},
+        ...         {"label": "Deductible", "value": "$1,000.00", "icon": "dollar"},
+        ...         {"label": "Status", "value": "Open", "icon": "alert"},
+        ...     ],
+        ... )
+    """
+    return A2UIComponent(
+        type="a2ui.SummaryCard",
+        props={
+            "title": title,
+            "metrics": metrics,
+        },
+        layout={"width": "full"},
+        zone="output",
+    )
+
+
+# ============================================================================
+# FINDING CARD
+# ============================================================================
+
+def generate_finding_card(
+    title: str,
+    content: str,
+    severity: str = "info",
+    category: str | None = None,
+) -> A2UIComponent:
+    """Generate a FindingCard component for an agent observation.
+
+    Renders an alert-style card with a severity-colored left border
+    (blue for info, amber for warning, red for critical), a title,
+    markdown-rendered content, and an optional category badge.
+
+    Args:
+        title: Finding headline.
+        content: Detailed explanation (supports markdown).
+        severity: Visual urgency — "info", "warning", or "critical".
+        category: Optional grouping tag (e.g. "timeline", "coverage",
+            "estimate", "resolution", "documentation").
+
+    Returns:
+        A2UIComponent configured as a FindingCard.
+
+    Example:
+        >>> card = generate_finding_card(
+        ...     title="Timeline Gap Detected",
+        ...     content="There is a **14-day gap** between the inspection and the estimate.",
+        ...     severity="warning",
+        ...     category="timeline",
+        ... )
+    """
+    return A2UIComponent(
+        type="a2ui.FindingCard",
+        props={
+            "title": title,
+            "content": content,
+            "severity": severity,
+            "category": category,
         },
         zone="output",
     )

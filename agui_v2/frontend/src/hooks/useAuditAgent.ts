@@ -18,7 +18,7 @@ export interface AuditState {
   documents: Array<Record<string, unknown>>;
   components: A2UIComponent[];
   audit_questions: Array<Record<string, unknown>>;
-  document_review: Record<string, unknown>;
+  analysis_result: Record<string, unknown>;
   status: "idle" | "analyzing" | "generating" | "complete" | "error";
   progress: number;
   current_step: string;
@@ -55,7 +55,7 @@ const initialState: AuditState = {
   documents: [],
   components: [],
   audit_questions: [],
-  document_review: {},
+  analysis_result: {},
   status: "idle",
   progress: 0,
   current_step: "",
@@ -66,7 +66,7 @@ const initialState: AuditState = {
 /** Human-friendly display names for backend tool functions. */
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   get_documents: "Retrieving documents",
-  analyze_documents: "Analyzing documents",
+  run_analysis: "Analyzing claim",
   generate_audit_form: "Generating audit form",
 };
 
