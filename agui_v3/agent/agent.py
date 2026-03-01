@@ -15,7 +15,7 @@ The main agent decides which tools to call (either, both, or neither)
 based on the user query.
 """
 
-from typing import Any, Annotated, Literal
+from typing import Any
 from uuid import uuid4
 from datetime import datetime
 from textwrap import dedent
@@ -175,7 +175,11 @@ def get_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
     Returns:
         ToolReturn with document listing and a state snapshot.
     """
-    docs = ctx.deps.state.documents
+    state = ctx.deps.state
+    state.current_step = "Retrieving uploaded documents..."
+    _log(state, "Reading uploaded documents from shared state")
+
+    docs = state.documents
     print(f"[TOOL] get_documents: {len(docs)} documents")
     if not docs:
         return_value = "No documents uploaded yet."
@@ -184,12 +188,14 @@ def get_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
             f"- {d.get('file_name', d.get('content_url', 'Untitled'))} ({d.get('mime_type', 'unknown')})"
             for d in docs
         )
+    state.current_step = f"Retrieved {len(docs)} uploaded document(s)"
+    _log(state, state.current_step, "completed")
     return ToolReturn(
         return_value=return_value,
         metadata=[
             StateSnapshotEvent(
                 type=EventType.STATE_SNAPSHOT,
-                snapshot=ctx.deps.state,
+                snapshot=state,
             ),
         ],
     )
@@ -215,7 +221,9 @@ async def run_analysis(
     Args:
         ctx: Pydantic AI run context carrying the shared ``AuditState``.
         focus: User-supplied focus area forwarded to the sub-agent
-            (e.g. "timeline and damaged items").
+            (e.g. "timeline and damaged items"). Should be passed along in full, 
+            for example if the user requests certain topics or visual components, 
+            pass the full topic(s) or component names(s).
 
     Returns:
         ToolReturn with a summary string for the LLM and a
@@ -241,17 +249,16 @@ async def run_analysis(
     analysis_prompt = format_analysis_prompt(combined_text, focus=focus)
     context_result = await analysis_agent.run(analysis_prompt)
     context_brief = context_result.output
-    _log(state, f"Context brief generated {doc_count} document(s).", "completed")
+    _log(state, f"Generate context summary analysis for {doc_count} document(s).", "completed")
     
     # Step 2: Convert brief into structured component data.
     component_prompt = format_component_prompt(context_brief, focus=focus)
     structured_result = await component_agent.run(component_prompt)
     analysis = structured_result.output
-    _log(state, "Structured component data generated.", "completed")
+    _log(state, "Generate structured data for components.", "completed")
     state.analysis_result = analysis.model_dump()
     state.progress = 50
-    state.current_step = "Generating structured analysis components..."
-    _log(state, "Context analysis complete — generating structured components", "completed")
+    state.current_step = "Generating components..."
 
     # ── Map AnalysisResult sections → A2UI components ───────────────────
     components_before = len(state.components)
@@ -259,8 +266,8 @@ async def run_analysis(
     # 1. Overview text box (always present)
     state.components.append(
         generate_text_box(
-            title="Claim Overview",
-            content=analysis.claim_overview,
+            title=analysis.title,
+            content=analysis.summary,
             variant="info",
         ).model_dump()
     )
@@ -269,7 +276,7 @@ async def run_analysis(
     if analysis.summary_metrics:
         state.components.append(
             generate_summary_card(
-                title="Claim Summary",
+                title="Summary Metrics",
                 metrics=[m.model_dump() for m in analysis.summary_metrics],
             ).model_dump()
         )
@@ -278,7 +285,7 @@ async def run_analysis(
     if analysis.timeline_events:
         state.components.append(
             generate_claim_timeline(
-                title="Claim Timeline",
+                title="Timeline",
                 events=[e.model_dump() for e in analysis.timeline_events],
             ).model_dump()
         )
@@ -322,8 +329,6 @@ async def run_analysis(
     new_count = len(state.components) - components_before
     state.progress = 100
     state.status = "complete"
-    state.current_step = f"Generated {new_count} insight components"
-    _log(state, f"Built {new_count} components", "completed")
 
     print(f"[TOOL] run_analysis: {new_count} components created")
 
@@ -393,6 +398,7 @@ async def generate_audit_form(
 
     # ── LLM question generation ─────────────────────────────────────────
     tfr_result = await generate_audit_questions(doc_payloads, focus=focus)
+    _log(state, "Run audit workflow.", "completed")
 
     # ── Render form component ───────────────────────────────────────────
     form_component = generate_audit_question_form(
@@ -404,6 +410,7 @@ async def generate_audit_form(
         follow_ups=tfr_result.get("follow_ups"),
     )
     state.components.append(form_component.model_dump())
+    _log(state, f"Generate questionnaire data for {len(tfr_result['questions'])} questions.", "completed")
     state.audit_questions = tfr_result["questions"]
     # Keep a canonical form payload in state so frontend edits can sync
     # and persistence endpoints can save without reconstructing fields.
@@ -423,7 +430,7 @@ async def generate_audit_form(
     state.status = "complete"
     state.progress = 100
     state.current_step = f"Generated {num_questions} TFR questions"
-    _log(state, f"Created TFR questionnaire with {num_questions} questions", "completed")
+    _log(state, f"Render audit form with {num_questions} question components.", "completed")
 
     print(f"[TOOL] generate_audit_form: {num_questions} questions")
 

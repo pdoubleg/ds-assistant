@@ -1,44 +1,58 @@
+"use client";
+
 /**
  * SimpleChart Component
  *
  * Renders simple bar, line, or pie charts using pure SVG.
- * No external charting library required — keeps the bundle lean.
+ * No external charting library required.
  */
 
-import React from 'react';
+import React from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export interface SimpleChartProps {
-  /** Chart type */
   chart_type: "bar" | "line" | "pie";
-  /** Chart title */
   title: string;
-  /** Data labels */
   labels: string[];
-  /** Numeric data values */
   values: number[];
-  /** Optional hex colors for each data point */
   colors?: string[];
 }
 
-// Liberty Mutual–inspired palette: navy, gold, teal, slate, rose, violet
-const DEFAULT_COLORS = ["#003B6F", "#FFD100", "#3EB1C8", "#64748b", "#f43f5e", "#8b5cf6"];
+const DEFAULT_COLORS = [
+  "#003B6F",
+  "#FFD100",
+  "#3EB1C8",
+  "#64748b",
+  "#f43f5e",
+  "#8b5cf6",
+];
 
-function BarChart({ labels, values, colors }: { labels: string[]; values: number[]; colors: string[] }) {
+function BarChart({
+  labels,
+  values,
+  colors,
+}: {
+  labels: string[];
+  values: number[];
+  colors: string[];
+}) {
   const maxVal = Math.max(...values, 1);
   const barWidth = 40;
   const gap = 16;
   const chartHeight = 160;
   const svgWidth = labels.length * (barWidth + gap) + gap;
 
-  // Truncate label if it's too long for the bar width
-  const truncateLabel = (label: string, maxWidth: number) => {
+  const truncateLabel = (label: string) => {
     if (label.length <= 6) return label;
-    return label.slice(0, 5) + '...';
+    return label.slice(0, 5) + "...";
   };
 
   return (
-    <svg width="100%" viewBox={`0 0 ${svgWidth} ${chartHeight + 40}`} className="overflow-visible">
+    <svg
+      width="100%"
+      viewBox={`0 0 ${svgWidth} ${chartHeight + 40}`}
+      className="overflow-visible"
+    >
       {values.map((val, i) => {
         const barHeight = (val / maxVal) * chartHeight;
         const x = gap + i * (barWidth + gap);
@@ -64,7 +78,7 @@ function BarChart({ labels, values, colors }: { labels: string[]; values: number
               fontSize="9"
               fontWeight="500"
               className="fill-current opacity-70"
-              style={{ fill: 'currentColor' }}
+              style={{ fill: "currentColor" }}
             >
               {val}
             </text>
@@ -74,20 +88,35 @@ function BarChart({ labels, values, colors }: { labels: string[]; values: number
               textAnchor="middle"
               fontSize="8"
               className="fill-current opacity-60 cursor-help"
-              style={{ fill: 'currentColor' }}
+              style={{ fill: "currentColor" }}
             >
               <title>{labels[i]}</title>
-              {truncateLabel(labels[i], barWidth)}
+              {truncateLabel(labels[i])}
             </text>
           </g>
         );
       })}
-      <line x1={0} y1={chartHeight} x2={svgWidth} y2={chartHeight} stroke="currentColor" strokeOpacity={0.15} />
+      <line
+        x1={0}
+        y1={chartHeight}
+        x2={svgWidth}
+        y2={chartHeight}
+        stroke="currentColor"
+        strokeOpacity={0.15}
+      />
     </svg>
   );
 }
 
-function LineChart({ labels, values, colors }: { labels: string[]; values: number[]; colors: string[] }) {
+function LineChart({
+  labels,
+  values,
+  colors,
+}: {
+  labels: string[];
+  values: number[];
+  colors: string[];
+}) {
   const maxVal = Math.max(...values, 1);
   const chartHeight = 160;
   const padding = 20;
@@ -100,39 +129,57 @@ function LineChart({ labels, values, colors }: { labels: string[]; values: numbe
     y: chartHeight - (val / maxVal) * (chartHeight - 20),
   }));
 
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const pathD = points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+    .join(" ");
 
-  // Truncate label if it's too long
   const truncateLabel = (label: string) => {
     if (label.length <= 8) return label;
-    return label.slice(0, 7) + '...';
+    return label.slice(0, 7) + "...";
   };
 
   return (
-    <svg width="100%" viewBox={`0 0 ${svgWidth} ${chartHeight + 40}`} className="overflow-visible">
-      <path d={pathD} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="100%"
+      viewBox={`0 0 ${svgWidth} ${chartHeight + 40}`}
+      className="overflow-visible"
+    >
+      <path
+        d={pathD}
+        fill="none"
+        stroke={color}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
 
       {points.map((p, i) => (
         <g key={i}>
-          <circle cx={p.x} cy={p.y} r={4} fill={color} className="transition-all duration-200" />
-          <text 
-            x={p.x} 
-            y={p.y - 10} 
-            textAnchor="middle" 
+          <circle
+            cx={p.x}
+            cy={p.y}
+            r={4}
+            fill={color}
+            className="transition-all duration-200"
+          />
+          <text
+            x={p.x}
+            y={p.y - 10}
+            textAnchor="middle"
             fontSize="9"
             fontWeight="500"
             className="fill-current opacity-70"
-            style={{ fill: 'currentColor' }}
+            style={{ fill: "currentColor" }}
           >
             {values[i]}
           </text>
-          <text 
-            x={p.x} 
-            y={chartHeight + 16} 
-            textAnchor="middle" 
+          <text
+            x={p.x}
+            y={chartHeight + 16}
+            textAnchor="middle"
             fontSize="8"
             className="fill-current opacity-60 cursor-help"
-            style={{ fill: 'currentColor' }}
+            style={{ fill: "currentColor" }}
           >
             <title>{labels[i]}</title>
             {truncateLabel(labels[i])}
@@ -140,12 +187,27 @@ function LineChart({ labels, values, colors }: { labels: string[]; values: numbe
         </g>
       ))}
 
-      <line x1={0} y1={chartHeight} x2={svgWidth} y2={chartHeight} stroke="currentColor" strokeOpacity={0.15} />
+      <line
+        x1={0}
+        y1={chartHeight}
+        x2={svgWidth}
+        y2={chartHeight}
+        stroke="currentColor"
+        strokeOpacity={0.15}
+      />
     </svg>
   );
 }
 
-function PieChart({ labels, values, colors }: { labels: string[]; values: number[]; colors: string[] }) {
+function PieChart({
+  labels,
+  values,
+  colors,
+}: {
+  labels: string[];
+  values: number[];
+  colors: string[];
+}) {
   const total = values.reduce((sum, v) => sum + v, 0) || 1;
   const size = 180;
   const cx = size / 2;
@@ -176,15 +238,31 @@ function PieChart({ labels, values, colors }: { labels: string[]; values: number
     <div className="flex items-center gap-6">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {slices.map((slice, i) => (
-          <path key={i} d={slice.path} fill={slice.color} opacity={0.85} className="transition-opacity hover:opacity-100" />
+          <path
+            key={i}
+            d={slice.path}
+            fill={slice.color}
+            opacity={0.85}
+            className="transition-opacity hover:opacity-100"
+          />
         ))}
       </svg>
       <div className="space-y-1.5">
         {slices.map((slice, i) => (
           <div key={i} className="flex items-center gap-2 text-xs">
-            <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: slice.color }} />
-            <span className="text-current opacity-80 truncate max-w-[120px]" title={slice.label}>{slice.label}</span>
-            <span className="text-current opacity-60 text-[10px]">{slice.percentage}%</span>
+            <div
+              className="w-2.5 h-2.5 rounded-sm"
+              style={{ backgroundColor: slice.color }}
+            />
+            <span
+              className="text-current opacity-80 truncate max-w-[120px]"
+              title={slice.label}
+            >
+              {slice.label}
+            </span>
+            <span className="text-current opacity-60 text-[10px]">
+              {slice.percentage}%
+            </span>
           </div>
         ))}
       </div>
@@ -199,7 +277,8 @@ export function SimpleChart({
   values,
   colors,
 }: SimpleChartProps): React.ReactElement {
-  const resolvedColors = colors && colors.length > 0 ? colors : DEFAULT_COLORS;
+  const resolvedColors =
+    colors && colors.length > 0 ? colors : DEFAULT_COLORS;
 
   return (
     <Card className="border-primary/20">
@@ -207,9 +286,27 @@ export function SimpleChart({
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       </CardHeader>
       <CardContent>
-        {chart_type === "bar" && <BarChart labels={labels} values={values} colors={resolvedColors} />}
-        {chart_type === "line" && <LineChart labels={labels} values={values} colors={resolvedColors} />}
-        {chart_type === "pie" && <PieChart labels={labels} values={values} colors={resolvedColors} />}
+        {chart_type === "bar" && (
+          <BarChart
+            labels={labels}
+            values={values}
+            colors={resolvedColors}
+          />
+        )}
+        {chart_type === "line" && (
+          <LineChart
+            labels={labels}
+            values={values}
+            colors={resolvedColors}
+          />
+        )}
+        {chart_type === "pie" && (
+          <PieChart
+            labels={labels}
+            values={values}
+            colors={resolvedColors}
+          />
+        )}
       </CardContent>
     </Card>
   );

@@ -23,10 +23,10 @@ ANALYSIS_SYSTEM_PROMPT = (
     "When real documents are provided, be evidence-based and explicit about confidence "
     "or missing information. When NO documents are provided and the focus requests an "
     "example, demo, or sample, generate realistic fictional claim context that can "
-    "support all major component types."
+    "support all major component types, or specific component types specified by the user."
 )
 
-ANALYSIS_PROMPT = """Analyze the claim context and produce a comprehensive plain-text context brief.
+ANALYSIS_PROMPT = """Analyze the claim context and produce a context brief that will be used to generate structured UI components.
 
 ## Focus
 {focus}
@@ -38,29 +38,43 @@ ANALYSIS_PROMPT = """Analyze the claim context and produce a comprehensive plain
 
 Produce a clear brief using the exact headings below:
 
-1) CLAIM OVERVIEW
+1) CLAIM SUMMARY (REQUIRED)
 - 2-4 sentence narrative of what happened, key parties, current status.
+- Can also be used for any general statements that should be passed to the front end and displayed.
+- Consider the focus; if just a general inquiry a full claim overview may not be necessary.
 
-2) TIMELINE CANDIDATES
+2) TIMELINE CANDIDATES (OPTIONAL)
 - Chronological bullets with: date, title, description, category, status.
 - Include only events supported by evidence (or realistic demo data when example requested).
 
-3) SUMMARY METRICS CANDIDATES
+3) SUMMARY METRICS CANDIDATES (OPTIONAL)
 - Metric bullets with: label, value, icon(optional), trend(optional).
 - Format money as "$X,XXX.XX" when applicable.
 
-4) FINDINGS CANDIDATES
+4) FINDINGS CANDIDATES (OPTIONAL)
 - Auditor-relevant findings with: title, detailed content, severity, category.
 
-5) TABLE CANDIDATES
+5) TABLE CANDIDATES (OPTIONAL)
 - For each table, provide caption, headers, and representative rows.
 - Keep rows compact but detailed enough for structured rendering.
 
-6) CHART CANDIDATES
-- For each chart, provide chart_type, title, labels, values, and optional colors.
-- Ensure labels and values align one-to-one.
+6) CHART CANDIDATES (OPTIONAL)
+- Only propose charts that match supported types: "bar", "line", or "pie".
+- For each chart, provide:
+  - chart_type: one of "bar" | "line" | "pie"
+  - title: short, auditor-friendly label
+  - labels: list[str] (category names, periods, or segment names)
+  - values: list[number] (raw numeric values only; no "$", "%", commas, or text)
+  - colors (optional): list[str] of valid CSS color strings (hex preferred, e.g. "#003B6F")
+- labels and values MUST align one-to-one and have identical length.
+- Chart type expectations:
+  - bar: compare magnitudes across discrete categories (e.g., costs by trade/category).
+  - line: show ordered progression over time/sequences; labels should be chronologically or logically ordered.
+  - pie: show parts of a whole at one point in time; values should be non-negative and represent a meaningful total breakdown.
+- Keep chart payloads compact and readable (typically 3-8 data points per chart).
+- If source data is ambiguous, do not force a chart.
 
-7) ASSUMPTIONS / GAPS
+7) ASSUMPTIONS / GAPS (OPTIONAL)
 - Explicitly call out unknowns, conflicting data, or assumptions.
 
 ## Guidelines
@@ -80,7 +94,7 @@ COMPONENT_SYSTEM_PROMPT = (
     "Use only details available in the provided context brief. If the brief lacks "
     "evidence for an optional section, leave that section null.\n\n"
     "When the brief clearly represents example/demo/sample data, you may fully "
-    "populate all sections to showcase the UI."
+    "populate all sections, or just the specific sections specified by the user in the focus, to showcase the UI."
 )
 
 COMPONENT_PROMPT = """Generate structured claim analysis components from the context brief.
@@ -96,8 +110,8 @@ COMPONENT_PROMPT = """Generate structured claim analysis components from the con
 Your output fields map directly to UI components. Populate each section only when
 the context brief supports it.
 
-### claim_overview (required → TextBox)
-A 2-4 sentence narrative overview.
+### title and summary (required → TextBox)
+A concise title and2-4 sentence narrative summary.
 
 ### timeline_events (optional → ClaimTimeline)
 Each event must include:
@@ -130,10 +144,16 @@ Each table:
 ### charts (optional → SimpleChart per item)
 Each chart:
 - chart_type: "bar" | "line" | "pie"
-- title (str)
-- labels (list[str])
-- values (list[number])
-- colors (list[str] | null)
+- title: concise chart heading (str)
+- labels: list[str] with category names, periods, or segment names
+- values: list[number] with raw numeric values only (no "$", "%", commas, or text)
+- colors: optional list[str] of valid CSS colors (hex preferred), or null
+- labels and values must be equal length and align one-to-one by index
+- Use chart types intentionally:
+  - bar: compare discrete categories
+  - line: show ordered progression (typically over time; labels should be ordered)
+  - pie: show part-to-whole composition at a single point in time (non-negative values)
+- Keep charts compact (typically 3-8 points) and skip chart output if the brief lacks reliable numeric data
 
 ## Guidelines
 - Prefer faithful transformation of the context brief over invention.

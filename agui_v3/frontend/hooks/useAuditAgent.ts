@@ -1,17 +1,22 @@
+"use client";
+
 /**
  * Custom hook for interacting with the Audit Assistant agent.
  *
  * Uses CopilotKit v2's useAgent hook for AG-UI protocol communication
  * with the Pydantic AI backend. Subscribes to AG-UI tool call lifecycle
  * events to provide real-time activity tracking for the UI.
+ *
+ * Example usage:
+ *   const { state, runAudit, isGenerating } = useAuditAgent();
  */
 
 import { useAgent } from "@copilotkit/react-core/v2";
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { A2UIComponent, SemanticZone } from "@/lib/a2ui-catalog";
 
 const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL || "http://localhost:8001";
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
 
 /**
  * Audit state synchronized with backend agent.
@@ -56,8 +61,23 @@ export interface ToolCallActivity {
 }
 
 /**
- * Initial state for the audit agent.
+ * Represents a single backend step shown in the chat timeline.
+ *
+ * Built primarily from AuditState.activity_log so steps persist after
+ * generation completes and reflect backend-authored messages.
  */
+export interface StepActivity {
+  /** Stable ID for React rendering. */
+  id: string;
+  /** Human-readable step text. */
+  message: string;
+  /** Step lifecycle state for icon/color mapping. */
+  status: "in_progress" | "completed" | "error";
+  /** ISO timestamp if known. */
+  timestamp: string;
+}
+
+/** Initial state for the audit agent. */
 const initialState: AuditState = {
   documents: [],
   components: [],
@@ -72,9 +92,7 @@ const initialState: AuditState = {
   error_message: null,
 };
 
-/**
- * Shape of a saved form summary returned by GET /forms.
- */
+/** Shape of a saved form summary returned by GET /forms. */
 export interface SavedFormSummary {
   id: string;
   title: string;
@@ -126,9 +144,11 @@ function buildAuditFormComponent(payload: AuditFormPayload): A2UIComponent {
  */
 function upsertAuditFormComponent(
   components: A2UIComponent[],
-  newComponent: A2UIComponent,
+  newComponent: A2UIComponent
 ): A2UIComponent[] {
-  const idx = components.findIndex((c) => c.type === "a2ui.AuditQuestionForm");
+  const idx = components.findIndex(
+    (c) => c.type === "a2ui.AuditQuestionForm"
+  );
   if (idx >= 0) {
     const updated = [...components];
     updated[idx] = newComponent;
@@ -137,17 +157,76 @@ function upsertAuditFormComponent(
   return [...components, newComponent];
 }
 
-/** Human-friendly display names for backend tool functions. */
-const TOOL_DISPLAY_NAMES: Record<string, string> = {
-  get_documents: "Retrieving documents",
-  run_analysis: "Analyzing claim",
-  generate_audit_form: "Generating audit form",
-};
+/**
+ * Build a tool activity label from shared AG-UI state.
+ *
+ * Prefers current_step because it is the most specific user-facing
+ * description of what the backend is currently doing.
+ */
+function getToolDisplayName(
+  toolName: unknown,
+  state?: AuditState
+): string {
+  const safeToolName =
+    typeof toolName === "string" ? toolName : "tool_call";
+
+  if (state?.current_step?.trim()) {
+    return state.current_step.trim();
+  }
+
+  if (state?.status && state.status !== "idle") {
+    const normalizedStatus = state.status
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (match) => match.toUpperCase());
+    return `${normalizedStatus}...`;
+  }
+
+  return safeToolName.replaceAll("_", " ");
+}
 
 /**
- * Separate components by zone for the three-pane layout.
+ * Build a stable human-readable run-step label from shared state.
+ *
+ * This avoids UI flicker when current_step is briefly empty between
+ * AG-UI snapshots by falling back to status/progress semantics.
  */
-function groupByZone(components: A2UIComponent[]): Record<SemanticZone, A2UIComponent[]> {
+function getLiveStepText(state?: AuditState): string {
+  if (!state) {
+    return "";
+  }
+
+  const currentStep = state.current_step?.trim();
+  if (currentStep) {
+    return currentStep;
+  }
+
+  const statusBaseLabel: Record<AuditState["status"], string> = {
+    idle: "",
+    analyzing: "Analyzing claim...",
+    generating: "Generating audit form...",
+    complete: "Complete",
+    error: "Error",
+  };
+
+  const baseLabel = statusBaseLabel[state.status];
+  if (!baseLabel) {
+    return "";
+  }
+
+  if (
+    (state.status === "analyzing" || state.status === "generating") &&
+    state.progress > 0
+  ) {
+    return `${baseLabel} (${state.progress}%)`;
+  }
+
+  return baseLabel;
+}
+
+/** Separate components by zone for the three-pane layout. */
+function groupByZone(
+  components: A2UIComponent[]
+): Record<SemanticZone, A2UIComponent[]> {
   const groups: Record<SemanticZone, A2UIComponent[]> = {
     documents: [],
     output: [],
@@ -183,33 +262,45 @@ export function useAuditAgent() {
     agentId: "audit_agent",
   });
 
-  // Get state from agent, with fallback to initial state
   const state = (agent.state as AuditState) || initialState;
+  const stateRef = useRef<AuditState>(state);
+  const lastLiveStepRef = useRef<string>("");
 
-  // ── Tool call activity tracking ────────────────────────────────
-  // Populated by subscribing to TOOL_CALL_START / TOOL_CALL_END
-  // AG-UI events that Pydantic AI emits automatically for every tool.
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Tool call activity tracking from AG-UI events
   const [toolActivity, setToolActivity] = useState<ToolCallActivity[]>([]);
 
   useEffect(() => {
     const subscription = agent.subscribe({
       onToolCallStartEvent: ({ event }) => {
+        const nextDisplayName = getToolDisplayName(
+          event.toolCallName,
+          stateRef.current
+        );
         setToolActivity((prev) => [
           ...prev,
           {
             id: event.toolCallId,
             name: event.toolCallName,
-            displayName:
-              TOOL_DISPLAY_NAMES[event.toolCallName] || event.toolCallName,
+            displayName: nextDisplayName,
             status: "running",
             startedAt: Date.now(),
           },
         ]);
       },
       onToolCallEndEvent: ({ event }) => {
+        const nextDisplayName = getToolDisplayName(
+          event.toolCallName,
+          stateRef.current
+        );
         setToolActivity((prev) =>
           prev.map((tc) =>
-            tc.id === event.toolCallId ? { ...tc, status: "complete" } : tc
+            tc.id === event.toolCallId
+              ? { ...tc, status: "complete", displayName: nextDisplayName }
+              : tc
           )
         );
       },
@@ -218,61 +309,158 @@ export function useAuditAgent() {
     return () => subscription.unsubscribe();
   }, [agent]);
 
-  // Group components by zone for the three-pane layout
+  // Keep labels in sync with live shared-state updates while tools are running.
+  useEffect(() => {
+    const liveLabel = getToolDisplayName("tool_call", state);
+    setToolActivity((prev) => {
+      let changed = false;
+      const next = prev.map((tc) => {
+        if (tc.status !== "running" || tc.displayName === liveLabel) {
+          return tc;
+        }
+        changed = true;
+        return { ...tc, displayName: liveLabel };
+      });
+      return changed ? next : prev;
+    });
+  }, [state.current_step, state.status]);
+
+  const stepActivity = useMemo<StepActivity[]>(() => {
+    const currentlyGenerating =
+      agent.isRunning ||
+      state.status === "analyzing" ||
+      state.status === "generating";
+
+    // Primary source: backend-owned activity log from shared state.
+    const fromStateLog: StepActivity[] = (state.activity_log || []).map(
+      (entry) => ({
+        id: entry.id,
+        message: entry.message,
+        // Prevent stale spinner after run completion when backend left
+        // a start-step as in_progress without an explicit completion row.
+        status:
+          !currentlyGenerating && entry.status === "in_progress"
+            ? "completed"
+            : entry.status,
+        timestamp: entry.timestamp,
+      })
+    );
+
+    // Secondary source: active tool calls while waiting for next state snapshot.
+    const fromRunningTools: StepActivity[] = toolActivity
+      .filter((tc) => tc.status === "running")
+      .map((tc) => ({
+        id: `tool-${tc.id}`,
+        message: tc.displayName,
+        status: "in_progress" as const,
+        timestamp: new Date(tc.startedAt).toISOString(),
+      }));
+
+    // If backend set current_step but hasn't logged it yet, keep it visible.
+    const liveStepText = getLiveStepText(state);
+    const hasCurrentStepAlready =
+      !liveStepText ||
+      [...fromStateLog, ...fromRunningTools].some(
+        (entry) => entry.message === liveStepText
+      );
+    const currentStepEntry: StepActivity[] = hasCurrentStepAlready
+      ? []
+      : [
+          {
+            id: "current-step-live",
+            message: liveStepText,
+            status: currentlyGenerating ? "in_progress" : "completed",
+            timestamp: new Date().toISOString(),
+          },
+        ];
+
+    return [...fromStateLog, ...fromRunningTools, ...currentStepEntry];
+  }, [
+    state.activity_log,
+    state.current_step,
+    state.status,
+    toolActivity,
+    agent.isRunning,
+  ]);
+
+  const isGenerating =
+    agent.isRunning ||
+    state.status === "analyzing" ||
+    state.status === "generating";
+
+  useEffect(() => {
+    if (!isGenerating) {
+      lastLiveStepRef.current = "";
+      return;
+    }
+    const liveText = getLiveStepText(state);
+    if (liveText) {
+      lastLiveStepRef.current = liveText;
+    }
+  }, [isGenerating, state.current_step, state.status, state.progress]);
+
+  const currentRunStepLabel = useMemo(() => {
+    if (isGenerating) {
+      return getLiveStepText(state) || lastLiveStepRef.current || "Working...";
+    }
+    return state.current_step?.trim() || "";
+  }, [isGenerating, state.current_step, state.status, state.progress]);
+
   const componentsByZone = useMemo(
     () => groupByZone(state.components || []),
     [state.components]
   );
 
-  // Add a document to the shared state
-  const addDocument = useCallback((doc: Record<string, unknown>) => {
-    const currentDocs = (agent.state as AuditState)?.documents || [];
-    agent.setState({
-      ...(agent.state as AuditState || initialState),
-      documents: [...currentDocs, doc],
-    });
-  }, [agent]);
-
-  // Send a user message and run the agent. Preserves existing components
-  // unless the agent itself clears them during the run.
-  const runAudit = useCallback(async (userMessage: string) => {
-    // Clear tool activity from any previous run
-    setToolActivity([]);
-
-    agent.setState({
-      ...(agent.state as AuditState || initialState),
-      status: "analyzing",
-      progress: 0,
-      current_step: "",
-    });
-
-    agent.addMessage({
-      id: crypto.randomUUID(),
-      role: "user",
-      content: userMessage,
-    });
-
-    await agent.runAgent();
-
-    // If the run completed without a tool emitting a StateSnapshotEvent
-    // (e.g. only get_documents was called, or no tools at all), the status
-    // will still be stuck on "analyzing"/"generating". Reset it so the UI
-    // unblocks and the assistant response can be displayed.
-    const finalState = agent.state as AuditState;
-    if (
-      finalState &&
-      (finalState.status === "analyzing" || finalState.status === "generating")
-    ) {
+  const addDocument = useCallback(
+    (doc: Record<string, unknown>) => {
+      const currentDocs = (agent.state as AuditState)?.documents || [];
       agent.setState({
-        ...finalState,
-        status: "idle",
-        progress: 0,
-        current_step: "",
+        ...((agent.state as AuditState) || initialState),
+        documents: [...currentDocs, doc],
       });
-    }
-  }, [agent]);
+    },
+    [agent]
+  );
 
-  // The latest assistant message text from the agent's message history
+  const runAudit = useCallback(
+    async (userMessage: string) => {
+      setToolActivity([]);
+
+      agent.setState({
+        ...((agent.state as AuditState) || initialState),
+        activity_log: [],
+        error_message: null,
+        status: "analyzing",
+        progress: 0,
+        current_step: "Preparing analysis request...",
+      });
+
+      agent.addMessage({
+        id: crypto.randomUUID(),
+        role: "user",
+        content: userMessage,
+      });
+
+      await agent.runAgent();
+
+      // Reset status if still stuck on analyzing/generating after run completes
+      const finalState = agent.state as AuditState;
+      if (
+        finalState &&
+        (finalState.status === "analyzing" ||
+          finalState.status === "generating")
+      ) {
+        agent.setState({
+          ...finalState,
+          status: "idle",
+          progress: 0,
+          current_step: "",
+        });
+      }
+    },
+    [agent]
+  );
+
   const lastAssistantMessage = useMemo(() => {
     const msgs = agent.messages || [];
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -283,7 +471,6 @@ export function useAuditAgent() {
     return null;
   }, [agent.messages]);
 
-  // Stop any running generation
   const stop = useCallback(() => {
     agent.abortRun();
   }, [agent]);
@@ -294,25 +481,23 @@ export function useAuditAgent() {
 
   /**
    * Sync the form payload into AG-UI shared state, then persist to disk
-   * via POST /forms. Reuses current_form_id when updating an existing form;
-   * generates a fresh UUID only for the first save of a new agent-generated form.
+   * via POST /forms. Reuses current_form_id when updating an existing form.
    */
   const saveForm = useCallback(
     async (
       formPayload: AuditFormPayload,
-      title?: string,
+      title?: string
     ): Promise<{ form_id: string; title: string }> => {
       setIsSaving(true);
       try {
         const currentState = (agent.state as AuditState) || initialState;
 
-        // Push edits into the shared AG-UI state
         agent.setState({
           ...currentState,
-          audit_form_result: formPayload as unknown as Record<string, unknown>,
+          audit_form_result:
+            formPayload as unknown as Record<string, unknown>,
         });
 
-        // Reuse the existing ID (update in place) or mint a new one (first save)
         const formId = currentState.current_form_id || crypto.randomUUID();
 
         const resp = await fetch(`${BACKEND_URL}/forms`, {
@@ -331,7 +516,6 @@ export function useAuditAgent() {
 
         const data = await resp.json();
 
-        // Update current_form_id in AG-UI state
         agent.setState({
           ...((agent.state as AuditState) || initialState),
           current_form_id: data.form_id,
@@ -342,12 +526,10 @@ export function useAuditAgent() {
         setIsSaving(false);
       }
     },
-    [agent],
+    [agent]
   );
 
-  /**
-   * Fetch the list of all saved forms from the backend.
-   */
+  /** Fetch the list of all saved forms from the backend. */
   const listSavedForms = useCallback(async (): Promise<SavedFormSummary[]> => {
     const resp = await fetch(`${BACKEND_URL}/forms`);
     if (!resp.ok) {
@@ -359,9 +541,7 @@ export function useAuditAgent() {
 
   /**
    * Restore a previously saved form by ID. Loads it on the backend,
-   * then builds the AuditQuestionForm component on the frontend and
-   * upserts it into the AG-UI components array so the UI re-renders
-   * without needing an active agent run.
+   * then builds the AuditQuestionForm component on the frontend.
    */
   const restoreForm = useCallback(
     async (formId: string): Promise<void> => {
@@ -370,30 +550,32 @@ export function useAuditAgent() {
       });
 
       if (!resp.ok) {
-        throw new Error(`Restore failed: ${resp.status} ${await resp.text()}`);
+        throw new Error(
+          `Restore failed: ${resp.status} ${await resp.text()}`
+        );
       }
 
       const data = await resp.json();
       const restoredPayload = data.audit_form_result as AuditFormPayload;
 
-      // Build the component spec and upsert it into the components array
       const formComponent = buildAuditFormComponent(restoredPayload);
       const currentState = (agent.state as AuditState) || initialState;
       const updatedComponents = upsertAuditFormComponent(
         currentState.components || [],
-        formComponent,
+        formComponent
       );
 
       agent.setState({
         ...currentState,
-        audit_form_result: restoredPayload as unknown as Record<string, unknown>,
+        audit_form_result:
+          restoredPayload as unknown as Record<string, unknown>,
         current_form_id: formId,
         components: updatedComponents,
         status: "complete",
         current_step: `Restored saved form ${formId}`,
       });
     },
-    [agent],
+    [agent]
   );
 
   /**
@@ -410,7 +592,6 @@ export function useAuditAgent() {
         throw new Error(`Delete failed: ${resp.status} ${await resp.text()}`);
       }
 
-      // Clear current_form_id if we just deleted the active form
       const currentState = (agent.state as AuditState) || initialState;
       if (currentState.current_form_id === formId) {
         agent.setState({
@@ -419,11 +600,9 @@ export function useAuditAgent() {
         });
       }
     },
-    [agent],
+    [agent]
   );
 
-  // Derived state flags
-  const isGenerating = agent.isRunning || state.status === "analyzing" || state.status === "generating";
   const isComplete = state.status === "complete";
   const hasError = state.status === "error";
 
@@ -432,15 +611,16 @@ export function useAuditAgent() {
     setState: agent.setState.bind(agent),
     componentsByZone,
     toolActivity,
+    stepActivity,
     addDocument,
     runAudit,
     stop,
     isGenerating,
+    currentRunStepLabel,
     isComplete,
     hasError,
     lastAssistantMessage,
     agent,
-    // Form persistence
     isSaving,
     saveForm,
     listSavedForms,

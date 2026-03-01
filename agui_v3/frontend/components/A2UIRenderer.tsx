@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * A2UIRenderer - Dynamic Component Renderer
  *
@@ -5,32 +7,29 @@
  * using the registered catalog of React components.
  */
 
-import React from 'react';
-import { motion } from 'framer-motion';
-import type { A2UIComponent } from '@/lib/a2ui-catalog';
-import { getComponentRenderer, isComponentRegistered } from '@/lib/a2ui-catalog';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import React from "react";
+import { motion } from "framer-motion";
+import type { A2UIComponent } from "@/lib/a2ui-catalog";
+import {
+  getComponentRenderer,
+} from "@/lib/a2ui-catalog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface A2UIRendererProps {
-  /** A2UI component specification from the backend */
   component: A2UIComponent;
-  /** Optional class name for the wrapper */
   className?: string;
-  /** Callback when a component type is not found in the catalog */
   onMissingComponent?: (type: string) => void;
-  /** Whether to show error cards for missing components (default: true) */
   showErrors?: boolean;
-  /** Additional props merged into the component props before rendering. */
   extraProps?: Record<string, unknown>;
 }
 
-/**
- * A2UIRenderer Component
- *
- * Recursively renders A2UI component trees by looking up component types
- * in the catalog and passing props to the registered renderers.
- */
 export function A2UIRenderer({
   component,
   className,
@@ -43,10 +42,14 @@ export function A2UIRenderer({
       return (
         <Card className="border-red-500 bg-red-500/10">
           <CardHeader>
-            <CardTitle className="text-sm text-red-700">Invalid Component</CardTitle>
+            <CardTitle className="text-sm text-red-700">
+              Invalid Component
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-red-600">Component specification is missing or invalid.</p>
+            <p className="text-xs text-red-600">
+              Component specification is missing or invalid.
+            </p>
           </CardContent>
         </Card>
       );
@@ -75,7 +78,9 @@ export function A2UIRenderer({
           </CardHeader>
           <CardContent>
             <details className="text-xs">
-              <summary className="cursor-pointer font-medium mb-2">Component Details</summary>
+              <summary className="cursor-pointer font-medium mb-2">
+                Component Details
+              </summary>
               <pre className="bg-muted p-2 rounded text-xs overflow-x-auto">
                 {JSON.stringify(component, null, 2)}
               </pre>
@@ -87,7 +92,6 @@ export function A2UIRenderer({
     return <></>;
   }
 
-  // Render children if present
   const childComponents = component.children?.map((child, index) => (
     <A2UIRenderer
       key={child.id || `child-${index}`}
@@ -103,7 +107,7 @@ export function A2UIRenderer({
     component.styling?.className,
   ]
     .filter(Boolean)
-    .join(' ');
+    .join(" ");
 
   const wrapperStyle: React.CSSProperties = {
     ...(component.layout?.width && { width: component.layout.width }),
@@ -139,7 +143,7 @@ export function A2UIRenderer({
 interface A2UIRendererListProps {
   components: A2UIComponent[];
   className?: string;
-  spacing?: 'none' | 'sm' | 'md' | 'lg';
+  spacing?: "none" | "sm" | "md" | "lg";
   onMissingComponent?: (type: string) => void;
   showErrors?: boolean;
 }
@@ -147,15 +151,15 @@ interface A2UIRendererListProps {
 export function A2UIRendererList({
   components,
   className,
-  spacing = 'md',
+  spacing = "md",
   onMissingComponent,
   showErrors = true,
 }: A2UIRendererListProps): React.ReactElement {
   const spacingClasses = {
-    none: '',
-    sm: 'space-y-2',
-    md: 'space-y-4',
-    lg: 'space-y-6',
+    none: "",
+    sm: "space-y-2",
+    md: "space-y-4",
+    lg: "space-y-6",
   };
 
   const containerVariants = {
@@ -177,13 +181,16 @@ export function A2UIRendererList({
 
   return (
     <motion.div
-      className={`${spacingClasses[spacing]} ${className || ''}`}
+      className={`${spacingClasses[spacing]} ${className || ""}`}
       variants={containerVariants}
       initial="hidden"
       animate="visible"
     >
       {components.map((component, index) => (
-        <motion.div key={component.id || `component-${index}`} variants={itemVariants}>
+        <motion.div
+          key={component.id || `component-${index}`}
+          variants={itemVariants}
+        >
           <A2UIRenderer
             component={component}
             onMissingComponent={onMissingComponent}

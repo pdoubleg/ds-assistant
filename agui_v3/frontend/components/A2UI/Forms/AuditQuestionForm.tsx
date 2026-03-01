@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * AuditQuestionForm Component (TFR Schema)
  *
@@ -12,9 +14,23 @@
  * The LLM pre-populates all fields; the reviewer can edit everything.
  */
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+} from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   ChevronDown,
   ChevronRight,
@@ -67,17 +83,11 @@ export interface AuditQuestionFormProps {
   outcome_justification: string;
   additional_analysis?: string | null;
   follow_ups?: string | null;
-  /** Called when the user clicks the Submit button with the current form state. */
   onSubmit?: (formData: AuditFormPayload, title?: string) => Promise<void>;
-  /** Called when the user clicks Cancel — resets local edits back to initial values. */
   onCancel?: () => void;
-  /** Called when the user clicks Close — removes the form component from the UI. */
   onClose?: () => void;
-  /** Called when the user clicks Delete — removes the saved form from storage. */
   onDelete?: () => Promise<void>;
-  /** External saving state — disables the Submit button and shows a spinner. */
   isSaving?: boolean;
-  /** ID of the currently persisted form, or null/undefined if never saved. */
   currentFormId?: string | null;
 }
 
@@ -113,11 +123,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-/**
- * Auto-resizing textarea that grows to fit content.
- *
- * Keeps a minimum height via utility classes while expanding for longer text.
- */
+/** Auto-resizing textarea that grows to fit content. */
 function AutoResizeTextarea(
   props: React.TextareaHTMLAttributes<HTMLTextAreaElement>
 ): React.ReactElement {
@@ -165,20 +171,20 @@ const ANSWER_OPTIONS: {
   {
     value: "Yes",
     label: "Yes",
-    active: "bg-emerald-500 text-white",
-    idle: "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15",
+    active: "bg-emerald-600 text-white shadow-sm",
+    idle: "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20",
   },
   {
     value: "No",
     label: "No",
-    active: "bg-red-500 text-white",
-    idle: "text-red-600 dark:text-red-400 hover:bg-red-500/15",
+    active: "bg-red-600 text-white shadow-sm",
+    idle: "text-red-700 dark:text-red-400 hover:bg-red-500/20",
   },
   {
     value: "Insufficient information",
     label: "Insufficient",
-    active: "bg-amber-500 text-white",
-    idle: "text-amber-600 dark:text-amber-400 hover:bg-amber-500/15",
+    active: "bg-amber-600 text-white shadow-sm",
+    idle: "text-amber-700 dark:text-amber-400 hover:bg-amber-500/20",
   },
 ];
 
@@ -205,7 +211,9 @@ function AnswerPills({
           key={opt.value}
           onClick={() => onChange(opt.value)}
           disabled={disableYes && opt.value === "Yes"}
-          title={disableYes && opt.value === "Yes" ? yesDisabledTitle : undefined}
+          title={
+            disableYes && opt.value === "Yes" ? yesDisabledTitle : undefined
+          }
           type="button"
           className={`${pillClass} rounded-md font-semibold border transition-all duration-150 disabled:opacity-45 disabled:cursor-not-allowed ${
             value === opt.value
@@ -238,8 +246,8 @@ function SubQuestionRow({
   const subAnswer = sub.answer || "No";
 
   return (
-    <div className="flex items-start gap-4 py-4 pl-11 pr-5 bg-red-500/5 dark:bg-red-500/8">
-      <span className="shrink-0 text-xs font-mono text-accent/80 mt-0.5 min-w-[64px]">
+    <div className="flex items-start gap-4 py-4 pl-11 pr-5 bg-secondary/20 border-l-2 border-l-red-500/30">
+      <span className="shrink-0 text-xs font-mono font-semibold text-primary mt-0.5 min-w-[64px]">
         {sub.id}
       </span>
       <div className="flex-1 min-w-0">
@@ -247,7 +255,7 @@ function SubQuestionRow({
           {sub.text}
         </p>
 
-        {/* Sub-question answer (default to No) */}
+        {/* Sub-question answer */}
         <div className="mt-1">
           <label className="text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
             Sub-Question Answer
@@ -258,8 +266,8 @@ function SubQuestionRow({
               onClick={() => onAnswerChange("No")}
               className={`px-3.5 py-1.5 rounded-md text-sm font-semibold border transition-colors ${
                 subAnswer === "No"
-                  ? "bg-red-500 text-white border-transparent"
-                  : "bg-transparent border-border/40 text-red-600 dark:text-red-400 hover:bg-red-500/15"
+                  ? "bg-red-600 text-white border-red-600 shadow-sm"
+                  : "bg-red-500/10 border-red-500/35 text-red-700 dark:text-red-300 hover:bg-red-500/20"
               }`}
             >
               No
@@ -269,8 +277,8 @@ function SubQuestionRow({
               onClick={() => onAnswerChange("Yes")}
               className={`px-3.5 py-1.5 rounded-md text-sm font-semibold border transition-colors ${
                 subAnswer === "Yes"
-                  ? "bg-emerald-500 text-white border-transparent"
-                  : "bg-transparent border-border/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15"
+                  ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                  : "bg-emerald-500/10 border-emerald-500/35 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
               }`}
             >
               Yes
@@ -289,7 +297,7 @@ function SubQuestionRow({
               onChange={(e) => onReasoningChange(e.target.value)}
               placeholder="Explain the reasoning..."
               rows={2}
-              className="flex-1 text-base bg-secondary/40 border border-border/40 rounded-md px-3.5 py-2.5 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-accent/50 min-h-[56px] leading-relaxed"
+              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[56px] leading-relaxed"
             />
             <CopyButton text={sub.reasoning} />
           </div>
@@ -306,7 +314,7 @@ function SubQuestionRow({
               onChange={(e) => onCitationsChange(e.target.value)}
               placeholder="Reference specific evidence..."
               rows={1}
-              className="flex-1 text-base bg-secondary/40 border border-border/40 rounded-md px-3.5 py-2.5 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-accent/50 min-h-[48px] leading-relaxed"
+              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[48px] leading-relaxed"
             />
             <CopyButton text={sub.citations} />
           </div>
@@ -323,7 +331,7 @@ function SubQuestionRow({
               onChange={(e) => onCommentsChange(e.target.value)}
               placeholder="Optional final comments for this sub-question..."
               rows={2}
-              className="flex-1 text-base bg-secondary/40 border border-border/40 rounded-md px-3.5 py-2.5 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-accent/50 min-h-[56px] leading-relaxed"
+              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[56px] leading-relaxed"
             />
             <CopyButton text={sub.comments || ""} />
           </div>
@@ -354,30 +362,32 @@ function QuestionRow({
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  const hasSubs = !!question.sub_questions && question.sub_questions.length > 0;
+  const hasSubs =
+    !!question.sub_questions && question.sub_questions.length > 0;
   const isNo = question.answer === "No";
   const isInsufficient = question.answer === "Insufficient information";
   const allSubsYes = useMemo(() => {
     if (!hasSubs) return true;
-    return question.sub_questions!.every((sub) => (sub.answer || "No") === "Yes");
+    return question.sub_questions!.every(
+      (sub) => (sub.answer || "No") === "Yes"
+    );
   }, [hasSubs, question.sub_questions]);
   const noDriverCount = useMemo(() => {
     if (!hasSubs) return 0;
-    return question.sub_questions!.filter((sub) => (sub.answer || "No") === "No").length;
+    return question.sub_questions!.filter(
+      (sub) => (sub.answer || "No") === "No"
+    ).length;
   }, [hasSubs, question.sub_questions]);
 
   useEffect(() => {
-    // Re-open existing sub-questions when parent is marked "No".
     if (isNo && hasSubs) {
       setExpanded(true);
     }
   }, [isNo, hasSubs]);
 
-  // When collapsed, still show sub-questions for "No" answers
   const subsToShow = useMemo(() => {
     if (!hasSubs) return [];
     if (expanded) return question.sub_questions!;
-    // Collapsed: show subs only if parent is No
     return isNo ? question.sub_questions! : [];
   }, [expanded, hasSubs, question.sub_questions, isNo]);
 
@@ -387,7 +397,6 @@ function QuestionRow({
     <div className="border border-border/40 rounded-xl overflow-hidden bg-secondary/10">
       {/* Main question row */}
       <div className="flex items-start gap-4 p-5">
-        {/* Expand toggle */}
         <button
           onClick={() => hasSubs && setExpanded((prev) => !prev)}
           className="shrink-0 mt-0.5 text-muted-foreground"
@@ -404,21 +413,18 @@ function QuestionRow({
           )}
         </button>
 
-        {/* Question ID */}
         <span className="shrink-0 text-sm font-mono text-primary mt-0.5 min-w-[64px]">
           {question.id}
         </span>
 
-        {/* Question text + missing info */}
         <div className="flex-1 min-w-0">
           <p className="text-lg text-foreground leading-relaxed font-normal">
             {question.text}
           </p>
 
-          {/* Missing info field (shown when answer is Insufficient information) */}
           {isInsufficient && (
             <div className="mt-3">
-              <label className="text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
+              <label className="text-xs font-medium text-amber-700 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
                 <FileWarning className="h-3 w-3" />
                 Missing Information
               </label>
@@ -436,7 +442,6 @@ function QuestionRow({
           )}
         </div>
 
-        {/* Answer pills */}
         <div className="shrink-0 ml-3">
           <AnswerPills
             value={question.answer}
@@ -449,24 +454,25 @@ function QuestionRow({
 
       {/* Driver validation banner for "No" answers */}
       {isNo && hasSubs && (
-        <div className="px-5 py-2.5 border-t flex items-center gap-2 text-sm bg-red-500/8 border-red-500/15 text-red-600 dark:text-red-400">
+        <div className="px-5 py-2.5 border-t flex items-center gap-2 text-sm bg-red-500/8 border-red-500/15 text-red-700 dark:text-red-400">
           <AlertTriangle className="h-3.5 w-3.5" />
           {noDriverCount} driver{noDriverCount !== 1 ? "s" : ""} identified
         </div>
       )}
 
-      {/* Sub-questions (reasoning + citations) */}
+      {/* Sub-questions */}
       {showSubSection && (
         <div className="border-t border-border/25 divide-y divide-border/15">
           {!expanded && hasSubs && (
             <div className="px-5 py-2 text-xs text-muted-foreground/80 bg-secondary/10 flex items-center justify-between">
               <span>
-                {subsToShow.length} sub-question{subsToShow.length > 1 ? "s" : ""}
+                {subsToShow.length} sub-question
+                {subsToShow.length > 1 ? "s" : ""}
               </span>
               <button
                 type="button"
                 onClick={() => setExpanded(true)}
-                className="text-accent hover:underline"
+                className="font-medium text-primary hover:text-foreground hover:underline"
               >
                 Show all
               </button>
@@ -479,7 +485,9 @@ function QuestionRow({
               onAnswerChange={(a) => onSubAnswerChange(sub.id, a)}
               onReasoningChange={(r) => onSubReasoningChange(sub.id, r)}
               onCitationsChange={(c) => onSubCitationsChange(sub.id, c)}
-              onCommentsChange={(comments) => onSubCommentsChange(sub.id, comments)}
+              onCommentsChange={(comments) =>
+                onSubCommentsChange(sub.id, comments)
+              }
             />
           ))}
         </div>
@@ -520,10 +528,15 @@ export function AuditQuestionForm({
       })),
     [initialQuestions]
   );
-  const [questions, setQuestions] = useState<TFRQuestion[]>(normalizedInitialQuestions);
+  const [questions, setQuestions] = useState<TFRQuestion[]>(
+    normalizedInitialQuestions
+  );
   const [overallOutcome, setOverallOutcome] = useState(initialOutcome);
-  const [outcomeJustification, setOutcomeJustification] = useState(initialJustification);
-  const [additionalAnalysis, setAdditionalAnalysis] = useState(initialAnalysis || "");
+  const [outcomeJustification, setOutcomeJustification] =
+    useState(initialJustification);
+  const [additionalAnalysis, setAdditionalAnalysis] = useState(
+    initialAnalysis || ""
+  );
   const [followUps, setFollowUps] = useState(initialFollowUps || "");
 
   // ── Question-level handlers ──────────────────────────────────
@@ -533,11 +546,15 @@ export function AuditQuestionForm({
       setQuestions((prev) =>
         prev.map((q) => {
           if (q.id !== qId) return q;
-          if (answer === "Yes" && q.sub_questions && q.sub_questions.length > 0) {
-            const allSubsYes = q.sub_questions.every((s) => (s.answer || "No") === "Yes");
-            if (!allSubsYes) {
-              return q;
-            }
+          if (
+            answer === "Yes" &&
+            q.sub_questions &&
+            q.sub_questions.length > 0
+          ) {
+            const allSubsYes = q.sub_questions.every(
+              (s) => (s.answer || "No") === "Yes"
+            );
+            if (!allSubsYes) return q;
           }
           return { ...q, answer };
         })
@@ -631,15 +648,17 @@ export function AuditQuestionForm({
 
   // ── Form submission ─────────────────────────────────────────
 
-  /** Gather all local state into the backend-compatible payload. */
-  const collectFormState = useCallback((): AuditFormPayload => ({
-    peril: peril as unknown as Record<string, unknown>,
-    questions: questions as unknown as Array<Record<string, unknown>>,
-    overall_outcome: overallOutcome,
-    outcome_justification: outcomeJustification,
-    additional_analysis: additionalAnalysis || null,
-    follow_ups: followUps || null,
-  }), [peril, questions, overallOutcome, outcomeJustification, additionalAnalysis, followUps]);
+  const collectFormState = useCallback(
+    (): AuditFormPayload => ({
+      peril: peril as unknown as Record<string, unknown>,
+      questions: questions as unknown as Array<Record<string, unknown>>,
+      overall_outcome: overallOutcome,
+      outcome_justification: outcomeJustification,
+      additional_analysis: additionalAnalysis || null,
+      follow_ups: followUps || null,
+    }),
+    [peril, questions, overallOutcome, outcomeJustification, additionalAnalysis, followUps]
+  );
 
   const handleSubmit = useCallback(async () => {
     if (!onSubmit) return;
@@ -652,7 +671,6 @@ export function AuditQuestionForm({
     }
   }, [onSubmit, collectFormState, formTitle]);
 
-  /** Reset all local edits back to the original props values. */
   const handleCancel = useCallback(() => {
     setPeril(initialPeril);
     setQuestions(normalizedInitialQuestions);
@@ -686,33 +704,49 @@ export function AuditQuestionForm({
   }, [onDelete]);
 
   // ── Dirty tracking ─────────────────────────────────────────
-  // True when local state diverges from the last-saved (initial) values.
   const isDirty = useMemo(() => {
-    if (peril.peril !== initialPeril.peril || peril.notes !== initialPeril.notes) return true;
+    if (
+      peril.peril !== initialPeril.peril ||
+      peril.notes !== initialPeril.notes
+    )
+      return true;
     if (overallOutcome !== initialOutcome) return true;
     if (outcomeJustification !== initialJustification) return true;
     if ((additionalAnalysis || "") !== (initialAnalysis || "")) return true;
     if ((followUps || "") !== (initialFollowUps || "")) return true;
-    if (JSON.stringify(questions) !== JSON.stringify(normalizedInitialQuestions)) return true;
+    if (
+      JSON.stringify(questions) !==
+      JSON.stringify(normalizedInitialQuestions)
+    )
+      return true;
     return false;
   }, [
-    peril, initialPeril,
-    overallOutcome, initialOutcome,
-    outcomeJustification, initialJustification,
-    additionalAnalysis, initialAnalysis,
-    followUps, initialFollowUps,
-    questions, normalizedInitialQuestions,
+    peril,
+    initialPeril,
+    overallOutcome,
+    initialOutcome,
+    outcomeJustification,
+    initialJustification,
+    additionalAnalysis,
+    initialAnalysis,
+    followUps,
+    initialFollowUps,
+    questions,
+    normalizedInitialQuestions,
   ]);
 
   // ── Summary counts ───────────────────────────────────────────
 
   const yesCount = questions.filter((q) => q.answer === "Yes").length;
   const noCount = questions.filter((q) => q.answer === "No").length;
-  const insufficientCount = questions.filter((q) => q.answer === "Insufficient information").length;
+  const insufficientCount = questions.filter(
+    (q) => q.answer === "Insufficient information"
+  ).length;
   const driverCount = questions.reduce(
     (count, question) =>
       count +
-      (question.sub_questions?.filter((sub) => (sub.answer || "No") === "No").length || 0),
+      (question.sub_questions?.filter((sub) => (sub.answer || "No") === "No")
+        .length || 0),
     0
   );
 
@@ -733,7 +767,8 @@ export function AuditQuestionForm({
               onClick={() =>
                 setPeril((prev) => ({
                   ...prev,
-                  peril: prev.peril === "Interior" ? "Exterior" : "Interior",
+                  peril:
+                    prev.peril === "Interior" ? "Exterior" : "Interior",
                 }))
               }
               title="Click to toggle peril"
@@ -742,8 +777,8 @@ export function AuditQuestionForm({
                 variant="outline"
                 className={`text-sm font-semibold cursor-pointer ${
                   peril.peril === "Exterior"
-                    ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
-                    : "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30"
+                    ? "bg-blue-500/20 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                    : "bg-orange-500/20 text-orange-700 dark:text-orange-400 border-orange-500/30"
                 }`}
               >
                 {peril.peril}
@@ -751,7 +786,6 @@ export function AuditQuestionForm({
             </button>
           </div>
 
-          {/* Outcome badge (click to toggle) */}
           <button
             type="button"
             onClick={() =>
@@ -764,8 +798,8 @@ export function AuditQuestionForm({
             <Badge
               className={`text-sm font-semibold cursor-pointer ${
                 overallOutcome === "Meets"
-                  ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
-                  : "bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/30"
+                  ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                  : "bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30"
               }`}
             >
               {overallOutcome === "Meets" ? (
@@ -785,29 +819,28 @@ export function AuditQuestionForm({
           </p>
           <div className="flex items-center gap-1.5">
             {yesCount > 0 && (
-              <Badge className="bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
+              <Badge className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-xs">
                 {yesCount} Yes
               </Badge>
             )}
             {noCount > 0 && (
-              <Badge className="bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/30 text-xs">
+              <Badge className="bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30 text-xs">
                 {noCount} No
               </Badge>
             )}
             {insufficientCount > 0 && (
-              <Badge className="bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30 text-xs">
+              <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30 text-xs">
                 {insufficientCount} Insufficient
               </Badge>
             )}
             {driverCount > 0 && (
-              <Badge className="bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30 text-xs">
+              <Badge className="bg-rose-500/25 text-rose-700 dark:text-rose-400 border-rose-500/30 text-xs">
                 {driverCount} Drivers
               </Badge>
             )}
           </div>
         </div>
 
-        {/* Peril notes */}
         {peril.notes && (
           <p className="text-sm text-muted-foreground mt-2 italic">
             Peril notes: {peril.notes}
@@ -816,13 +849,14 @@ export function AuditQuestionForm({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Questions */}
         {questions.map((q) => (
           <QuestionRow
             key={q.id}
             question={q}
             onAnswerChange={(a) => handleAnswerChange(q.id, a)}
-            onMissingInfoChange={(info) => handleMissingInfoChange(q.id, info)}
+            onMissingInfoChange={(info) =>
+              handleMissingInfoChange(q.id, info)
+            }
             onSubAnswerChange={(subId, a) =>
               handleSubAnswerChange(q.id, subId, a)
             }
@@ -838,8 +872,10 @@ export function AuditQuestionForm({
           />
         ))}
 
+        <Separator className="my-5" />
+
         {/* Outcome justification (editable) */}
-        <div className="border border-border/40 rounded-xl p-5 bg-secondary/10 mt-5">
+        <div className="border border-border/40 rounded-xl p-5 bg-secondary/10">
           <label className="text-sm font-semibold text-foreground/85 uppercase tracking-wider">
             Outcome Justification
           </label>
@@ -849,13 +885,13 @@ export function AuditQuestionForm({
               onChange={(e) => setOutcomeJustification(e.target.value)}
               placeholder="Justification for the overall outcome..."
               rows={3}
-              className="flex-1 text-base bg-secondary/40 border border-border/40 rounded-md px-3.5 py-2.5 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-accent/50 min-h-[88px] leading-relaxed"
+              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[88px] leading-relaxed"
             />
             <CopyButton text={outcomeJustification} />
           </div>
         </div>
 
-        {/* Additional analysis (editable, optional) */}
+        {/* Additional analysis (editable) */}
         <div className="border border-border/40 rounded-xl p-5 bg-secondary/10">
           <label className="text-sm font-semibold text-foreground/85 uppercase tracking-wider">
             Additional Analysis
@@ -871,13 +907,13 @@ export function AuditQuestionForm({
               onChange={(e) => setAdditionalAnalysis(e.target.value)}
               placeholder="Optional additional analysis..."
               rows={2}
-              className="flex-1 text-base bg-secondary/40 border border-border/40 rounded-md px-3.5 py-2.5 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-accent/50 min-h-[56px] leading-relaxed"
+              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[56px] leading-relaxed"
             />
             <CopyButton text={additionalAnalysis} />
           </div>
         </div>
 
-        {/* Follow-ups (editable, optional) */}
+        {/* Follow-ups (editable) */}
         <div className="border border-border/40 rounded-xl p-5 bg-secondary/10">
           <label className="text-sm font-semibold text-foreground/85 uppercase tracking-wider">
             Recommended Follow-Ups
@@ -888,131 +924,133 @@ export function AuditQuestionForm({
               onChange={(e) => setFollowUps(e.target.value)}
               placeholder="Optional follow-up actions..."
               rows={2}
-              className="flex-1 text-base bg-secondary/40 border border-border/40 rounded-md px-3.5 py-2.5 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-accent/50 min-h-[56px] leading-relaxed"
+              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[56px] leading-relaxed"
             />
             <CopyButton text={followUps} />
           </div>
         </div>
 
         {/* Action bar */}
-        {onSubmit && (() => {
-          // Form needs saving when it has never been persisted or has local edits
-          const neverSaved = !currentFormId;
-          const needsSave = neverSaved || isDirty;
-          const busy = isSaving || isDeleting;
+        {onSubmit &&
+          (() => {
+            const neverSaved = !currentFormId;
+            const needsSave = neverSaved || isDirty;
+            const busy = isSaving || isDeleting;
 
-          return (
-            <div className="rounded-xl p-5 mt-2 border border-border/40 bg-secondary/10">
-              {/* Title input row */}
-              <div className="mb-3">
-                <input
-                  type="text"
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder="Form title (optional)"
-                  className="w-full text-sm bg-background border border-border/40 rounded-lg px-3.5 py-2 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                />
-              </div>
+            return (
+              <div className="rounded-xl p-5 mt-2 border border-border/40 bg-secondary/10">
+                {/* Title input row */}
+                <div className="mb-3">
+                  <Input
+                    type="text"
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                    placeholder="Form title (optional)"
+                  />
+                </div>
 
-              {/* Buttons row */}
-              <div className="flex items-center gap-2">
-                {/* Close — dismiss form from UI */}
-                {onClose && (
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    disabled={busy}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-sm font-medium transition-colors border border-border/40 text-muted-foreground hover:text-foreground hover:bg-secondary/60 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <XCircle className="h-3.5 w-3.5" />
-                    Close
-                  </button>
-                )}
-
-                {/* Cancel — revert local edits */}
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  disabled={busy || !isDirty}
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-sm font-medium transition-colors border border-border/40 text-muted-foreground hover:text-foreground hover:bg-secondary/60 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <X className="h-3.5 w-3.5" />
-                  Cancel
-                </button>
-
-                {/* Delete — remove saved form from disk */}
-                {onDelete && currentFormId && (
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={busy}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-sm font-medium transition-colors border border-border/40 text-muted-foreground hover:text-destructive hover:border-destructive/40 hover:bg-destructive/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {isDeleting ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                    Delete
-                  </button>
-                )}
-
-                <div className="flex-1" />
-
-                {/* Status indicator */}
-                {!busy && submitStatus !== "success" && (
-                  needsSave ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                      <Pencil className="h-3 w-3" />
-                      {neverSaved ? "Not yet saved" : "Unsaved changes"}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-                      <CheckCheck className="h-3 w-3" />
-                      Saved
-                    </span>
-                  )
-                )}
-
-                {/* Submit */}
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={busy}
-                  className={`inline-flex items-center gap-2 h-9 px-5 rounded-lg text-sm font-semibold border transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                    submitStatus === "success"
-                      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                      : needsSave
-                        ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-                        : "border-border/40 bg-secondary/50 text-foreground/70 hover:bg-secondary hover:text-foreground"
-                  }`}
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : submitStatus === "success" ? (
-                    <>
-                      <CheckCheck className="h-4 w-4" />
-                      Saved
-                    </>
-                  ) : needsSave ? (
-                    <>
-                      <Save className="h-4 w-4" />
-                      Submit Form
-                    </>
-                  ) : (
-                    <>
-                      <CheckCheck className="h-4 w-4" />
-                      Up to Date
-                    </>
+                {/* Buttons row */}
+                <div className="flex items-center gap-2">
+                  {onClose && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onClose}
+                      disabled={busy}
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Close
+                    </Button>
                   )}
-                </button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancel}
+                    disabled={busy || !isDirty}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Cancel
+                  </Button>
+
+                  {onDelete && currentFormId && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleDelete}
+                      disabled={busy}
+                      className="text-muted-foreground hover:text-destructive hover:bg-destructive/5"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      Delete
+                    </Button>
+                  )}
+
+                  <div className="flex-1" />
+
+                  {/* Status indicator */}
+                  {!busy &&
+                    submitStatus !== "success" &&
+                    (needsSave ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                        <Pencil className="h-3 w-3" />
+                        {neverSaved ? "Not yet saved" : "Unsaved changes"}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+                        <CheckCheck className="h-3 w-3" />
+                        Saved
+                      </span>
+                    ))}
+
+                  {/* Submit */}
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={busy}
+                    variant={
+                      submitStatus === "success"
+                        ? "outline"
+                        : needsSave
+                          ? "default"
+                          : "secondary"
+                    }
+                    size="sm"
+                    className={
+                      submitStatus === "success"
+                        ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-700 dark:text-emerald-400"
+                        : ""
+                    }
+                  >
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : submitStatus === "success" ? (
+                      <>
+                        <CheckCheck className="h-4 w-4" />
+                        Saved
+                      </>
+                    ) : needsSave ? (
+                      <>
+                        <Save className="h-4 w-4" />
+                        Submit Form
+                      </>
+                    ) : (
+                      <>
+                        <CheckCheck className="h-4 w-4" />
+                        Up to Date
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
       </CardContent>
     </Card>
   );
