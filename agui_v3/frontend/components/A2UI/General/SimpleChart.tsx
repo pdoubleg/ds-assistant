@@ -7,8 +7,9 @@
  * No external charting library required.
  */
 
-import React from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Check, Copy } from "lucide-react";
 
 export interface SimpleChartProps {
   chart_type: "bar" | "line" | "pie";
@@ -26,6 +27,74 @@ const DEFAULT_COLORS = [
   "#f43f5e",
   "#8b5cf6",
 ];
+
+/**
+ * Formats chart numeric values for readability.
+ */
+function formatChartValue(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+/**
+ * Converts an SVG element to a PNG blob.
+ */
+async function svgToPngBlob(svgElement: SVGSVGElement): Promise<Blob> {
+  const serializer = new XMLSerializer();
+  const svgContent = serializer.serializeToString(svgElement);
+  const svgWithNamespace = svgContent.includes("xmlns=")
+    ? svgContent
+    : svgContent.replace(
+        "<svg",
+        '<svg xmlns="http://www.w3.org/2000/svg"',
+      );
+
+  const svgBlob = new Blob([svgWithNamespace], {
+    type: "image/svg+xml;charset=utf-8",
+  });
+  const objectUrl = URL.createObjectURL(svgBlob);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("Unable to load chart image"));
+      img.src = objectUrl;
+    });
+
+    const viewBox = svgElement.viewBox.baseVal;
+    const width =
+      (viewBox && viewBox.width > 0 ? viewBox.width : svgElement.clientWidth) ||
+      600;
+    const height =
+      (viewBox && viewBox.height > 0 ? viewBox.height : svgElement.clientHeight) ||
+      300;
+
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(width * devicePixelRatio);
+    canvas.height = Math.round(height * devicePixelRatio);
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) {
+      throw new Error("Unable to render chart image");
+    }
+
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    ctx.drawImage(image, 0, 0, width, height);
+
+    const pngBlob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
+
+    if (!pngBlob) {
+      throw new Error("Unable to encode chart image");
+    }
+
+    return pngBlob;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 function BarChart({
   labels,
@@ -80,7 +149,7 @@ function BarChart({
               className="fill-current opacity-70"
               style={{ fill: "currentColor" }}
             >
-              {val}
+              {formatChartValue(val)}
             </text>
             <text
               x={x + barWidth / 2}
@@ -171,7 +240,7 @@ function LineChart({
             className="fill-current opacity-70"
             style={{ fill: "currentColor" }}
           >
-            {values[i]}
+            {formatChartValue(values[i])}
           </text>
           <text
             x={p.x}
@@ -279,13 +348,64 @@ export function SimpleChart({
 }: SimpleChartProps): React.ReactElement {
   const resolvedColors =
     colors && colors.length > 0 ? colors : DEFAULT_COLORS;
+  const [copied, setCopied] = useState(false);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const handleCopyChart = useCallback(async () => {
+    const svgElement = chartContainerRef.current?.querySelector("svg");
+    if (!svgElement) {
+      return;
+    }
+
+    try {
+      const pngBlob = await svgToPngBlob(svgElement);
+
+      if (
+        navigator.clipboard &&
+        typeof ClipboardItem !== "undefined" &&
+        ClipboardItem.supports?.("image/png")
+      ) {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "image/png": pngBlob }),
+        ]);
+      } else {
+        // Fallback for environments without image clipboard support.
+        const downloadUrl = URL.createObjectURL(pngBlob);
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+        a.download = `${title || "chart"}.png`;
+        a.click();
+        URL.revokeObjectURL(downloadUrl);
+      }
+
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can fail based on browser permissions or context.
+      setCopied(false);
+    }
+  }, [title]);
 
   return (
     <Card className="border-primary/20">
       <CardHeader className="pb-2">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          <button
+            type="button"
+            onClick={handleCopyChart}
+            aria-label={copied ? "Copied chart image" : "Copy chart image"}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            {copied ? (
+              <Check className="h-4 w-4 text-emerald-500" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </button>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent ref={chartContainerRef}>
         {chart_type === "bar" && (
           <BarChart
             labels={labels}

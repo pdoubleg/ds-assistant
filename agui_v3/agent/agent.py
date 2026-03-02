@@ -4,18 +4,10 @@ Audit Assistant Agent - Pydantic AI agent with AG-UI protocol support.
 This agent uses StateDeps for bidirectional state sync with the frontend
 via the AG-UI protocol, enabling seamless CopilotKit integration.
 
-Two independent tools are available:
-    run_analysis – Analyzes claim documents and generates visual insight
-                   components (timeline, summary card, findings, tables,
-                   charts) to brief the auditor before review.
-    generate_audit_form – Reads docs directly and generates the TFR
-                          question set rendered as an AuditQuestionForm.
-
-The main agent decides which tools to call (either, both, or neither)
-based on the user query.
 """
 
-from typing import Any
+import logging
+from typing import Any, Literal
 from uuid import uuid4
 from datetime import datetime
 from textwrap import dedent
@@ -38,12 +30,15 @@ from a2ui_generator import (
 )
 
 from llm_orchestrator import (
-    _combine_documents, 
-    format_analysis_prompt, 
-    analysis_agent, 
-    component_agent, 
-    format_component_prompt,
+    _combine_documents,
+    timeline_event_agent,
+    summary_metrics_agent,
+    findings_agent,
+    tables_agent,
+    charts_agent,
 )
+
+logger = logging.getLogger("audit_agent")
 
 
 class AuditState(BaseModel):
@@ -66,6 +61,7 @@ class AuditState(BaseModel):
         activity_log: Timestamped log entries for UI display.
         error_message: Error details when status is 'error'.
     """
+
     documents: list[dict[str, Any]] = Field(default_factory=list)
     components: list[dict[str, Any]] = Field(default_factory=list)
     audit_questions: list[dict[str, Any]] = Field(default_factory=list)
@@ -84,6 +80,7 @@ class AuditState(BaseModel):
 # Helper: build document payloads from state
 # =========================================================================
 
+
 def _build_doc_payloads(state: AuditState) -> list[dict[str, Any]]:
     """Extract document payloads from shared state for LLM consumption.
 
@@ -99,29 +96,53 @@ def _build_doc_payloads(state: AuditState) -> list[dict[str, Any]]:
     """
     payloads: list[dict[str, Any]] = []
     for doc in state.documents:
-        payloads.append({
-            "title": doc.get("file_name", doc.get("content_url", "Untitled")),
-            "content": doc.get("content", doc.get("text", "")),
-            "file_type": doc.get("mime_type", "unknown"),
-            "document_type": doc.get("document_type", ""),
-        })
+        payloads.append(
+            {
+                "title": doc.get("file_name", doc.get("content_url", "Untitled")),
+                "content": doc.get("content", doc.get("text", "")),
+                "file_type": doc.get("mime_type", "unknown"),
+                "document_type": doc.get("document_type", ""),
+            }
+        )
     return payloads
 
 
-def _log(state: AuditState, message: str, status: str = "in_progress") -> None:
-    """Append an entry to the activity log.
+def _log_tool_call(
+    state: AuditState, message: str, status: str = "in_progress", tool_name: str = ""
+) -> None:
+    """Append or update an entry in the activity log.
+
+    If the newest activity-log entry already represents the same tool/message,
+    this function updates that existing row instead of appending a duplicate.
+    This keeps the UI from showing duplicate lines when a tool transitions
+    from ``in_progress`` to ``completed`` with the same message.
 
     Args:
         state: The current ``AuditState``.
         message: Human-readable log message.
         status: One of ``in_progress``, ``completed``, or ``error``.
+        tool_name: The name of the tool that was called.
     """
-    state.activity_log.append({
-        "id": str(uuid4()),
-        "message": message,
-        "timestamp": datetime.now().isoformat(),
-        "status": status,
-    })
+    print(f"[TOOL] {tool_name}: {message}")
+    timestamp = datetime.now().isoformat()
+
+    # Prevent duplicate UI rows when status changes for the same message.
+    if state.activity_log:
+        last_entry = state.activity_log[-1]
+        if last_entry.get("message") == message and last_entry.get("tool_name", "") == tool_name:
+            last_entry["status"] = status
+            last_entry["timestamp"] = timestamp
+            return
+
+    state.activity_log.append(
+        {
+            "id": str(uuid4()),
+            "message": message,
+            "timestamp": timestamp,
+            "status": status,
+            "tool_name": tool_name,
+        }
+    )
 
 
 # =========================================================================
@@ -160,27 +181,27 @@ agent = Agent(
     """).strip(),
     model_settings=OpenAIChatModelSettings(
         parallel_tool_calls=False,
-    )
+    ),
 )
 
 
 # =========================================================================
-# Tool: list documents
+# Tool: Context documents
 # =========================================================================
 
+
 @agent.tool
-def get_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
-    """Get the list of currently uploaded documents from state.
+def get_documents_listing(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
+    """Get a listing of current documents from the shared state and return it as a string.
 
     Returns:
-        ToolReturn with document listing and a state snapshot.
+        ToolReturn with a string containing the document listing and a state snapshot.
     """
     state = ctx.deps.state
-    state.current_step = "Retrieving uploaded documents..."
-    _log(state, "Reading uploaded documents from shared state")
+    state.current_step = "Retrieving documents..."
 
     docs = state.documents
-    print(f"[TOOL] get_documents: {len(docs)} documents")
+    logger.info(f"[TOOL] get_documents_listing: {len(docs)} documents")
     if not docs:
         return_value = "No documents uploaded yet."
     else:
@@ -188,8 +209,8 @@ def get_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
             f"- {d.get('file_name', d.get('content_url', 'Untitled'))} ({d.get('mime_type', 'unknown')})"
             for d in docs
         )
-    state.current_step = f"Retrieved {len(docs)} uploaded document(s)"
-    _log(state, state.current_step, "completed")
+    state.current_step = f"Synced {len(docs)} document(s)."
+    _log_tool_call(state, state.current_step, "completed", "get_documents_listing")
     return ToolReturn(
         return_value=return_value,
         metadata=[
@@ -201,168 +222,312 @@ def get_documents(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
     )
 
 
-# =========================================================================
-# Tool: run_analysis → claim insight components
-# =========================================================================
-  
-    
 @agent.tool
-async def run_analysis(
-    ctx: RunContext[StateDeps[AuditState]],
-    focus: str = "General claim review",
-) -> ToolReturn:
-    """Analyze claim documents and generate visual insight components.
+def get_documents_content(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
+    """Get the content of the current documents from the shared state and return it as a string.
 
-    Calls the analysis sub-agent which returns an ``AnalysisResult`` with
-    optional sections (timeline, metrics, findings, tables, charts). Each
-    populated section is mapped to one or more A2UI components and appended
-    to ``AuditState.components``.
+    Returns:
+        ToolReturn with a string containing the content of the documents and a state snapshot.
+    """
+    state = ctx.deps.state
+    state.current_step = "Retrieving documents content..."
+    _log_tool_call(
+        state,
+        "Retrieving documents content from shared state",
+        "in_progress",
+        "get_documents_content",
+    )
+    doc_payloads = _build_doc_payloads(state) or None  # None when empty
+    combined_text: str | None = None
+    doc_count = 0
+    if doc_payloads:
+        combined_text, doc_count = _combine_documents(doc_payloads)
+    else:
+        combined_text = "No documents available."
+    _log_tool_call(
+        state, f"Retrieved {doc_count} document(s) content.", "completed", "get_documents_content"
+    )
+
+    return ToolReturn(
+        return_value=combined_text,
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
+    )
+
+
+# =========================================================================
+# Tools: Insight components
+# =========================================================================
+
+
+@agent.tool
+async def generate_text_component(
+    ctx: RunContext[StateDeps[AuditState]],
+    title: str,
+    content: str,
+    variant: Literal["info", "warning", "success", "error"] = "info",
+) -> ToolReturn:
+    """Generate a markdown-formatted text component and render it in the output pane.
+
+    Notes:
+        - Useful for persisting arbitrary text content in the output pane.
+        - Renders as rich react-markdown with github-flavored markdown support.
+        - Common use cases include:
+            - Displaying a summary, e.g., a summary of an analysis or executive summary
+            - Introducing subsequent components or sections
+            - General output related to a user query that should be displayed in the output pane
+        - Use this tool often to display summary information or context before or after calling other components or sections.
 
     Args:
         ctx: Pydantic AI run context carrying the shared ``AuditState``.
-        focus: User-supplied focus area forwarded to the sub-agent
-            (e.g. "timeline and damaged items"). Should be passed along in full, 
-            for example if the user requests certain topics or visual components, 
-            pass the full topic(s) or component names(s).
+        title: The title of the text component.
+        content: The content of the text component. This should be a string containing the markdown-formatted text.
+        variant: The variant of the text component. Must be one of "info", "warning", "success", or "error". Defaults to "info".
 
     Returns:
         ToolReturn with a summary string for the LLM and a
         StateSnapshotEvent to sync updated state with the frontend.
     """
     state = ctx.deps.state
-    doc_payloads = _build_doc_payloads(state) or None  # None when empty
-
-    print(f"[TOOL] run_analysis: {len(doc_payloads or [])} document(s), focus='{focus}'")
-
-    state.status = "analyzing"
-    state.progress = 10
-    state.current_step = "Analyzing context from focus and documents..."
-    _log(state, f"Starting analysis — focus: {focus}")
-
-    # ── Two-step LLM analysis ───────────────────────────────────────────
-    # Step 1: Create a detailed context brief from focus + docs.
-    
-    combined_text: str | None = None
-    doc_count = 0
-    if doc_payloads:
-        combined_text, doc_count = _combine_documents(doc_payloads)
-    analysis_prompt = format_analysis_prompt(combined_text, focus=focus)
-    context_result = await analysis_agent.run(analysis_prompt)
-    context_brief = context_result.output
-    _log(state, f"Generate context summary analysis for {doc_count} document(s).", "completed")
-    
-    # Step 2: Convert brief into structured component data.
-    component_prompt = format_component_prompt(context_brief, focus=focus)
-    structured_result = await component_agent.run(component_prompt)
-    analysis = structured_result.output
-    _log(state, "Generate structured data for components.", "completed")
-    state.analysis_result = analysis.model_dump()
-    state.progress = 50
-    state.current_step = "Generating components..."
-
-    # ── Map AnalysisResult sections → A2UI components ───────────────────
-    components_before = len(state.components)
-
-    # 1. Overview text box (always present)
+    state.current_step = f"Generating text component: {title}, {content[:100]}..., {variant}"
+    _log_tool_call(state, state.current_step, "in_progress", "generate_text_component")
     state.components.append(
         generate_text_box(
-            title=analysis.title,
-            content=analysis.summary,
-            variant="info",
+            title=title,
+            content=content,
+            variant=variant,
         ).model_dump()
     )
+    _log_tool_call(state, state.current_step, "completed", "generate_text_component")
+    return ToolReturn(
+        return_value=f"Text component generated: {title}",
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
+    )
 
-    # 2. Summary metrics card
-    if analysis.summary_metrics:
+
+@agent.tool
+async def generate_timeline_component(
+    ctx: RunContext[StateDeps[AuditState]],
+    input_spec: str,
+) -> ToolReturn:
+    """Spawn a sub-agent to generate a timeline component based on an input specification and render it in the output pane.
+
+    Notes:
+        Each event must include:
+        - date (str)
+        - title (str)
+        - description (str)
+        - category: "inspection" | "estimate" | "payment" | "correspondence" | "other"
+        - status: "completed" | "pending" | "flagged"
+
+    Args:
+        ctx: Pydantic AI run context carrying the shared ``AuditState``.
+        input_spec: The input specification for the timeline component. This should be a string containing the timeline event details, e.g., Chronological bullets with: date, title, description, category, status.
+
+
+    Returns:
+        ToolReturn with a summary string for the LLM and a
+        StateSnapshotEvent to sync updated state with the frontend.
+    """
+    state = ctx.deps.state
+    state.current_step = f"Generating timeline component: {input_spec[:100]}..."
+    _log_tool_call(state, state.current_step, "in_progress", "generate_timeline_component")
+    timeline_events_result = await timeline_event_agent.run(input_spec)
+    timeline_events = timeline_events_result.output
+    state.components.append(
+        generate_claim_timeline(
+            title="Timeline",
+            events=[timeline_event.model_dump() for timeline_event in timeline_events],
+        ).model_dump()
+    )
+    _log_tool_call(state, state.current_step, "completed", "generate_timeline_component")
+    return ToolReturn(
+        return_value=f"Timeline component generated with {len(timeline_events)} event(s).",
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
+    )
+
+
+@agent.tool
+async def generate_summary_metrics_component(
+    ctx: RunContext[StateDeps[AuditState]],
+    input_spec: str,
+) -> ToolReturn:
+    """Spawn a sub-agent to generate a summary metrics component based on an input specification and render it in the output pane.
+
+    Notes:
+        Each metric should include:
+        - label (str): Metric name shown above the value.
+        - value (str): Formatted display value (e.g. "$12,450.00", "Open").
+        - icon (str | null): Optional icon hint for the frontend (e.g. "dollar", "calendar", "user", "shield", "file", "alert", "home", "weather", "fire", "wind", "repair", "tree").
+        - trend (str | null): Optional directional trend indicator (e.g. "up", "down", "stable").
+
+    Args:
+        ctx: Pydantic AI run context carrying the shared ``AuditState``.
+        input_spec: The input specification for the summary metrics component, e.g., Metric bullets with: label, value, icon(optional), trend(optional).
+
+    Returns:
+        ToolReturn with a summary string for the LLM and a
+        StateSnapshotEvent to sync updated state with the frontend.
+    """
+    state = ctx.deps.state
+    state.current_step = f"Generating summary metrics component: {input_spec[:100]}..."
+    _log_tool_call(state, state.current_step, "in_progress", "generate_summary_metrics_component")
+    summary_metrics_result = await summary_metrics_agent.run(input_spec)
+    summary_metrics = summary_metrics_result.output
+    state.components.append(
+        generate_summary_card(
+            title="Summary Metrics",
+            metrics=[summary_metric.model_dump() for summary_metric in summary_metrics],
+        ).model_dump()
+    )
+    _log_tool_call(state, state.current_step, "completed", "generate_summary_metrics_component")
+    return ToolReturn(
+        return_value=f"Summary metrics component generated with {len(summary_metrics)} metric(s).",
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
+    )
+
+
+@agent.tool
+async def generate_findings_component(
+    ctx: RunContext[StateDeps[AuditState]],
+    input_spec: str,
+) -> ToolReturn:
+    """Spawn a sub-agent to generate one or more findings component(s) based on an input specification and render it in the output pane. Useful for calling attention to important items or areas of concern.
+
+    Notes:
+        Each finding should include:
+        - title (str): Short finding headline.
+        - content (str): Detailed explanation (supports markdown).
+        - severity: "info" | "warning" | "critical"
+        - category (str | null): Optional grouping tag (e.g. "timeline", "coverage", "estimate", "resolution").
+
+    Args:
+        ctx: Pydantic AI run context carrying the shared ``AuditState``.
+        input_spec: The input specification for the findings component, e.g., Finding bullets with: title, content, severity(optional), category(optional). This should be a string containing the finding details.
+
+    Returns:
+        ToolReturn with a summary string for the LLM and a
+        StateSnapshotEvent to sync updated state with the frontend.
+    """
+    state = ctx.deps.state
+    state.current_step = f"Generating findings component: {input_spec[:100]}..."
+    _log_tool_call(state, state.current_step, "in_progress", "generate_findings_component")
+    findings_result = await findings_agent.run(input_spec)
+    findings = findings_result.output
+    for finding in findings:
         state.components.append(
-            generate_summary_card(
-                title="Summary Metrics",
-                metrics=[m.model_dump() for m in analysis.summary_metrics],
+            generate_finding_card(
+                title=finding.title,
+                content=finding.content,
+                severity=finding.severity,
+                category=finding.category,
             ).model_dump()
         )
 
-    # 3. Timeline
-    if analysis.timeline_events:
-        state.components.append(
-            generate_claim_timeline(
-                title="Timeline",
-                events=[e.model_dump() for e in analysis.timeline_events],
-            ).model_dump()
-        )
+    _log_tool_call(state, state.current_step, "completed", "generate_findings_component")
+    return ToolReturn(
+        return_value=f"Findings component generated with {len(findings)} finding(s).",
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
+    )
 
-    # 4. Findings (one card per finding)
-    if analysis.findings:
-        for finding in analysis.findings:
-            state.components.append(
-                generate_finding_card(
-                    title=finding.title,
-                    content=finding.content,
-                    severity=finding.severity,
-                    category=finding.category,
-                ).model_dump()
-            )
 
-    # 5. Tables
-    if analysis.tables:
-        for table in analysis.tables:
-            state.components.append(
-                generate_data_table(
-                    headers=table.headers,
-                    rows=table.rows,
-                    caption=table.caption,
-                ).model_dump()
-            )
+@agent.tool
+async def generate_table_component(
+    ctx: RunContext[StateDeps[AuditState]],
+    input_spec: str,
+) -> ToolReturn:
+    """Spawn a sub-agent to generate a table component based on an input specification and render it in the output pane. Useful for displaying structured data in a tabular format.
 
-    # 6. Charts
-    if analysis.charts:
-        for chart in analysis.charts:
-            state.components.append(
-                generate_simple_chart(
-                    chart_type=chart.chart_type,
-                    title=chart.title,
-                    labels=chart.labels,
-                    values=chart.values,
-                    colors=chart.colors,
-                ).model_dump()
-            )
+    Notes:
+        Each table should include:
+        - caption (str): Table heading / description.
+        - headers (list[str]): Column header labels.
+        - rows (list[list[str | int | float]]): 2-D list of cell values (strings or numbers).
 
-    new_count = len(state.components) - components_before
-    state.progress = 100
-    state.status = "complete"
+    Args:
+        ctx: Pydantic AI run context carrying the shared ``AuditState``.
+        input_spec: The input specification for the table component, e.g., String with: caption, headers, rows. This should be a string containing the table details.
 
-    print(f"[TOOL] run_analysis: {new_count} components created")
-
-    # Build a concise return value for the LLM
-    sections = []
-    if analysis.timeline_events:
-        sections.append(f"{len(analysis.timeline_events)} timeline events")
-    if analysis.summary_metrics:
-        sections.append(f"{len(analysis.summary_metrics)} summary metrics")
-    if analysis.findings:
-        sections.append(f"{len(analysis.findings)} findings")
-    if analysis.tables:
-        sections.append(f"{len(analysis.tables)} tables")
-    if analysis.charts:
-        sections.append(f"{len(analysis.charts)} charts")
+    Returns:
+        ToolReturn with a summary string for the LLM and a
+        StateSnapshotEvent to sync updated state with the frontend.
+    """
+    state = ctx.deps.state
+    state.current_step = f"Generating table component: {input_spec[:100]}..."
+    _log_tool_call(state, state.current_step, "in_progress", "generate_table_component")
+    table_result = await tables_agent.run(input_spec)
+    table = table_result.output
+    state.components.append(
+        generate_data_table(
+            headers=table.headers,
+            rows=table.rows,
+            caption=table.caption,
+        ).model_dump()
+    )
+    n_rows = len(table.rows)
+    _log_tool_call(state, state.current_step, "completed", "generate_table_component")
 
     return ToolReturn(
-        return_value=(
-            f"Claim analysis complete. Generated {new_count} insight components: "
-            f"{', '.join(sections) if sections else 'overview only'}. "
-            f"Components are now visible in the output pane."
-        ),
-        metadata=[
-            StateSnapshotEvent(
-                type=EventType.STATE_SNAPSHOT,
-                snapshot=state,
-            ),
-        ],
+        return_value=f"Table component generated with {n_rows} row(s).",
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
+    )
+
+
+@agent.tool
+async def generate_chart_component(
+    ctx: RunContext[StateDeps[AuditState]],
+    input_spec: str,
+) -> ToolReturn:
+    """Spawn a sub-agent to generate a chart component based on an input specification and render it in the output pane. Useful for displaying visual data in a chart format.
+
+    Notes:
+        For each chart, provide:
+        - chart_type: one of "bar" | "line" | "pie"
+        - title: short, auditor-friendly label
+        - labels: list[str] (category names, periods, or segment names)
+        - values: list[float | int] (raw numeric values only; no "$", "%", commas, or text)
+        - colors (optional): list[str] of valid CSS color strings (hex preferred, e.g. "#003B6F")
+        - labels and values MUST align one-to-one and have identical length.
+        - Chart type expectations:
+            - bar: compare magnitudes across discrete categories (e.g., costs by trade/category).
+            - line: show ordered progression over time/sequences; labels should be chronologically or logically ordered.
+            - pie: show parts of a whole at one point in time; values should be non-negative and represent a meaningful total breakdown.
+            - Keep chart payloads compact and readable (typically 3-8 data points per chart).
+            - If source data is ambiguous, do not force a chart.
+
+    Args:
+        ctx: Pydantic AI run context carrying the shared ``AuditState``.
+        input_spec: The input specification for the chart component, e.g., String with: chart_type, title, labels, values, colors(optional). This should be a string containing the chart details.
+
+    Returns:
+        ToolReturn with a summary string for the LLM and a
+        StateSnapshotEvent to sync updated state with the frontend.
+    """
+    state = ctx.deps.state
+    state.current_step = f"Generating chart component: {input_spec[:100]}..."
+    _log_tool_call(state, state.current_step, "in_progress", "generate_chart_component")
+    chart_result = await charts_agent.run(input_spec)
+    chart = chart_result.output
+    state.components.append(
+        generate_simple_chart(
+            chart_type=chart.chart_type,
+            title=chart.title,
+            labels=chart.labels,
+            values=chart.values,
+            colors=chart.colors,
+        ).model_dump()
+    )
+    n_values = len(chart.values)
+    _log_tool_call(state, state.current_step, "completed", "generate_chart_component")
+    return ToolReturn(
+        return_value=f"Chart component generated with {n_values} value(s).",
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
     )
 
 
 # =========================================================================
 # Tool: generate audit form → TFR question set
 # =========================================================================
+
 
 @agent.tool
 async def generate_audit_form(
@@ -374,7 +539,7 @@ async def generate_audit_form(
     Reads raw document content from state, calls the TFR question
     sub-agent, and renders an AuditQuestionForm A2UI component with
     peril determination, questions, and overall outcome.
-    
+
     Args:
         ctx: Pydantic AI run context carrying the shared ``AuditState``.
         focus: User-supplied focus area forwarded to the sub-agent
@@ -389,16 +554,14 @@ async def generate_audit_form(
     state = ctx.deps.state
     doc_payloads = _build_doc_payloads(state)
 
-    print(f"[TOOL] generate_audit_form: {len(doc_payloads)} document(s)")
-
     state.status = "generating"
     state.progress = max(state.progress, 50)
     state.current_step = "Generating TFR audit questionnaire..."
-    _log(state, "Starting TFR question generation")
+    _log_tool_call(state, state.current_step, "in_progress", "generate_audit_form")
 
     # ── LLM question generation ─────────────────────────────────────────
     tfr_result = await generate_audit_questions(doc_payloads, focus=focus)
-    _log(state, "Run audit workflow.", "completed")
+    _log_tool_call(state, state.current_step, "completed", "generate_audit_form")
 
     # ── Render form component ───────────────────────────────────────────
     form_component = generate_audit_question_form(
@@ -410,7 +573,7 @@ async def generate_audit_form(
         follow_ups=tfr_result.get("follow_ups"),
     )
     state.components.append(form_component.model_dump())
-    _log(state, f"Generate questionnaire data for {len(tfr_result['questions'])} questions.", "completed")
+    _log_tool_call(state, state.current_step, "completed", "generate_audit_form")
     state.audit_questions = tfr_result["questions"]
     # Keep a canonical form payload in state so frontend edits can sync
     # and persistence endpoints can save without reconstructing fields.
@@ -430,9 +593,7 @@ async def generate_audit_form(
     state.status = "complete"
     state.progress = 100
     state.current_step = f"Generated {num_questions} TFR questions"
-    _log(state, f"Render audit form with {num_questions} question components.", "completed")
-
-    print(f"[TOOL] generate_audit_form: {num_questions} questions")
+    _log_tool_call(state, state.current_step, "completed", "generate_audit_form")
 
     return ToolReturn(
         return_value=(

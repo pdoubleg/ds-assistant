@@ -36,6 +36,7 @@ class A2UIComponent(BaseModel):
         layout: Optional layout hints (width, position, className).
         zone: Semantic zone for layout grouping.
     """
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     type: str
     props: dict[str, Any] = Field(default_factory=dict)
@@ -46,6 +47,7 @@ class A2UIComponent(BaseModel):
 # ============================================================================
 # DOCUMENT CARD
 # ============================================================================
+
 
 def generate_document_card(
     file_name: str,
@@ -118,6 +120,7 @@ def generate_document_card(
 # ============================================================================
 # AUDIT QUESTION FORM (TFR)
 # ============================================================================
+
 
 def generate_audit_question_form(
     peril: dict[str, Any],
@@ -196,6 +199,7 @@ def generate_audit_question_form(
 # TEXT BOX
 # ============================================================================
 
+
 def generate_text_box(
     title: str,
     content: str,
@@ -232,6 +236,7 @@ def generate_text_box(
 # ============================================================================
 # DATA TABLE
 # ============================================================================
+
 
 def generate_data_table(
     headers: list[str],
@@ -277,6 +282,7 @@ def generate_data_table(
 # SIMPLE CHART
 # ============================================================================
 
+
 def generate_simple_chart(
     chart_type: str,
     title: str,
@@ -321,6 +327,7 @@ def generate_simple_chart(
 # ============================================================================
 # CLAIM TIMELINE
 # ============================================================================
+
 
 def generate_claim_timeline(
     title: str,
@@ -383,6 +390,7 @@ def generate_claim_timeline(
 # SUMMARY CARD
 # ============================================================================
 
+
 def generate_summary_card(
     title: str,
     metrics: list[dict[str, Any]],
@@ -430,6 +438,7 @@ def generate_summary_card(
 # ============================================================================
 # FINDING CARD
 # ============================================================================
+
 
 def generate_finding_card(
     title: str,

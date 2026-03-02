@@ -20,6 +20,12 @@ import {
   TrendingDown,
   Minus,
   BarChart3,
+  Home,
+  CloudRain,
+  Flame,
+  Wind,
+  Wrench,
+  TreePine,
 } from "lucide-react";
 
 interface SummaryMetric {
@@ -41,6 +47,12 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   shield: <Shield className="h-4 w-4" />,
   file: <FileText className="h-4 w-4" />,
   alert: <AlertCircle className="h-4 w-4" />,
+  home: <Home className="h-4 w-4" />,
+  weather: <CloudRain className="h-4 w-4" />,
+  fire: <Flame className="h-4 w-4" />,
+  wind: <Wind className="h-4 w-4" />,
+  repair: <Wrench className="h-4 w-4" />,
+  tree: <TreePine className="h-4 w-4" />,
 };
 
 const TREND_CONFIG: Record<string, { icon: React.ReactNode; color: string }> = {

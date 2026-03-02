@@ -24,10 +24,11 @@ from fastapi import FastAPI, File, UploadFile, Body  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel, ConfigDict  # noqa: E402
 from starlette.requests import Request  # noqa: E402
-from starlette.responses import JSONResponse, StreamingResponse  # noqa: E402
+from starlette.responses import JSONResponse  # noqa: E402
 
 from agent import agent, AuditState  # noqa: E402
-from pydantic_ai.ag_ui import StateDeps  # noqa: E402
+from pydantic_ai.ui import StateDeps  # noqa: E402
+from pydantic_ai.ui.ag_ui import AGUIAdapter  # noqa: E402
 from a2ui_generator import generate_audit_question_form  # noqa: E402
 
 # Configuration
@@ -38,128 +39,15 @@ FORMS_DIR = os.path.join(os.path.dirname(__file__), "data", "forms")
 os.makedirs(FORMS_DIR, exist_ok=True)
 
 
-def pascal_to_screaming_snake(name: str) -> str:
-    """Convert PascalCase to SCREAMING_SNAKE_CASE.
-
-    Args:
-        name: PascalCase event type name.
-
-    Returns:
-        SCREAMING_SNAKE_CASE version of the name.
-    """
-    result = re.sub(r'(?<!^)(?=[A-Z])', '_', name)
-    return result.upper()
-
-
-# Map of PascalCase to SCREAMING_SNAKE_CASE event types
-EVENT_TYPE_MAP = {
-    "RunStarted": "RUN_STARTED",
-    "RunFinished": "RUN_FINISHED",
-    "RunError": "RUN_ERROR",
-    "StepStarted": "STEP_STARTED",
-    "StepFinished": "STEP_FINISHED",
-    "StateSnapshot": "STATE_SNAPSHOT",
-    "StateDelta": "STATE_DELTA",
-    "MessagesSnapshot": "MESSAGES_SNAPSHOT",
-    "TextMessageStart": "TEXT_MESSAGE_START",
-    "TextMessageContent": "TEXT_MESSAGE_CONTENT",
-    "TextMessageEnd": "TEXT_MESSAGE_END",
-    "TextMessageChunk": "TEXT_MESSAGE_CHUNK",
-    "ToolCallStart": "TOOL_CALL_START",
-    "ToolCallArgs": "TOOL_CALL_ARGS",
-    "ToolCallEnd": "TOOL_CALL_END",
-    "ToolCallChunk": "TOOL_CALL_CHUNK",
-    "ToolCallResult": "TOOL_CALL_RESULT",
-    "Raw": "RAW",
-    "Custom": "CUSTOM",
-}
-
-
-def transform_event_type(event_data: str) -> str:
-    """Transform event type in SSE data from PascalCase to SCREAMING_SNAKE_CASE.
-
-    Args:
-        event_data: JSON string containing an event with a 'type' field.
-
-    Returns:
-        JSON string with the 'type' field converted to SCREAMING_SNAKE_CASE.
-    """
-    try:
-        data = json.loads(event_data)
-        if "type" in data:
-            original_type = data["type"]
-            if original_type in EVENT_TYPE_MAP:
-                data["type"] = EVENT_TYPE_MAP[original_type]
-            elif not original_type.isupper():
-                data["type"] = pascal_to_screaming_snake(original_type)
-        return json.dumps(data)
-    except json.JSONDecodeError:
-        return event_data
-
-
-async def transform_sse_stream(original_response):
-    """Transform SSE stream to use SCREAMING_SNAKE_CASE event types.
-
-    Wraps the original Pydantic AI SSE response and converts event names
-    and data JSON 'type' fields for CopilotKit v2 compatibility.
-
-    Args:
-        original_response: The original StreamingResponse from pydantic-ai.
-
-    Yields:
-        Transformed SSE chunks with SCREAMING_SNAKE_CASE event types.
-    """
-    try:
-        async for chunk in original_response.body_iterator:
-            try:
-                if isinstance(chunk, bytes):
-                    chunk = chunk.decode('utf-8')
-
-                lines = chunk.split('\n')
-                transformed_lines = []
-
-                for line in lines:
-                    if line.startswith('event: '):
-                        event_name = line[7:]
-                        if event_name in EVENT_TYPE_MAP:
-                            transformed_lines.append(f'event: {EVENT_TYPE_MAP[event_name]}')
-                        elif not event_name.isupper():
-                            transformed_lines.append(
-                                f'event: {pascal_to_screaming_snake(event_name)}'
-                            )
-                        else:
-                            transformed_lines.append(line)
-                    elif line.startswith('data: '):
-                        data = line[6:]
-                        transformed_data = transform_event_type(data)
-                        transformed_lines.append(f'data: {transformed_data}')
-                    else:
-                        transformed_lines.append(line)
-
-                yield '\n'.join(transformed_lines)
-            except Exception as chunk_error:
-                print(f"[SSE ERROR] Error processing chunk: {chunk_error}", flush=True)
-                import traceback
-                traceback.print_exc()
-                raise
-    except Exception as stream_error:
-        print(f"[SSE ERROR] Stream error: {stream_error}", flush=True)
-        import traceback
-        traceback.print_exc()
-        raise
-
-
 # Shared in-memory state for AG-UI and persistence endpoints.
 # This keeps UI edits and backend submit/restore operations in sync.
 APP_DEPS = StateDeps(AuditState())
-
-# Create the base AG-UI app using Pydantic AI's built-in integration.
-_base_ag_ui_app = agent.to_ag_ui(deps=APP_DEPS)
 
 
 # =========================================================================
 # Request body models
 # =========================================================================
+
 
 class AuditFormRequestBody(BaseModel):
     """Flexible audit form request body for state sync and persistence endpoints.
@@ -209,6 +97,7 @@ class AuditFormRequestBody(BaseModel):
 # =========================================================================
 # Helper utilities
 # =========================================================================
+
 
 def _iso_now() -> str:
     """Return the current UTC timestamp in ISO 8601 format."""
@@ -314,6 +203,7 @@ def _upsert_audit_form_component(state: AuditState, form_payload: dict[str, Any]
 # App factory & lifespan
 # =========================================================================
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup/shutdown lifecycle handler."""
@@ -322,7 +212,9 @@ async def lifespan(app: FastAPI):
     print(f"[*] Upload endpoint: POST http://localhost:{BACKEND_PORT}/upload")
     print(f"[*] Form state sync endpoint: GET/PUT http://localhost:{BACKEND_PORT}/state/audit-form")
     print(f"[*] Form persistence endpoints: POST/GET http://localhost:{BACKEND_PORT}/forms")
-    print(f"[*] Form restore endpoint: POST http://localhost:{BACKEND_PORT}/forms/{{form_id}}/restore")
+    print(
+        f"[*] Form restore endpoint: POST http://localhost:{BACKEND_PORT}/forms/{{form_id}}/restore"
+    )
     print(f"[*] Info endpoint: GET http://localhost:{BACKEND_PORT}/info")
     print(f"[*] Health endpoint: GET http://localhost:{BACKEND_PORT}/health")
 
@@ -355,47 +247,25 @@ app.add_middleware(
 # AG-UI endpoint
 # =========================================================================
 
+
 @app.post("/")
 async def ag_ui_endpoint(request: Request):
-    """AG-UI endpoint that wraps Pydantic AI's implementation
-    and transforms event types to SCREAMING_SNAKE_CASE format.
-
-    Uses raw ``Request`` access so the original body bytes can be
-    forwarded unchanged into the pydantic-ai Starlette sub-app.
-    """
+    """AG-UI endpoint backed by Pydantic AI's official request dispatcher."""
     try:
         body = await request.body()
         print(f"[AG-UI] Received request: {len(body)} bytes", flush=True)
 
-        # Reconstruct a fresh StarletteRequest with the buffered body so
-        # the pydantic-ai handler can read it a second time.
-        scope = dict(request.scope)
-
-        async def receive():
-            return {"type": "http.request", "body": body}
-
-        new_request = Request(scope, receive)
-
-        # Find the POST route handler in the pydantic-ai base app
-        for route in _base_ag_ui_app.routes:
-            if hasattr(route, 'methods') and 'POST' in route.methods:
-                original_response = await route.endpoint(new_request)
-                break
-        else:
-            return JSONResponse({"error": "AG-UI endpoint not found"}, status_code=500)
-
-        # Wrap streaming responses with our event type transformer
-        if isinstance(original_response, StreamingResponse):
-            return StreamingResponse(
-                transform_sse_stream(original_response),
-                media_type="text/event-stream",
-                headers=dict(original_response.headers),
-            )
+        original_response = await AGUIAdapter.dispatch_request(
+            request=request,
+            agent=agent,
+            deps=APP_DEPS,
+        )
 
         return original_response
     except Exception as e:
         print(f"[AG-UI ERROR] {e}", flush=True)
         import traceback
+
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -403,36 +273,41 @@ async def ag_ui_endpoint(request: Request):
 @app.get("/")
 async def root_get():
     """Return AG-UI endpoint info for GET requests."""
-    return JSONResponse({
-        "protocol": "ag-ui",
-        "version": "1.0.0",
-        "endpoints": {
-            "run_agent": "POST /",
-            "upload": "POST /upload",
-            "audit_form_state": "GET|PUT /state/audit-form",
-            "save_form": "POST /forms",
-            "list_forms": "GET /forms",
-            "get_form": "GET /forms/{form_id}",
-            "restore_form": "POST /forms/{form_id}/restore",
-            "info": "GET /info",
-            "health": "GET /health",
-        },
-        "description": "Audit Assistant Agent - POST to / to run the agent",
-    })
+    return JSONResponse(
+        {
+            "protocol": "ag-ui",
+            "version": "1.0.0",
+            "endpoints": {
+                "run_agent": "POST /",
+                "upload": "POST /upload",
+                "audit_form_state": "GET|PUT /state/audit-form",
+                "save_form": "POST /forms",
+                "list_forms": "GET /forms",
+                "get_form": "GET /forms/{form_id}",
+                "restore_form": "POST /forms/{form_id}/restore",
+                "info": "GET /info",
+                "health": "GET /health",
+            },
+            "description": "Audit Assistant Agent - POST to / to run the agent",
+        }
+    )
 
 
 # =========================================================================
 # Audit form state sync + persistence endpoints
 # =========================================================================
 
+
 @app.get("/state/audit-form")
 async def get_audit_form_state():
     """Get the current audit form payload and form ID from shared state."""
     state = APP_DEPS.state
-    return JSONResponse({
-        "current_form_id": state.current_form_id,
-        "audit_form_result": state.audit_form_result,
-    })
+    return JSONResponse(
+        {
+            "current_form_id": state.current_form_id,
+            "audit_form_result": state.audit_form_result,
+        }
+    )
 
 
 @app.put("/state/audit-form")
@@ -456,11 +331,13 @@ async def put_audit_form_state(body: AuditFormRequestBody):
         state.current_form_id = body.current_form_id
     _upsert_audit_form_component(state, payload)
 
-    return JSONResponse({
-        "message": "Audit form state synchronized.",
-        "current_form_id": state.current_form_id,
-        "audit_form_result": state.audit_form_result,
-    })
+    return JSONResponse(
+        {
+            "message": "Audit form state synchronized.",
+            "current_form_id": state.current_form_id,
+            "audit_form_result": state.audit_form_result,
+        }
+    )
 
 
 @app.post("/forms")
@@ -522,12 +399,14 @@ async def save_form(body: AuditFormRequestBody | None = Body(default=None)):
     state.audit_questions = payload["questions"]
     _upsert_audit_form_component(state, payload)
 
-    return JSONResponse({
-        "message": "Form saved.",
-        "form_id": form_id,
-        "title": record["title"],
-        "updated_at": record["updated_at"],
-    })
+    return JSONResponse(
+        {
+            "message": "Form saved.",
+            "form_id": form_id,
+            "title": record["title"],
+            "updated_at": record["updated_at"],
+        }
+    )
 
 
 @app.get("/forms")
@@ -541,15 +420,17 @@ async def list_forms():
         try:
             with open(file_path, "r", encoding="utf-8") as file_obj:
                 data = json.load(file_obj)
-            forms.append({
-                "id": data.get("id"),
-                "title": data.get("title"),
-                "created_at": data.get("created_at"),
-                "updated_at": data.get("updated_at"),
-                "peril": data.get("peril", {}).get("peril"),
-                "overall_outcome": data.get("overall_outcome"),
-                "question_count": len(data.get("questions", [])),
-            })
+            forms.append(
+                {
+                    "id": data.get("id"),
+                    "title": data.get("title"),
+                    "created_at": data.get("created_at"),
+                    "updated_at": data.get("updated_at"),
+                    "peril": data.get("peril", {}).get("peril"),
+                    "overall_outcome": data.get("overall_outcome"),
+                    "question_count": len(data.get("questions", [])),
+                }
+            )
         except Exception as exc:
             # Skip unreadable/corrupt files but expose useful debug signal.
             print(f"[FORMS] Failed reading {file_path}: {exc}", flush=True)
@@ -597,7 +478,9 @@ async def restore_form(form_id: str):
     }
     validation_error = _validate_form_payload(payload)
     if validation_error:
-        return JSONResponse({"error": f"Saved form is invalid: {validation_error}"}, status_code=500)
+        return JSONResponse(
+            {"error": f"Saved form is invalid: {validation_error}"}, status_code=500
+        )
 
     state = APP_DEPS.state
     state.current_form_id = record.get("id", form_id)
@@ -607,11 +490,13 @@ async def restore_form(form_id: str):
     state.current_step = f"Restored saved form {state.current_form_id}"
     _upsert_audit_form_component(state, payload)
 
-    return JSONResponse({
-        "message": "Form restored to state.",
-        "form_id": state.current_form_id,
-        "audit_form_result": state.audit_form_result,
-    })
+    return JSONResponse(
+        {
+            "message": "Form restored to state.",
+            "form_id": state.current_form_id,
+            "audit_form_result": state.audit_form_result,
+        }
+    )
 
 
 @app.delete("/forms/{form_id}")
@@ -647,6 +532,7 @@ async def delete_form(form_id: str):
 # =========================================================================
 # Text extraction helpers
 # =========================================================================
+
 
 def extract_text_from_pdf(file_bytes: bytes) -> tuple[str, int]:
     """Extract text and page count from a PDF using PyMuPDF.
@@ -727,6 +613,7 @@ EXTRACTORS = {
 # File upload endpoint
 # =========================================================================
 
+
 @app.post("/upload")
 async def upload_endpoint(file: UploadFile = File(...)):
     """Handle document file uploads with text extraction.
@@ -747,7 +634,9 @@ async def upload_endpoint(file: UploadFile = File(...)):
 
         if ext not in allowed_extensions:
             return JSONResponse(
-                {"error": f"Unsupported file type: {ext}. Allowed: {', '.join(allowed_extensions)}"},
+                {
+                    "error": f"Unsupported file type: {ext}. Allowed: {', '.join(allowed_extensions)}"
+                },
                 status_code=400,
             )
 
@@ -779,18 +668,21 @@ async def upload_endpoint(file: UploadFile = File(...)):
             else f"{file_size / 1024:.1f} KB"
         )
 
-        return JSONResponse({
-            "filename": filename,
-            "file_type": ext.lstrip("."),
-            "file_size": size_str,
-            "file_size_bytes": file_size,
-            "page_count": page_count,
-            "content": extracted_text,
-            "path": file_path,
-        })
+        return JSONResponse(
+            {
+                "filename": filename,
+                "file_type": ext.lstrip("."),
+                "file_size": size_str,
+                "file_size_bytes": file_size,
+                "page_count": page_count,
+                "content": extracted_text,
+                "path": file_path,
+            }
+        )
     except Exception as e:
         print(f"[UPLOAD ERROR] {e}", flush=True)
         import traceback
+
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -799,26 +691,32 @@ async def upload_endpoint(file: UploadFile = File(...)):
 # Info / health endpoints
 # =========================================================================
 
+
 @app.get("/info")
 async def info_endpoint():
     """Return agent information."""
-    return JSONResponse({
-        "name": "Audit Assistant Agent",
-        "version": "1.0.0",
-        "protocol": "ag-ui",
-        "description": "Analyze documents and generate custom audit questionnaires",
-    })
+    return JSONResponse(
+        {
+            "name": "Audit Assistant Agent",
+            "version": "1.0.0",
+            "protocol": "ag-ui",
+            "description": "Analyze documents and generate custom audit questionnaires",
+        }
+    )
 
 
 @app.get("/health")
 async def health_endpoint():
     """Health check endpoint."""
-    return JSONResponse({
-        "status": "healthy",
-        "agent_ready": bool(os.getenv("OPENAI_API_KEY")),
-    })
+    return JSONResponse(
+        {
+            "status": "healthy",
+            "agent_ready": bool(os.getenv("OPENAI_API_KEY")),
+        }
+    )
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="0.0.0.0", port=BACKEND_PORT, reload=True)

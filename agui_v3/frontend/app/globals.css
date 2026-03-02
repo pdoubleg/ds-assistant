@@ -278,6 +278,103 @@ body {
   background: oklch(0.44 0 0);
 }
 
+/* ── TextBox markdown prose ── */
+.textbox-markdown h1,
+.textbox-markdown h2,
+.textbox-markdown h3,
+.textbox-markdown h4 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+  line-height: 1.35;
+  color: var(--foreground);
+}
+.textbox-markdown h1 { font-size: 1.25rem; }
+.textbox-markdown h2 { font-size: 1.1rem; }
+.textbox-markdown h3 { font-size: 1rem; }
+
+.textbox-markdown p {
+  margin-bottom: 0.6em;
+}
+
+.textbox-markdown ul,
+.textbox-markdown ol {
+  padding-left: 1.4em;
+  margin-bottom: 0.6em;
+}
+.textbox-markdown ul { list-style-type: disc; }
+.textbox-markdown ol { list-style-type: decimal; }
+.textbox-markdown li + li { margin-top: 0.2em; }
+
+.textbox-markdown strong { font-weight: 600; color: var(--foreground); }
+
+.textbox-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.textbox-markdown a:hover { opacity: 0.8; }
+
+.textbox-markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  background: var(--muted);
+}
+
+.textbox-markdown pre {
+  margin: 0.6em 0;
+  padding: 0.75em 1em;
+  border-radius: 8px;
+  background: var(--muted);
+  overflow-x: auto;
+}
+.textbox-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.textbox-markdown blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 0.8em;
+  margin: 0.6em 0;
+  color: var(--muted-foreground);
+}
+
+.textbox-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.9em;
+}
+.textbox-markdown th,
+.textbox-markdown td {
+  border: 1px solid var(--border);
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+.textbox-markdown th {
+  font-weight: 600;
+  background: var(--muted);
+}
+
+.textbox-markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.8em 0;
+}
+
+.textbox-markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+/* Remove bottom margin from last child so spacing stays tight */
+.textbox-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
 /* CopilotKit Sidebar Overrides */
 .copilotKitSidebar,
 [class*="copilotKit"] {

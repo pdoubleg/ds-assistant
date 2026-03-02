@@ -9,6 +9,49 @@ pydantic-ai handles output formatting via the agent's ``output_type`` Pydantic
 model, so prompts focus on analytical guidance rather than JSON structure.
 """
 
+
+# ============================================================================
+# COMPONENT SUB-AGENT SYSTEM PROMPTS
+# ============================================================================
+
+TIMELINE_EVENT_SYSTEM_PROMPT = """
+You are a Generative-UI assistant specialized in generating a timeline of events. Given an input string containing \
+timeline event details, generate a list of timeline event objects in the proper format. Do not change any of the input data, \
+simply transform it into a list of timeline event objects that will be rendered to the user. If needed you can fix formatting \
+issues or add reasonable defaults so that the timeline event objects are valid.
+"""
+
+
+SUMMARY_METRICS_SYSTEM_PROMPT = """
+You are a Generative-UI assistant specialized in generating a list of summary metrics. Given an input string containing \
+summary metric details, generate a list of summary metric objects in the proper format. Do not change any of the input data, \
+simply transform it into a list of summary metric objects that will be rendered to the user. If needed you can fix formatting \
+issues or add reasonable defaults so that the summary metric objects are valid.
+"""
+
+
+FINDING_SYSTEM_PROMPT = """
+You are a Generative-UI assistant specialized in generating a list of findings. Given an input string containing \
+finding details, generate a list of finding objects in the proper format. Do not change any of the input data, \
+simply transform it into a list of finding objects that will be rendered to the user. If needed you can fix formatting \
+issues or add reasonable defaults so that the finding objects are valid.
+"""
+
+
+TABLE_SYSTEM_PROMPT = """
+You are a Generative-UI assistant specialized in generating a table. Given an input string containing \
+table details, generate a table object in the proper format. Do not change any of the input data, \
+simply transform it into a table object that will be rendered to the user. If needed you can fix formatting \
+issues or add reasonable defaults so that the table object is valid.
+"""
+
+CHART_SYSTEM_PROMPT = """
+You are a Generative-UI assistant specialized in generating a chart. Given an input string containing \
+chart details, generate a chart object in the proper format. Do not change any of the input data, \
+simply transform it into a chart object that will be rendered to the user. If needed you can fix formatting \
+issues or add reasonable defaults so that the chart object is valid.
+"""
+
 # ============================================================================
 # CLAIM ANALYSIS STEP 1 (context understanding)
 # ============================================================================
@@ -139,7 +182,7 @@ Each finding:
 Each table:
 - caption (str)
 - headers (list[str])
-- rows (list[list])
+- rows (list[list[str | int | float]])
 
 ### charts (optional → SimpleChart per item)
 Each chart:
@@ -224,6 +267,7 @@ Each TFR question must have:
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def _truncate(text: str, max_length: int = 30_000) -> str:
     """Truncate text to *max_length* characters with an ellipsis marker.

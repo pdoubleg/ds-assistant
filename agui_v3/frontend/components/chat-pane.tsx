@@ -491,6 +491,16 @@ export function ChatPane() {
         steps: stepActivity,
         isLive: nextIsLive,
       };
+
+      // Default completed tool bubbles to collapsed once streaming finishes.
+      if (current.isLive && !nextIsLive) {
+        setCollapsedToolBubbleIds((prevCollapsed) => {
+          const collapsedNext = new Set(prevCollapsed);
+          collapsedNext.add(current.id);
+          return collapsedNext;
+        });
+      }
+
       return next;
     });
   }, [stepActivity, isGenerating]);
@@ -517,7 +527,8 @@ export function ChatPane() {
               return renderChatMessage(msg);
             }
 
-            const isCollapsed = collapsedToolBubbleIds.has(msg.id);
+            const isCollapsed =
+              !msg.isLive && collapsedToolBubbleIds.has(msg.id);
             const toolBubbleSummary = getToolBubbleSummary(msg.steps);
 
             return (
@@ -532,6 +543,9 @@ export function ChatPane() {
                         type="button"
                         onClick={() =>
                           setCollapsedToolBubbleIds((prev) => {
+                            if (msg.isLive) {
+                              return prev;
+                            }
                             const next = new Set(prev);
                             if (next.has(msg.id)) {
                               next.delete(msg.id);
@@ -588,7 +602,7 @@ export function ChatPane() {
                             ) && (
                               <div className="flex items-center gap-2 text-sm text-muted-foreground pt-0.5">
                                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
-                                <span>Composing response...</span>
+                                <span>Working...</span>
                               </div>
                             )}
                         </div>

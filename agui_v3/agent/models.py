@@ -57,14 +57,24 @@ class SubQuestion(BaseModel):
         citations: Specific citations to the evidence used in the reasoning.
     """
 
-    id: str = Field(..., description="Unique identifier for the sub-question, e.g., 'Q1.1', 'Q1.2', etc.")
-    text: str = Field(..., description="The verbatim text of the sub-question from the TFR template.")
-    reasoning: str = Field(
-        ..., description="An explanation of the reasoning behind this sub-question being selected as an opportunity."
+    id: str = Field(
+        ..., description="Unique identifier for the sub-question, e.g., 'Q1.1', 'Q1.2', etc."
     )
-    citations: str = Field(..., description="A listing of specific citations to the evidence used in the reasoning.")
+    text: str = Field(
+        ..., description="The verbatim text of the sub-question from the TFR template."
+    )
+    reasoning: str = Field(
+        ...,
+        description="An explanation of the reasoning behind this sub-question being selected as an opportunity.",
+    )
+    citations: str = Field(
+        ..., description="A listing of specific citations to the evidence used in the reasoning."
+    )
     answer: SkipJsonSchema[Literal["Yes", "No", "Insufficient information"]] = "No"
-    comments: SkipJsonSchema[str | None] = Field(None, description="Optional comments on the sub-question.")
+    comments: SkipJsonSchema[str | None] = Field(
+        None, description="Optional comments on the sub-question."
+    )
+
 
 class TFRQuestion(BaseModel):
     """A single TFR Question.
@@ -80,10 +90,15 @@ class TFRQuestion(BaseModel):
         missing_info: What information is missing when answer is 'Insufficient information'.
     """
 
-    id: str = Field(..., description="Unique identifier for the TFR question, e.g., 'Q1', 'Q2', etc.")
-    text: str = Field(..., description="The verbatim text of the TFR question from the TFR template.")
+    id: str = Field(
+        ..., description="Unique identifier for the TFR question, e.g., 'Q1', 'Q2', etc."
+    )
+    text: str = Field(
+        ..., description="The verbatim text of the TFR question from the TFR template."
+    )
     answer: Literal["Yes", "No", "Insufficient information"] = Field(
-        ..., description="Indicates whether this question is classified as an 'Opportunity' or 'Observation'."
+        ...,
+        description="Indicates whether this question is classified as an 'Opportunity' or 'Observation'.",
     )
     sub_questions: list[SubQuestion] | None = Field(
         None, description="A list of one or more associated sub-questions if the answer is 'No'."
@@ -105,7 +120,9 @@ class TFRQuestion(BaseModel):
     @model_validator(mode="after")
     def validate_missing_info(self) -> Self:
         """Questions marked 'Insufficient information' must specify what is missing."""
-        if self.answer == "Insufficient information" and (not self.missing_info or self.missing_info.strip() == ""):
+        if self.answer == "Insufficient information" and (
+            not self.missing_info or self.missing_info.strip() == ""
+        ):
             raise ValueError(
                 "TFR Questions marked as 'Insufficient information' must specify what information is missing."
             )
@@ -121,7 +138,8 @@ class PerilDetermination(BaseModel):
     """
 
     peril: Literal["Interior", "Exterior"] = Field(
-        ..., description="The specific peril selected for this TFR analysis based on the claim information."
+        ...,
+        description="The specific peril selected for this TFR analysis based on the claim information.",
     )
     notes: str | None = Field(
         None,
@@ -141,7 +159,9 @@ class TFRAnalysisResult(BaseModel):
         follow_ups: Optional recommended follow-up actions.
     """
 
-    peril: PerilDetermination = Field(..., description="The peril determination for this TFR analysis.")
+    peril: PerilDetermination = Field(
+        ..., description="The peril determination for this TFR analysis."
+    )
     questions: list[TFRQuestion] = Field(
         ...,
         description="All TFR Questions analyzed for the claim.",
@@ -190,18 +210,10 @@ class TimelineEvent(BaseModel):
         ... )
     """
 
-    date: str = Field(
-        ..., description="Display date for the event (e.g. '2025-03-15')."
-    )
-    title: str = Field(
-        ..., description="Short headline for the event."
-    )
-    description: str = Field(
-        ..., description="One-to-two sentence detail about the event."
-    )
-    category: Literal[
-        "inspection", "estimate", "payment", "correspondence", "other"
-    ] = Field(
+    date: str = Field(..., description="Display date for the event (e.g. '2025-03-15').")
+    title: str = Field(..., description="Short headline for the event.")
+    description: str = Field(..., description="One-to-two sentence detail about the event.")
+    category: Literal["inspection", "estimate", "payment", "correspondence", "other"] = Field(
         ...,
         description="Event classification: inspection, estimate, payment, correspondence, or other.",
     )
@@ -209,6 +221,23 @@ class TimelineEvent(BaseModel):
         ...,
         description="Current state of the event: completed, pending, or flagged.",
     )
+
+
+Icons = Literal[
+    "dollar",
+    "calendar",
+    "user",
+    "shield",
+    "file",
+    "alert",
+    "home",
+    "weather",
+    "fire",
+    "wind",
+    "repair",
+    "tree",
+]
+Trends = Literal["up", "down", "stable"]
 
 
 class SummaryMetric(BaseModel):
@@ -219,21 +248,17 @@ class SummaryMetric(BaseModel):
     Attributes:
         label: Metric name shown above the value.
         value: Formatted display value (e.g. "$12,450.00", "Open").
-        icon: Optional icon hint for the frontend (e.g. "dollar", "calendar").
-        trend: Optional directional trend indicator.
+        icon: Optional icon hint for the frontend (e.g. "dollar", "calendar", "user", "shield", "file", "alert", "home", "weather", "fire", "wind", "repair", "tree").
+        trend: Optional directional trend indicator (e.g. "up", "down", "stable").
 
     Example:
         >>> metric = SummaryMetric(label="Total Estimate", value="$12,450.00", trend="up")
     """
 
     label: str = Field(..., description="Metric name displayed above the value.")
-    value: str = Field(
-        ..., description="Formatted display value (e.g. '$12,450.00', 'Open')."
-    )
-    icon: str | None = Field(
-        None, description="Optional icon hint (e.g. 'dollar', 'calendar', 'user', 'shield')."
-    )
-    trend: Literal["up", "down", "stable"] | None = Field(
+    value: str = Field(..., description="Formatted display value (e.g. '$12,450.00', 'Open').")
+    icon: Icons | None = Field(None, description="Optional icon hint.")
+    trend: Trends | None = Field(
         None, description="Optional directional trend: up, down, or stable."
     )
 
@@ -291,7 +316,7 @@ class TableSpec(BaseModel):
 
     caption: str = Field(..., description="Table heading / description.")
     headers: list[str] = Field(..., description="Column header labels.")
-    rows: list[list[Any]] = Field(
+    rows: list[list[str | int | float]] = Field(
         ..., description="2-D list of cell values (strings or numbers)."
     )
 
@@ -348,10 +373,8 @@ class AnalysisResult(BaseModel):
         tables: Optional Tabular data rendered as DataTable(s).
         charts: Optional Visualizations rendered as SimpleChart(s).
     """
-    title: str = Field(
-        ...,
-        description="A concise title for the summary text box."
-    )
+
+    title: str = Field(..., description="A concise title for the summary text box.")
     summary: str = Field(
         ...,
         description=(
@@ -541,7 +564,9 @@ class Documents(DocBaseConfig):
         """
         summaries = []
         for doc in self.documents:
-            truncated_text = (doc.text[:max_len] + "...") if (doc.text and len(doc.text) > max_len) else doc.text
+            truncated_text = (
+                (doc.text[:max_len] + "...") if (doc.text and len(doc.text) > max_len) else doc.text
+            )
             summaries.append(
                 f"Document Name: {doc.file_name}\n"
                 f"Type: {doc.document_type or 'N/A'}\n"
@@ -598,5 +623,7 @@ class Documents(DocBaseConfig):
             ValueError: If the content_id is not in the valid IDs list.
         """
         if content_id not in self.valid_ids:
-            raise ValueError(f"Content ID {content_id} is not valid. Valid IDs are: {', '.join(self.valid_ids)}")
+            raise ValueError(
+                f"Content ID {content_id} is not valid. Valid IDs are: {', '.join(self.valid_ids)}"
+            )
         return next((doc for doc in self.documents if doc.content_id == content_id), None)

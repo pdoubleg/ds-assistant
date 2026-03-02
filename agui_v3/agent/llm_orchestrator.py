@@ -1,21 +1,19 @@
-"""LLM orchestration for claim analysis and TFR question generation.
-
-The claim analysis path uses a two-step process:
-
-1) Context analysis agent:
-   Produces a plain-text brief from focus + optional documents.
-2) Component generation agent:
-   Converts that brief into a structured ``AnalysisResult``.
-
-TFR question generation remains an independent flow.
-"""
+"""LLM orchestration for claim analysis and TFR question generation."""
 
 from typing import Any
 
 from pydantic_ai import Agent
 
 from model_config import get_orchestrator_model
-from models import AnalysisResult, TFRAnalysisResult
+from models import (
+    AnalysisResult,
+    TFRAnalysisResult,
+    TimelineEvent,
+    SummaryMetric,
+    Finding,
+    TableSpec,
+    ChartSpec,
+)
 from prompts import (
     ANALYSIS_SYSTEM_PROMPT,
     AUDIT_FORM_SYSTEM_PROMPT,
@@ -23,6 +21,11 @@ from prompts import (
     format_analysis_prompt,
     format_audit_form_prompt,
     format_component_prompt,
+    TIMELINE_EVENT_SYSTEM_PROMPT,
+    SUMMARY_METRICS_SYSTEM_PROMPT,
+    FINDING_SYSTEM_PROMPT,
+    TABLE_SYSTEM_PROMPT,
+    CHART_SYSTEM_PROMPT,
 )
 
 
@@ -52,9 +55,40 @@ audit_question_agent = Agent(
 )
 
 
+timeline_event_agent = Agent(
+    model=get_orchestrator_model(),
+    output_type=list[TimelineEvent],
+    instructions=TIMELINE_EVENT_SYSTEM_PROMPT,
+)
+
+summary_metrics_agent = Agent(
+    model=get_orchestrator_model(),
+    output_type=list[SummaryMetric],
+    instructions=SUMMARY_METRICS_SYSTEM_PROMPT,
+)
+
+findings_agent = Agent(
+    model=get_orchestrator_model(),
+    output_type=list[Finding],
+    instructions=FINDING_SYSTEM_PROMPT,
+)
+
+tables_agent = Agent(
+    model=get_orchestrator_model(),
+    output_type=TableSpec,
+    instructions=TABLE_SYSTEM_PROMPT,
+)
+
+charts_agent = Agent(
+    model=get_orchestrator_model(),
+    output_type=ChartSpec,
+    instructions=CHART_SYSTEM_PROMPT,
+)
+
 # =============================================================================
 # Helper: build combined document text from payloads
 # =============================================================================
+
 
 def _combine_documents(document_contents: list[dict[str, Any]]) -> tuple[str, int]:
     """Concatenate document payloads into a single string for LLM input.
@@ -83,6 +117,7 @@ def _combine_documents(document_contents: list[dict[str, Any]]) -> tuple[str, in
 # =============================================================================
 # Independent orchestration functions
 # =============================================================================
+
 
 async def run_analysis(
     document_contents: list[dict[str, Any]] | None,
@@ -142,6 +177,7 @@ async def run_analysis(
     except Exception as exc:
         print(f"[ORCHESTRATOR ERROR] Analysis failed: {exc}", flush=True)
         import traceback
+
         traceback.print_exc()
 
         # Fallback with a minimal valid result
@@ -192,6 +228,7 @@ async def generate_audit_questions(
     except Exception as exc:
         print(f"[ORCHESTRATOR ERROR] TFR question generation failed: {exc}", flush=True)
         import traceback
+
         traceback.print_exc()
 
         # Fallback with minimal valid TFR structure

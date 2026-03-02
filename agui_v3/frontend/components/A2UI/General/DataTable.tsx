@@ -10,7 +10,7 @@
 import React, { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Download } from "lucide-react";
 
 export interface DataTableProps {
   headers: string[];
@@ -18,6 +18,7 @@ export interface DataTableProps {
   caption?: string;
   sortable?: boolean;
   copyable?: boolean;
+  downloadable?: boolean;
 }
 
 export function DataTable({
@@ -26,6 +27,7 @@ export function DataTable({
   caption,
   sortable = false,
   copyable = true,
+  downloadable = true,
 }: DataTableProps): React.ReactElement {
   const [sortColumn, setSortColumn] = useState<number | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -62,17 +64,72 @@ export function DataTable({
   };
 
   const displayRows = sortable ? sortedRows : rows;
+  /**
+   * Builds a stable, filesystem-safe filename seed from table metadata.
+   */
+  const baseFileName = useMemo(() => {
+    const sourceLabel = caption || headers[0] || "table";
+    const cleaned = sourceLabel
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return cleaned || "table";
+  }, [caption, headers]);
+
   const tableAsTsv = useMemo(() => {
-    const serialize = (value: string | number): string => {
+    const serialize = (value: string | number): string =>
       // Keep output clean for pasted spreadsheets/text by removing line breaks.
-      return String(value).replace(/\r?\n/g, " ").trim();
-    };
+      String(value).replace(/\r?\n/g, " ").replace(/\t/g, " ").trim();
 
     const allRows = [headers, ...displayRows];
     return allRows
       .map((row) => row.map((cell) => serialize(cell)).join("\t"))
       .join("\n");
   }, [displayRows, headers]);
+
+  const tableAsCsv = useMemo(() => {
+    const serialize = (value: string | number): string => {
+      const normalized = String(value).replace(/\r?\n/g, " ").trim();
+      const escaped = normalized.replace(/"/g, '""');
+      return /[",]/.test(escaped) ? `"${escaped}"` : escaped;
+    };
+
+    const allRows = [headers, ...displayRows];
+    return allRows
+      .map((row) => row.map((cell) => serialize(cell)).join(","))
+      .join("\n");
+  }, [displayRows, headers]);
+
+  const triggerDownload = (
+    content: string,
+    fileName: string,
+    mimeType: string
+  ): void => {
+    const blob = new Blob([content], {
+      type: `${mimeType};charset=utf-8;`,
+    });
+    const objectUrl = URL.createObjectURL(blob);
+    const downloadLink = document.createElement("a");
+    downloadLink.href = objectUrl;
+    downloadLink.download = fileName;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(objectUrl);
+  };
+
+  const handleDownloadCsv = (): void => {
+    triggerDownload(tableAsCsv, `${baseFileName}.csv`, "text/csv");
+  };
+
+  const handleDownloadExcel = (): void => {
+    // TSV + .xls is broadly compatible for local Excel opens.
+    triggerDownload(
+      tableAsTsv,
+      `${baseFileName}.xls`,
+      "application/vnd.ms-excel"
+    );
+  };
 
   const handleCopyTable = async (): Promise<void> => {
     try {
@@ -100,7 +157,7 @@ export function DataTable({
   return (
     <Card className="border-primary/20 overflow-hidden">
       <CardContent className="p-0">
-        {(caption || copyable) && (
+        {(caption || copyable || downloadable) && (
           <div className="flex items-center justify-between gap-3 border-b border-border/40 bg-secondary/40 px-3 py-2">
             {caption ? (
               <h3 className="text-base font-extrabold underline text-foreground">
@@ -109,7 +166,31 @@ export function DataTable({
             ) : (
               <div />
             )}
-            <div className="flex items-center">
+            <div className="flex items-center gap-2">
+              {downloadable && (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-2"
+                    onClick={handleDownloadCsv}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    CSV
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-2"
+                    onClick={handleDownloadExcel}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Excel
+                  </Button>
+                </>
+              )}
               {copyable && (
                 <Button
                   type="button"
@@ -126,7 +207,7 @@ export function DataTable({
                   ) : (
                     <>
                       <Copy className="h-3.5 w-3.5" />
-                      Copy table
+                      Copy
                     </>
                   )}
                 </Button>

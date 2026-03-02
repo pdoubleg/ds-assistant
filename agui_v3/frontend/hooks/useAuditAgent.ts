@@ -432,7 +432,7 @@ export function useAuditAgent() {
         error_message: null,
         status: "analyzing",
         progress: 0,
-        current_step: "Preparing analysis request...",
+        current_step: "Working...",
       });
 
       agent.addMessage({
