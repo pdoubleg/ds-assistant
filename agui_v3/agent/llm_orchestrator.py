@@ -119,14 +119,14 @@ def _combine_documents(document_contents: list[dict[str, Any]]) -> tuple[str, in
 # =============================================================================
 
 
-async def run_analysis(
+async def run_summary_analysis(
     document_contents: list[dict[str, Any]] | None,
     focus: str = "General claim review",
 ) -> AnalysisResult:
     """Run two-step claim analysis and return structured component data.
 
-    This function first creates a context brief (plain text) and then uses
-    that brief to generate structured UI component data.
+    This function first creates a context brief (analysis agent) and then uses
+    that brief to generate structured UI components (component agent).
 
     Args:
         document_contents: List of dicts, each with at least ``title`` and
@@ -188,7 +188,7 @@ async def run_analysis(
 
 async def generate_audit_questions(
     document_contents: list[dict[str, Any]],
-    focus: str = "General review",
+    additional_instructions: str = "",
 ) -> dict[str, Any]:
     """Generate a TFR analysis result directly from document text.
 
@@ -197,7 +197,7 @@ async def generate_audit_questions(
 
     Args:
         document_contents: List of dicts with ``title``, ``content``, etc.
-        focus: User-supplied focus area forwarded to the sub-agent
+        additional_instructions: User-supplied additional instructions for the audit form generation.
             (e.g. "timeline and damaged items").
     Returns:
         Dict with TFR result fields: ``peril``, ``questions``,
@@ -211,7 +211,9 @@ async def generate_audit_questions(
         >>> print(tfr["peril"], tfr["overall_outcome"])
     """
     combined_text, _ = _combine_documents(document_contents)
-    prompt = format_audit_form_prompt(combined_text, focus=focus)
+    prompt = format_audit_form_prompt(
+        combined_text, additional_instructions=additional_instructions
+    )
 
     print("[ORCHESTRATOR] Generating TFR audit questions from documents...", flush=True)
 

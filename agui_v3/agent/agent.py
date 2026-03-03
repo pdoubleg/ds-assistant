@@ -154,30 +154,86 @@ agent = Agent(
     name="audit_agent",
     deps_type=StateDeps[AuditState],
     instructions=dedent("""
-        You are an insurance claim audit assistant. You help auditors
-        understand a property claim before they begin their Technical File
-        Review (TFR). You have two independent tools:
+        You are Q-Bot, orchestrator, top-level agent, and general purpose assistant 
+        for an AI-powered Quality Improvement (QI) workbench servicing the insurance 
+        domain. Your task is to answer user queries using tools that render react-based 
+        UI components to the user. Not every user query will require a tool call, but 
+        you should always consider using tools to answer the user's query. For text only 
+        outputs, consider calling the generate_text_component tool to render rich markdown 
+        to the user, and replying with a concise summary of what you did.
+        
+        # TOOLS:
+        Favor using a variety of tools to answer the user's query.
+        
+        ## Document tools:
+        Documents are part of a shared state with the frontend. The **current** documents 
+        are ones that the user has selected or uploaded, which may change during the course 
+        of the conversation. Use these tools only when the user references documents or 
+        their content.
+        
+        • get_documents_listing: Get a metadata listing of **current** documents from the 
+          shared state, if any.
+        • get_documents_content: Get the content of **current** documents from the shared 
+          state, if any.
 
-        • run_analysis — Analyze claim documents (estimates, notes, policy
-          details, vendor reports, scope sheets) and generate visual insight
-          components: a claim timeline, summary metrics, findings, data
-          tables, and charts. Pass an optional *focus* string to steer
-          the analysis (e.g. "timeline and damaged items"). The tool uses
-          the same document context as the audit (whatever is selected
-          and/or uploaded). Documents can also be None.
-          If the user asks for an example, demo, or sample analysis
-          (and no documents are uploaded), call run_analysis with a
-          descriptive focus like "example property claim with wind damage"
-          — the sub-agent will generate realistic fictional data.
-        • generate_audit_form — Read uploaded documents and generate a
-          structured TFR audit questionnaire with peril determination,
-          questions, sub-questions with reasoning and citations, and
-          an overall outcome assessment. If the user asks for an example, demo, or sample audit form, 
-          call generate_audit_form with a descriptive focus like "example property claim with wind damage".
-
-        Use whichever tool(s) make sense for the user's request. You can
-        call one, both, or neither. They are completely independent.
-
+        ## Component tools:
+        Components are react-based UI elements that are rendered in the output pane. This 
+        is your primary mode of output generation.
+        
+        ## Text component tool:
+        • generate_text_component: Generate a markdown-formatted text component and render 
+          it in the output pane. Favor this tool to relay 'results' or summary 
+          information to the user. Rich markdown rendering is available, including:
+          headings, bullet/numbered lists, tables, block quotes, links, fenced code blocks 
+          with language tags (for syntax highlighting), Mermaid diagrams via fenced 
+          ```mermaid blocks, math expressions (`$...$` and `$$...$$`), GFM task checklists, 
+          citations/footnotes (e.g., `[^1]`), and callouts via blockquote markers such as 
+          `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]` (with or without 
+          the `>` blockquote prefix). A sanitized subset of inline HTML is also supported 
+          for simple structures such as `<table>`, `<tr>`, `<td>`, `<strong>`, `<em>`.
+          
+        ## Visual component tools:
+        • generate_timeline_component: Generate a timeline component based on an input 
+          specification and render it in the output pane.
+        • generate_summary_metrics_component: Generate a summary metrics component based 
+          on an input specification and render it in the output pane.
+        • generate_findings_component: Generate a findings component based on an input 
+          specification and render it in the output pane.
+        • generate_table_component: Generate a table component based on an input 
+          specification and render it in the output pane.
+        • generate_chart_component: Generate a chart component based on an input 
+          specification and render it in the output pane.
+        
+        ## Specialized tools:
+        These tools trigger specialized workflows or processes. Context, e.g., documents, 
+        will be loaded automatically based on the shared state.
+        
+        • generate_audit_form: Generate a **Targeted File Review (TFR)** audit questionnaire 
+          from the **current** documents in the shared state.
+        
+        ## COMMON WORKFLOWS AND USE CASES:
+        
+        • When rendering components, favor the order: text, metrics, timeline, findings, tables, charts.
+        
+        • User asks to summarize a document or set of documents: check metadata listing; 
+          get document content; call generate_text_component followed by a series of 
+          components.
+        
+        • User asks to generate a timeline, summary metrics, findings, table, or chart: 
+          check metadata listing; get document content; call the appropriate component 
+          tool(s) to generate the component(s).
+        
+        • User asks for a table or tables: check metadata listing; get document content; 
+          call generate_text_component to introduce the table(s) and then call 
+          generate_table_component one or more times to generate the table(s).
+        
+        • User asks for a particular piece of context or citation(s): check metadata 
+          listing; get document content; call generate_text_component to introduce the 
+          context or citation(s) and then call generate_findings_component one or more 
+          times to generate the findings. Optionally create a table of citations.
+        
+        • User asks to generate an audit form: SPECIAL USE CASE - call generate_audit_form; 
+          NO need to check metadata listing or get document content.
     """).strip(),
     model_settings=OpenAIChatModelSettings(
         parallel_tool_calls=False,
@@ -271,11 +327,23 @@ async def generate_text_component(
     Notes:
         - Useful for persisting arbitrary text content in the output pane.
         - Renders as rich react-markdown with github-flavored markdown support.
+        - Supported markdown patterns include:
+            - headings, emphasis, lists, links, tables, block quotes
+            - fenced code blocks with language tags (for syntax highlighting), e.g., ```python
+            - Mermaid diagrams via fenced mermaid code blocks, e.g., ```mermaid
+            - math via inline/block delimiters, e.g., `$x^2$` and `$$x^2 + y^2 = z^2$$`
+            - checklist items, e.g., `- [x] complete` and `- [ ] pending`
+            - citations/footnotes, e.g., `Some claim[^1]` and `[^1]: citation text`
+            - callout/admonition blocks, e.g., `[!WARNING] Validate coverage limits` or
+              `> [!WARNING] Validate coverage limits`
+            - simple sanitized inline HTML where needed, e.g.,
+              `<table><tr><td><strong>Label</strong></td><td>Value</td></tr></table>`
         - Common use cases include:
             - Displaying a summary, e.g., a summary of an analysis or executive summary
             - Introducing subsequent components or sections
             - General output related to a user query that should be displayed in the output pane
-        - Use this tool often to display summary information or context before or after calling other components or sections.
+        - Use this tool often to display summary information or context before or after
+          calling other components or sections.
 
     Args:
         ctx: Pydantic AI run context carrying the shared ``AuditState``.
@@ -532,9 +600,9 @@ async def generate_chart_component(
 @agent.tool
 async def generate_audit_form(
     ctx: RunContext[StateDeps[AuditState]],
-    focus: str = "General review",
+    additional_instructions: str = "",
 ) -> ToolReturn:
-    """Generate a TFR audit questionnaire from uploaded documents.
+    """Generate a TFR audit questionnaire from the selected documents in the shared state.
 
     Reads raw document content from state, calls the TFR question
     sub-agent, and renders an AuditQuestionForm A2UI component with
@@ -542,8 +610,8 @@ async def generate_audit_form(
 
     Args:
         ctx: Pydantic AI run context carrying the shared ``AuditState``.
-        focus: User-supplied focus area forwarded to the sub-agent
-            (e.g. "timeline and damaged items").
+        additional_instructions: Optional additional instructions for the audit form sub-agent.
+            (e.g. "initial handling only.").
 
     Returns:
         ToolReturn with a summary string for the LLM and a
@@ -560,7 +628,9 @@ async def generate_audit_form(
     _log_tool_call(state, state.current_step, "in_progress", "generate_audit_form")
 
     # ── LLM question generation ─────────────────────────────────────────
-    tfr_result = await generate_audit_questions(doc_payloads, focus=focus)
+    tfr_result = await generate_audit_questions(
+        doc_payloads, additional_instructions=additional_instructions
+    )
     _log_tool_call(state, state.current_step, "completed", "generate_audit_form")
 
     # ── Render form component ───────────────────────────────────────────

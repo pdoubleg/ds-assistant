@@ -7,9 +7,9 @@
  * No external charting library required.
  */
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Maximize2, Minimize2 } from "lucide-react";
 
 export interface SimpleChartProps {
   chart_type: "bar" | "line" | "pie";
@@ -100,15 +100,17 @@ function BarChart({
   labels,
   values,
   colors,
+  isExpanded = false,
 }: {
   labels: string[];
   values: number[];
   colors: string[];
+  isExpanded?: boolean;
 }) {
   const maxVal = Math.max(...values, 1);
-  const barWidth = 40;
-  const gap = 16;
-  const chartHeight = 160;
+  const barWidth = isExpanded ? 52 : 40;
+  const gap = isExpanded ? 20 : 16;
+  const chartHeight = isExpanded ? 240 : 160;
   const svgWidth = labels.length * (barWidth + gap) + gap;
 
   const truncateLabel = (label: string) => {
@@ -142,9 +144,9 @@ function BarChart({
             />
             <text
               x={x + barWidth / 2}
-              y={y - 6}
+              y={y - (isExpanded ? 8 : 6)}
               textAnchor="middle"
-              fontSize="9"
+              fontSize={isExpanded ? "11" : "9"}
               fontWeight="500"
               className="fill-current opacity-70"
               style={{ fill: "currentColor" }}
@@ -153,9 +155,9 @@ function BarChart({
             </text>
             <text
               x={x + barWidth / 2}
-              y={chartHeight + 16}
+              y={chartHeight + (isExpanded ? 20 : 16)}
               textAnchor="middle"
-              fontSize="8"
+              fontSize={isExpanded ? "9" : "8"}
               className="fill-current opacity-60 cursor-help"
               style={{ fill: "currentColor" }}
             >
@@ -181,15 +183,17 @@ function LineChart({
   labels,
   values,
   colors,
+  isExpanded = false,
 }: {
   labels: string[];
   values: number[];
   colors: string[];
+  isExpanded?: boolean;
 }) {
   const maxVal = Math.max(...values, 1);
-  const chartHeight = 160;
-  const padding = 20;
-  const svgWidth = Math.max(labels.length * 60, 300);
+  const chartHeight = isExpanded ? 240 : 160;
+  const padding = isExpanded ? 28 : 20;
+  const svgWidth = Math.max(labels.length * (isExpanded ? 72 : 60), 300);
   const stepX = (svgWidth - 2 * padding) / Math.max(labels.length - 1, 1);
   const color = colors[0] || DEFAULT_COLORS[0];
 
@@ -217,7 +221,7 @@ function LineChart({
         d={pathD}
         fill="none"
         stroke={color}
-        strokeWidth={2.5}
+        strokeWidth={isExpanded ? 3 : 2.5}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -227,15 +231,15 @@ function LineChart({
           <circle
             cx={p.x}
             cy={p.y}
-            r={4}
+            r={isExpanded ? 5 : 4}
             fill={color}
             className="transition-all duration-200"
           />
           <text
             x={p.x}
-            y={p.y - 10}
+            y={p.y - (isExpanded ? 12 : 10)}
             textAnchor="middle"
-            fontSize="9"
+            fontSize={isExpanded ? "11" : "9"}
             fontWeight="500"
             className="fill-current opacity-70"
             style={{ fill: "currentColor" }}
@@ -244,9 +248,9 @@ function LineChart({
           </text>
           <text
             x={p.x}
-            y={chartHeight + 16}
+            y={chartHeight + (isExpanded ? 20 : 16)}
             textAnchor="middle"
-            fontSize="8"
+            fontSize={isExpanded ? "9" : "8"}
             className="fill-current opacity-60 cursor-help"
             style={{ fill: "currentColor" }}
           >
@@ -272,16 +276,18 @@ function PieChart({
   labels,
   values,
   colors,
+  isExpanded = false,
 }: {
   labels: string[];
   values: number[];
   colors: string[];
+  isExpanded?: boolean;
 }) {
   const total = values.reduce((sum, v) => sum + v, 0) || 1;
-  const size = 180;
+  const size = isExpanded ? 240 : 180;
   const cx = size / 2;
   const cy = size / 2;
-  const radius = 70;
+  const radius = isExpanded ? 92 : 70;
 
   let cumulative = 0;
   const slices = values.map((val, i) => {
@@ -304,7 +310,7 @@ function PieChart({
   });
 
   return (
-    <div className="flex items-center gap-6">
+    <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {slices.map((slice, i) => (
           <path
@@ -316,20 +322,29 @@ function PieChart({
           />
         ))}
       </svg>
-      <div className="space-y-1.5">
+      <div className={isExpanded ? "space-y-2" : "space-y-1.5"}>
         {slices.map((slice, i) => (
-          <div key={i} className="flex items-center gap-2 text-xs">
+          <div
+            key={i}
+            className={`flex items-center gap-2 ${
+              isExpanded ? "text-sm" : "text-xs"
+            }`}
+          >
             <div
-              className="w-2.5 h-2.5 rounded-sm"
+              className={`rounded-sm ${
+                isExpanded ? "h-3.5 w-3.5" : "h-2.5 w-2.5"
+              }`}
               style={{ backgroundColor: slice.color }}
             />
             <span
-              className="text-current opacity-80 truncate max-w-[120px]"
+              className={`text-current opacity-80 truncate ${
+                isExpanded ? "max-w-[180px]" : "max-w-[120px]"
+              }`}
               title={slice.label}
             >
               {slice.label}
             </span>
-            <span className="text-current opacity-60 text-[10px]">
+            <span className={isExpanded ? "text-current opacity-60 text-xs" : "text-current opacity-60 text-[10px]"}>
               {slice.percentage}%
             </span>
           </div>
@@ -349,7 +364,40 @@ export function SimpleChart({
   const resolvedColors =
     colors && colors.length > 0 ? colors : DEFAULT_COLORS;
   const [copied, setCopied] = useState(false);
+  const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const renderChart = useCallback(
+    (isExpanded: boolean) => (
+      <>
+        {chart_type === "bar" && (
+          <BarChart
+            labels={labels}
+            values={values}
+            colors={resolvedColors}
+            isExpanded={isExpanded}
+          />
+        )}
+        {chart_type === "line" && (
+          <LineChart
+            labels={labels}
+            values={values}
+            colors={resolvedColors}
+            isExpanded={isExpanded}
+          />
+        )}
+        {chart_type === "pie" && (
+          <PieChart
+            labels={labels}
+            values={values}
+            colors={resolvedColors}
+            isExpanded={isExpanded}
+          />
+        )}
+      </>
+    ),
+    [chart_type, labels, values, resolvedColors],
+  );
 
   const handleCopyChart = useCallback(async () => {
     const svgElement = chartContainerRef.current?.querySelector("svg");
@@ -386,49 +434,93 @@ export function SimpleChart({
     }
   }, [title]);
 
+  useEffect(() => {
+    if (!isSpotlightOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSpotlightOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isSpotlightOpen]);
+
   return (
-    <Card className="border-primary/20">
+    <>
+      <Card className="border-primary/20">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <button
-            type="button"
-            onClick={handleCopyChart}
-            aria-label={copied ? "Copied chart image" : "Copy chart image"}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            {copied ? (
-              <Check className="h-4 w-4 text-emerald-500" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsSpotlightOpen(true)}
+              aria-label="Open chart spotlight"
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyChart}
+              aria-label={copied ? "Copied chart image" : "Copy chart image"}
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              {copied ? (
+                <Check className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </button>
+          </div>
         </div>
       </CardHeader>
-      <CardContent ref={chartContainerRef}>
-        {chart_type === "bar" && (
-          <BarChart
-            labels={labels}
-            values={values}
-            colors={resolvedColors}
-          />
-        )}
-        {chart_type === "line" && (
-          <LineChart
-            labels={labels}
-            values={values}
-            colors={resolvedColors}
-          />
-        )}
-        {chart_type === "pie" && (
-          <PieChart
-            labels={labels}
-            values={values}
-            colors={resolvedColors}
-          />
-        )}
-      </CardContent>
-    </Card>
+      <CardContent ref={chartContainerRef}>{renderChart(false)}</CardContent>
+      </Card>
+
+      {isSpotlightOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${title} chart spotlight`}
+          onClick={() => setIsSpotlightOpen(false)}
+        >
+          <Card
+            className="w-full max-w-5xl border-primary/30 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-semibold text-foreground">
+                  {title}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsSpotlightOpen(false)}
+                  aria-label="Close chart spotlight"
+                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="min-h-[380px]">{renderChart(true)}</CardContent>
+          </Card>
+        </div>
+      )}
+    </>
   );
 }
 

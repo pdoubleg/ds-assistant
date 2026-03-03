@@ -370,6 +370,52 @@ body {
   border-radius: 6px;
 }
 
+/* Admonitions / callouts ([!NOTE], [!TIP], etc.) */
+.textbox-markdown .textbox-callout p:last-child {
+  margin-bottom: 0;
+}
+
+/* Task list / checklist styles (GFM) */
+.textbox-markdown ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.4rem;
+}
+
+.textbox-markdown li.task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.textbox-markdown li.task-list-item > input[type="checkbox"] {
+  margin-top: 0.18rem;
+  pointer-events: none;
+}
+
+/* Citation / footnote styles */
+.textbox-markdown a[data-footnote-ref] {
+  text-decoration: none;
+  margin-left: 0.08rem;
+}
+
+.textbox-markdown section[data-footnotes] {
+  margin-top: 1rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.65rem;
+  font-size: 0.88em;
+  color: var(--muted-foreground);
+}
+
+.textbox-markdown section[data-footnotes] ol {
+  margin-top: 0.4rem;
+}
+
+.textbox-markdown a[data-footnote-backref] {
+  margin-left: 0.3rem;
+  text-decoration: none;
+}
+
 /* Remove bottom margin from last child so spacing stays tight */
 .textbox-markdown > *:last-child {
   margin-bottom: 0;

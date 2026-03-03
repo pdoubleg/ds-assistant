@@ -219,12 +219,13 @@ AUDIT_FORM_SYSTEM_PROMPT = (
     "The focus may also be used when users are not providing documents and want to you to generate an example or demo of realistic fictional data."
 )
 
-AUDIT_FORM_PROMPT = """Generate a TFR (Targeted File Review) analysis based on the document content below.
+AUDIT_FORM_PROMPT = """Generate a **Targeted File Review (TFR)** analysis based on the optional document content below, and \
+optional additional instructions if provided.
 
-## Focus
-{focus}
+## Additional Instructions (OPTIONAL)
+{additional_instructions}
 
-## Document Content
+## Document Content (OPTIONAL) - If provided, use this to generate the TFR analysis.
 
 {document_content}
 
@@ -330,12 +331,12 @@ def format_component_prompt(
     )
 
 
-def format_audit_form_prompt(document_content: str, focus: str = "General review") -> str:
+def format_audit_form_prompt(document_content: str, additional_instructions: str = "") -> str:
     """Format the TFR audit form generation prompt with raw document text.
 
     Args:
         document_content: Combined raw document text.
-        focus: User-supplied focus area forwarded to the sub-agent
+        additional_instructions: User-supplied additional instructions for the audit form generation.
             (e.g. "timeline and damaged items").
     Returns:
         Formatted prompt string for the TFR audit question agent.
@@ -344,4 +345,7 @@ def format_audit_form_prompt(document_content: str, focus: str = "General review
         >>> prompt = format_audit_form_prompt("Estimate text here ...")
         >>> assert "Estimate text" in prompt
     """
-    return AUDIT_FORM_PROMPT.format(document_content=_truncate(document_content), focus=focus)
+    return AUDIT_FORM_PROMPT.format(
+        document_content=_truncate(document_content),
+        additional_instructions=additional_instructions,
+    )
