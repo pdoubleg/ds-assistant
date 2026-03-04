@@ -8,8 +8,8 @@ from model_config import get_orchestrator_model
 from models import (
     AnalysisResult,
     TFRAnalysisResult,
-    TimelineEvent,
-    SummaryMetric,
+    TimelineEvents,
+    SummaryMetrics,
     Finding,
     TableSpec,
     ChartSpec,
@@ -57,13 +57,13 @@ audit_question_agent = Agent(
 
 timeline_event_agent = Agent(
     model=get_orchestrator_model(),
-    output_type=list[TimelineEvent],
+    output_type=TimelineEvents,
     instructions=TIMELINE_EVENT_SYSTEM_PROMPT,
 )
 
 summary_metrics_agent = Agent(
     model=get_orchestrator_model(),
-    output_type=list[SummaryMetric],
+    output_type=SummaryMetrics,
     instructions=SUMMARY_METRICS_SYSTEM_PROMPT,
 )
 

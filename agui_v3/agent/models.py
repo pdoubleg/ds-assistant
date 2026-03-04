@@ -1,29 +1,20 @@
-"""
-Domain models for the TFR (Technical File Review) audit assistant.
+"""Domain models, validation contracts, and UI conversion primitives.
 
-Contains three schema groups:
-    Document / Documents — Rich document representation with claim metadata,
-        MIME types, content URLs, and helper methods for metadata retrieval.
-    TFR Form — Structured output schema for the TFR analysis including
-        peril determination, questions with sub-questions, and overall outcome.
-    Analysis — Structured output for ``run_analysis``, producing timeline
-        events, summary metrics, findings, tables, and charts that map
-        directly to A2UI components.
-
-Example usage:
-    >>> from models import Document, Documents, TFRAnalysisResult, AnalysisResult
-    >>> doc = Document(
-    ...     claimNumber="CLM-001", contentId="cid-1",
-    ...     mimeType="application/pdf", contentURL="/docs/report.pdf",
-    ... )
-    >>> print(doc.file_name)
-    'report.pdf'
+This module centralizes Pydantic models for the agent workflow and follows
+three patterns:
+1) Canonical domain schemas live here and enforce invariants at model edges.
+2) Serialization/validation behavior is encoded with Pydantic fields,
+   validators, and computed fields rather than ad-hoc downstream logic.
+3) Renderable entities implement the ``A2UIConvertible`` contract to map
+   backend state into frontend ``A2UIComponent`` payloads.
 """
 
 import logging
 import uuid
 import datetime
+from uuid import uuid4
 from pathlib import Path
+from abc import ABC, abstractmethod
 from typing import Any, Literal, Optional, Self
 
 from pydantic import (
@@ -37,6 +28,42 @@ from pydantic import (
 from pydantic.json_schema import SkipJsonSchema
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# A2UI Component Schema - Required to generate A2UI components for the frontend.
+# ============================================================================
+
+
+class A2UIComponent(BaseModel):
+    """Represents a single A2UI component to be rendered on the frontend.
+    
+    Notes:
+        - This is the common interface for all A2UI components.
+        - Should be serialized as a dict, e.g. ``component.model_dump()`` when adding to state.
+
+    Attributes:
+        id: Unique component identifier.
+        type: Component type string (e.g., 'a2ui.DocumentCard').
+        props: Component-specific properties passed to the React renderer.
+        layout: Optional layout hints (width, position, className).
+        zone: Semantic zone for layout grouping.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    type: str
+    props: dict[str, Any] = Field(default_factory=dict)
+    layout: dict[str, Any] | None = None
+    zone: str | None = None
+    
+    
+class A2UIConvertible(BaseModel, ABC):
+    """Base model for anything that can render to an A2UI component."""
+
+    @abstractmethod
+    def to_a2ui_component(self) -> A2UIComponent:
+        """Return this model as an A2UI component."""
+        raise NotImplementedError
 
 
 # ============================================================================
@@ -147,7 +174,7 @@ class PerilDetermination(BaseModel):
     )
 
 
-class TFRAnalysisResult(BaseModel):
+class TFRAnalysisResult(A2UIConvertible):
     """Overall TFR analysis result for a claim.
 
     Attributes:
@@ -181,6 +208,22 @@ class TFRAnalysisResult(BaseModel):
     follow_ups: str | None = Field(
         None, description="Optional notes on recommended follow-up actions."
     )
+
+    def to_a2ui_component(self) -> A2UIComponent:
+        """Convert the TFR analysis result to an A2UI component."""
+        return A2UIComponent(
+            type="a2ui.AuditQuestionForm",
+            props={
+                "peril": self.peril.model_dump(),
+                "questions": [question.model_dump() for question in self.questions],
+                "overall_outcome": self.overall_outcome,
+                "outcome_justification": self.outcome_justification,
+                "additional_analysis": self.additional_analysis or None,
+                "follow_ups": self.follow_ups or None,
+            },
+            layout={"width": "full"},
+            zone="output",
+        )
 
 
 # ============================================================================
@@ -223,6 +266,24 @@ class TimelineEvent(BaseModel):
     )
 
 
+class TimelineEvents(A2UIConvertible):
+    """A list of timeline events."""
+
+    events: list[TimelineEvent] = Field(..., description="A list of timeline events.")
+
+    def to_a2ui_component(self) -> A2UIComponent:
+        """Convert the timeline events to an A2UI component."""
+        return A2UIComponent(
+            type="a2ui.ClaimTimeline",
+            props={
+                "title": "Timeline",
+                "events": [event.model_dump() for event in self.events],
+            },
+            layout={"width": "full"},
+            zone="output",
+        )
+
+
 Icons = Literal[
     "dollar",
     "calendar",
@@ -263,7 +324,25 @@ class SummaryMetric(BaseModel):
     )
 
 
-class Finding(BaseModel):
+class SummaryMetrics(A2UIConvertible):
+    """A list of summary metrics."""
+
+    metrics: list[SummaryMetric] = Field(..., description="A list of summary metrics.")
+
+    def to_a2ui_component(self) -> A2UIComponent:
+        """Convert the summary metrics to an A2UI component."""
+        return A2UIComponent(
+            type="a2ui.SummaryCard",
+            props={
+                "title": "Summary Metrics",
+                "metrics": [metric.model_dump() for metric in self.metrics],
+            },
+            layout={"width": "full"},
+            zone="output",
+        )
+
+
+class Finding(A2UIConvertible):
     """An observation or flag surfaced by the analysis agent.
 
     Used to populate ``FindingCard`` A2UI components.
@@ -295,8 +374,21 @@ class Finding(BaseModel):
         description="Optional grouping tag (e.g. 'timeline', 'coverage', 'estimate', 'resolution').",
     )
 
+    def to_a2ui_component(self) -> A2UIComponent:
+        """Convert the finding to an A2UI component."""
+        return A2UIComponent(
+            type="a2ui.FindingCard",
+            props={
+                "title": self.title,
+                "content": self.content,
+                "severity": self.severity,
+                "category": self.category or None,
+            },
+            zone="output",
+        )
 
-class TableSpec(BaseModel):
+
+class TableSpec(A2UIConvertible):
     """Specification for a data table to be rendered.
 
     Used to populate ``DataTable`` A2UI components.
@@ -320,8 +412,22 @@ class TableSpec(BaseModel):
         ..., description="2-D list of cell values (strings or numbers)."
     )
 
+    def to_a2ui_component(self) -> A2UIComponent:
+        """Convert the table to an A2UI component."""
+        return A2UIComponent(
+            type="a2ui.DataTable",
+            props={
+                "headers": self.headers,
+                "rows": self.rows,
+                "caption": self.caption,
+                "sortable": True,
+            },
+            layout={"width": "full"},
+            zone="output",
+        )
 
-class ChartSpec(BaseModel):
+
+class ChartSpec(A2UIConvertible):
     """Specification for a simple chart to be rendered.
 
     Used to populate ``SimpleChart`` A2UI components.
@@ -355,6 +461,20 @@ class ChartSpec(BaseModel):
     colors: list[str] | None = Field(
         None, description="Optional list of hex color strings for each data point."
     )
+
+    def to_a2ui_component(self) -> A2UIComponent:
+        """Convert the chart to an A2UI component."""
+        return A2UIComponent(
+            type="a2ui.SimpleChart",
+            props={
+                "chart_type": self.chart_type,
+                "title": self.title,
+                "labels": self.labels,
+                "values": self.values,
+                "colors": self.colors or [],
+            },
+            zone="output",
+        )
 
 
 class AnalysisResult(BaseModel):

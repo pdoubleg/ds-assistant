@@ -7,7 +7,7 @@
  * Events are color-coded by category and display status indicators.
  */
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -19,6 +19,8 @@ import {
   DollarSign,
   Mail,
   CircleDot,
+  Copy,
+  Check,
 } from "lucide-react";
 
 interface TimelineEvent {
@@ -102,16 +104,83 @@ export function ClaimTimeline({
   title,
   events,
 }: ClaimTimelineProps): React.ReactElement {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "error">(
+    "idle"
+  );
+
+  const timelineAsText = useMemo(() => {
+    const cleanedTitle = title.trim() || "Claim Timeline";
+    const eventLines = events.map((event) => {
+      const categoryLabel =
+        CATEGORY_CONFIG[event.category]?.label ?? CATEGORY_CONFIG.other.label;
+      return `- ${event.date.trim()} | ${event.title.trim()} (${categoryLabel}, ${event.status})${
+        event.description.trim() ? `: ${event.description.trim()}` : ""
+      }`;
+    });
+
+    return [cleanedTitle, ...eventLines].join("\n");
+  }, [events, title]);
+
+  /**
+   * Copies rendered timeline events to clipboard with fallback support.
+   */
+  const handleCopyTimeline = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(timelineAsText);
+      setCopyStatus("success");
+      window.setTimeout(() => setCopyStatus("idle"), 1800);
+    } catch {
+      // Fallback for browsers without clipboard API support.
+      const textArea = document.createElement("textarea");
+      textArea.value = timelineAsText;
+      textArea.setAttribute("readonly", "");
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+
+      const didCopy = document.execCommand("copy");
+      document.body.removeChild(textArea);
+
+      setCopyStatus(didCopy ? "success" : "error");
+      window.setTimeout(() => setCopyStatus("idle"), 1800);
+    }
+  };
+
   return (
     <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-primary/10">
       <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <Clock className="h-5 w-5 text-primary" />
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <Badge variant="outline" className="ml-auto text-xs font-normal">
-            {events.length} event{events.length !== 1 ? "s" : ""}
-          </Badge>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-primary" />
+            <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs font-normal">
+              {events.length} event{events.length !== 1 ? "s" : ""}
+            </Badge>
+            <button
+              type="button"
+              onClick={handleCopyTimeline}
+              disabled={!events.length}
+              aria-label={
+                copyStatus === "success" ? "Copied" : "Copy timeline events"
+              }
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            >
+              {copyStatus === "success" ? (
+                <Check className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </button>
+          </div>
         </div>
+        {copyStatus === "error" && (
+          <span className="text-xs text-destructive">
+            Copy failed. Please try again.
+          </span>
+        )}
       </CardHeader>
       <CardContent>
         <div className="relative ml-3">

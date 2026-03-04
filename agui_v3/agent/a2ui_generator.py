@@ -22,26 +22,8 @@ Example usage:
 """
 
 from typing import Any
-from uuid import uuid4
-from pydantic import BaseModel, Field
 
-
-class A2UIComponent(BaseModel):
-    """Represents a single A2UI component to be rendered on the frontend.
-
-    Attributes:
-        id: Unique component identifier.
-        type: Component type string (e.g., 'a2ui.DocumentCard').
-        props: Component-specific properties passed to the React renderer.
-        layout: Optional layout hints (width, position, className).
-        zone: Semantic zone for layout grouping.
-    """
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    type: str
-    props: dict[str, Any] = Field(default_factory=dict)
-    layout: dict[str, Any] | None = None
-    zone: str | None = None
+from models import A2UIComponent
 
 
 # ============================================================================
@@ -329,7 +311,7 @@ def generate_simple_chart(
 # ============================================================================
 
 
-def generate_claim_timeline(
+def generate_timeline(
     title: str,
     events: list[dict[str, Any]],
 ) -> A2UIComponent:

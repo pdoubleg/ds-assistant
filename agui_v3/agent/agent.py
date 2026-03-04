@@ -19,14 +19,8 @@ from pydantic_ai.ag_ui import StateDeps
 from ag_ui.core import EventType, StateSnapshotEvent
 
 from model_config import get_agent_model
-from a2ui_generator import (
-    generate_audit_question_form,
-    generate_claim_timeline,
-    generate_data_table,
-    generate_finding_card,
-    generate_simple_chart,
-    generate_summary_card,
-    generate_text_box,
+from models import (
+    A2UIComponent,
 )
 
 from llm_orchestrator import (
@@ -36,7 +30,9 @@ from llm_orchestrator import (
     findings_agent,
     tables_agent,
     charts_agent,
+    audit_question_agent,
 )
+from prompts import format_audit_form_prompt
 
 logger = logging.getLogger("audit_agent")
 
@@ -358,13 +354,16 @@ async def generate_text_component(
     state = ctx.deps.state
     state.current_step = f"Generating text component: {title}, {content[:100]}..., {variant}"
     _log_tool_call(state, state.current_step, "in_progress", "generate_text_component")
-    state.components.append(
-        generate_text_box(
-            title=title,
-            content=content,
-            variant=variant,
-        ).model_dump()
+    component = A2UIComponent(
+        type="a2ui.TextBox",
+        props={
+            "title": title,
+            "content": content,
+            "variant": variant,
+        },
+        zone="output",
     )
+    state.components.append(component.model_dump())
     _log_tool_call(state, state.current_step, "completed", "generate_text_component")
     return ToolReturn(
         return_value=f"Text component generated: {title}",
@@ -401,15 +400,11 @@ async def generate_timeline_component(
     _log_tool_call(state, state.current_step, "in_progress", "generate_timeline_component")
     timeline_events_result = await timeline_event_agent.run(input_spec)
     timeline_events = timeline_events_result.output
-    state.components.append(
-        generate_claim_timeline(
-            title="Timeline",
-            events=[timeline_event.model_dump() for timeline_event in timeline_events],
-        ).model_dump()
-    )
+    component = timeline_events.to_a2ui_component()
+    state.components.append(component.model_dump())
     _log_tool_call(state, state.current_step, "completed", "generate_timeline_component")
     return ToolReturn(
-        return_value=f"Timeline component generated with {len(timeline_events)} event(s).",
+        return_value=f"Timeline component generated with {len(timeline_events.events)} event(s).",
         metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
     )
 
@@ -441,15 +436,18 @@ async def generate_summary_metrics_component(
     _log_tool_call(state, state.current_step, "in_progress", "generate_summary_metrics_component")
     summary_metrics_result = await summary_metrics_agent.run(input_spec)
     summary_metrics = summary_metrics_result.output
-    state.components.append(
-        generate_summary_card(
-            title="Summary Metrics",
-            metrics=[summary_metric.model_dump() for summary_metric in summary_metrics],
-        ).model_dump()
-    )
+    component = summary_metrics.to_a2ui_component()
+    state.components.append(component.model_dump())
     _log_tool_call(state, state.current_step, "completed", "generate_summary_metrics_component")
+    metric_count = len(summary_metrics.metrics)
+    if metric_count == 0:
+        return_message = "Summary metrics component generated with 0 metric(s)."
+    else:
+        return_message = (
+            f"Summary metrics component generated with {metric_count} metric(s)."
+        )
     return ToolReturn(
-        return_value=f"Summary metrics component generated with {len(summary_metrics)} metric(s).",
+        return_value=return_message,
         metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
     )
 
@@ -482,15 +480,7 @@ async def generate_findings_component(
     findings_result = await findings_agent.run(input_spec)
     findings = findings_result.output
     for finding in findings:
-        state.components.append(
-            generate_finding_card(
-                title=finding.title,
-                content=finding.content,
-                severity=finding.severity,
-                category=finding.category,
-            ).model_dump()
-        )
-
+        state.components.append(finding.to_a2ui_component().model_dump())
     _log_tool_call(state, state.current_step, "completed", "generate_findings_component")
     return ToolReturn(
         return_value=f"Findings component generated with {len(findings)} finding(s).",
@@ -524,13 +514,7 @@ async def generate_table_component(
     _log_tool_call(state, state.current_step, "in_progress", "generate_table_component")
     table_result = await tables_agent.run(input_spec)
     table = table_result.output
-    state.components.append(
-        generate_data_table(
-            headers=table.headers,
-            rows=table.rows,
-            caption=table.caption,
-        ).model_dump()
-    )
+    state.components.append(table.to_a2ui_component().model_dump())
     n_rows = len(table.rows)
     _log_tool_call(state, state.current_step, "completed", "generate_table_component")
 
@@ -575,15 +559,7 @@ async def generate_chart_component(
     _log_tool_call(state, state.current_step, "in_progress", "generate_chart_component")
     chart_result = await charts_agent.run(input_spec)
     chart = chart_result.output
-    state.components.append(
-        generate_simple_chart(
-            chart_type=chart.chart_type,
-            title=chart.title,
-            labels=chart.labels,
-            values=chart.values,
-            colors=chart.colors,
-        ).model_dump()
-    )
+    state.components.append(chart.to_a2ui_component().model_dump())
     n_values = len(chart.values)
     _log_tool_call(state, state.current_step, "completed", "generate_chart_component")
     return ToolReturn(
@@ -617,10 +593,10 @@ async def generate_audit_form(
         ToolReturn with a summary string for the LLM and a
         StateSnapshotEvent to sync updated state with the frontend.
     """
-    from llm_orchestrator import generate_audit_questions
 
     state = ctx.deps.state
     doc_payloads = _build_doc_payloads(state)
+    combined_text, _ = _combine_documents(doc_payloads)
 
     state.status = "generating"
     state.progress = max(state.progress, 50)
@@ -628,38 +604,35 @@ async def generate_audit_form(
     _log_tool_call(state, state.current_step, "in_progress", "generate_audit_form")
 
     # ── LLM question generation ─────────────────────────────────────────
-    tfr_result = await generate_audit_questions(
-        doc_payloads, additional_instructions=additional_instructions
+    prompt = format_audit_form_prompt(
+        combined_text, additional_instructions=additional_instructions
     )
+    tfr_response = await audit_question_agent.run(prompt)
+    tfr_result = tfr_response.output
+    tfr_result_dict = tfr_result.model_dump()
     _log_tool_call(state, state.current_step, "completed", "generate_audit_form")
 
     # ── Render form component ───────────────────────────────────────────
-    form_component = generate_audit_question_form(
-        peril=tfr_result["peril"],
-        questions=tfr_result["questions"],
-        overall_outcome=tfr_result["overall_outcome"],
-        outcome_justification=tfr_result["outcome_justification"],
-        additional_analysis=tfr_result.get("additional_analysis"),
-        follow_ups=tfr_result.get("follow_ups"),
-    )
+    form_component = tfr_result.to_a2ui_component()
+
     state.components.append(form_component.model_dump())
     _log_tool_call(state, state.current_step, "completed", "generate_audit_form")
-    state.audit_questions = tfr_result["questions"]
+    state.audit_questions = tfr_result_dict["questions"]
     # Keep a canonical form payload in state so frontend edits can sync
     # and persistence endpoints can save without reconstructing fields.
     state.audit_form_result = {
-        "peril": tfr_result["peril"],
-        "questions": tfr_result["questions"],
-        "overall_outcome": tfr_result["overall_outcome"],
-        "outcome_justification": tfr_result["outcome_justification"],
-        "additional_analysis": tfr_result.get("additional_analysis"),
-        "follow_ups": tfr_result.get("follow_ups"),
+        "peril": tfr_result_dict["peril"],
+        "questions": tfr_result_dict["questions"],
+        "overall_outcome": tfr_result_dict["overall_outcome"],
+        "outcome_justification": tfr_result_dict["outcome_justification"],
+        "additional_analysis": tfr_result_dict.get("additional_analysis"),
+        "follow_ups": tfr_result_dict.get("follow_ups"),
     }
     # New generation = new distinct form; clear any previous form ID so the
     # next save creates a fresh record instead of overwriting the old one.
     state.current_form_id = None
 
-    num_questions = len(tfr_result["questions"])
+    num_questions = len(tfr_result_dict["questions"])
     state.status = "complete"
     state.progress = 100
     state.current_step = f"Generated {num_questions} TFR questions"
@@ -668,8 +641,8 @@ async def generate_audit_form(
     return ToolReturn(
         return_value=(
             f"TFR audit questionnaire generated with {num_questions} questions. "
-            f"Peril: {tfr_result['peril']['peril']}. "
-            f"Outcome: {tfr_result['overall_outcome']}. "
+            f"Peril: {tfr_result_dict['peril']['peril']}. "
+            f"Outcome: {tfr_result_dict['overall_outcome']}. "
             f"The form has been rendered in the output pane."
         ),
         metadata=[

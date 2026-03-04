@@ -7,7 +7,7 @@
  * Each tile shows a label, prominent value, and optional trend/icon.
  */
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   DollarSign,
@@ -26,6 +26,8 @@ import {
   Wind,
   Wrench,
   TreePine,
+  Copy,
+  Check,
 } from "lucide-react";
 
 interface SummaryMetric {
@@ -74,13 +76,72 @@ export function SummaryCard({
   title,
   metrics,
 }: SummaryCardProps): React.ReactElement {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "error">(
+    "idle"
+  );
+
+  const metricsAsText = useMemo(() => {
+    const cleanedTitle = title.trim() || "Summary Metrics";
+    const metricLines = metrics.map(
+      (metric) => `- ${metric.label.trim()}: ${metric.value.trim()}`
+    );
+
+    return [cleanedTitle, ...metricLines].join("\n");
+  }, [metrics, title]);
+
+  /**
+   * Copies rendered metrics to clipboard with graceful fallback support.
+   */
+  const handleCopyMetrics = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(metricsAsText);
+      setCopyStatus("success");
+      window.setTimeout(() => setCopyStatus("idle"), 1800);
+    } catch {
+      // Fallback for browsers that block or do not expose navigator.clipboard.
+      const textArea = document.createElement("textarea");
+      textArea.value = metricsAsText;
+      textArea.setAttribute("readonly", "");
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+
+      const didCopy = document.execCommand("copy");
+      document.body.removeChild(textArea);
+
+      setCopyStatus(didCopy ? "success" : "error");
+      window.setTimeout(() => setCopyStatus("idle"), 1800);
+    }
+  };
+
   return (
     <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-primary/10">
       <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-primary" />
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyMetrics}
+            disabled={!metrics.length}
+            aria-label={copyStatus === "success" ? "Copied" : "Copy summary metrics"}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            {copyStatus === "success" ? (
+              <Check className="h-4 w-4 text-emerald-500" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </button>
         </div>
+        {copyStatus === "error" && (
+          <span className="text-xs text-destructive">
+            Copy failed. Please try again.
+          </span>
+        )}
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
