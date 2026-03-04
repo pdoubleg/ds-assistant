@@ -1,32 +1,41 @@
 "use client";
 
 /**
- * AppHeader — top navigation bar with branding, subtitle, and theme toggle.
+ * AppHeader — top navigation bar with branding, nav links, and theme toggle.
  * Uses next-themes for SSR-safe dark/light mode switching.
  */
 
 import React from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Space_Grotesk } from "next/font/google";
 import { useTheme } from "next-themes";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon, Home, LayoutDashboard, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const headerFont = Space_Grotesk({
   subsets: ["latin"],
   weight: ["600", "700"],
 });
 
+const NAV_LINKS = [
+  { href: "/", label: "Home", icon: Home },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/about", label: "About", icon: Info },
+] as const;
+
 export function AppHeader() {
   const { theme, setTheme } = useTheme();
+  const pathname = usePathname();
   const [mounted, setMounted] = React.useState(false);
 
-  // Avoid hydration mismatch — only show the toggle after mount
   React.useEffect(() => setMounted(true), []);
 
   return (
@@ -55,7 +64,34 @@ export function AppHeader() {
         >
           AI-Powered Quality Audit Assistant
         </p>
+
         <div className="ml-auto" />
+
+        {/* Navigation links */}
+        <nav className="flex items-center gap-1">
+          {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+            const isActive =
+              href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+            return (
+              <Link key={href} href={href}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "gap-1.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-sky-200/50 text-sky-900 hover:bg-sky-200/60 hover:text-sky-900 dark:bg-cyan-900/50 dark:text-cyan-100 dark:hover:bg-cyan-800/60 dark:hover:text-cyan-100"
+                      : "text-sky-700 hover:bg-sky-100/60 hover:text-sky-900 dark:text-cyan-300 dark:hover:bg-cyan-900/50 dark:hover:text-cyan-100"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="hidden sm:inline">{label}</span>
+                </Button>
+              </Link>
+            );
+          })}
+        </nav>
 
         {mounted && (
           <Tooltip>

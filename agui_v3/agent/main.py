@@ -439,6 +439,33 @@ async def list_forms():
     return JSONResponse({"forms": forms})
 
 
+@app.get("/forms/all")
+async def list_forms_full():
+    """Return all saved forms with full data for dashboard aggregation.
+
+    Unlike ``GET /forms`` which returns lightweight summaries, this endpoint
+    reads every JSON file in full so the frontend can compute cross-form
+    aggregations (question-level stats, driver counts, etc.).
+
+    Returns:
+        JSON ``{"forms": [<full form record>, ...]}`` sorted newest-first.
+    """
+    forms: list[dict[str, Any]] = []
+    for name in os.listdir(FORMS_DIR):
+        if not name.endswith(".json"):
+            continue
+        file_path = os.path.join(FORMS_DIR, name)
+        try:
+            with open(file_path, "r", encoding="utf-8") as file_obj:
+                data = json.load(file_obj)
+            forms.append(data)
+        except Exception as exc:
+            print(f"[FORMS] Failed reading {file_path}: {exc}", flush=True)
+
+    forms.sort(key=lambda form: form.get("updated_at") or "", reverse=True)
+    return JSONResponse({"forms": forms})
+
+
 @app.get("/forms/{form_id}")
 async def get_form(form_id: str):
     """Read one saved form record by ID."""
