@@ -20,7 +20,7 @@ load_dotenv()
 AGENT_MODEL: str = os.getenv("AGENT_MODEL", "openai:gpt-5-mini")
 
 # Faster, cheaper model for orchestration sub-agents (analysis, component generation)
-ORCHESTRATOR_MODEL: str = os.getenv("ORCHESTRATOR_MODEL", "openai:gpt-5-nano")
+ORCHESTRATOR_MODEL: str = os.getenv("ORCHESTRATOR_MODEL", "openai:gpt-4.1-mini")
 
 
 def get_agent_model() -> str:

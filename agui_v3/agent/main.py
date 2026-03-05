@@ -24,12 +24,14 @@ from fastapi import FastAPI, File, UploadFile, Body  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import BaseModel, ConfigDict  # noqa: E402
 from starlette.requests import Request  # noqa: E402
-from starlette.responses import JSONResponse  # noqa: E402
+from starlette.responses import JSONResponse, StreamingResponse  # noqa: E402
 
 from agent import agent, AuditState  # noqa: E402
 from pydantic_ai.ui import StateDeps  # noqa: E402
 from pydantic_ai.ui.ag_ui import AGUIAdapter  # noqa: E402
 from a2ui_generator import generate_audit_question_form  # noqa: E402
+from llm_orchestrator import document_summary_agent  # noqa: E402
+from prompts import format_document_summary_prompt  # noqa: E402
 
 # Configuration
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8001"))
@@ -215,6 +217,7 @@ async def lifespan(app: FastAPI):
     print(
         f"[*] Form restore endpoint: POST http://localhost:{BACKEND_PORT}/forms/{{form_id}}/restore"
     )
+    print(f"[*] Summarize endpoint: POST http://localhost:{BACKEND_PORT}/summarize (SSE)")
     print(f"[*] Info endpoint: GET http://localhost:{BACKEND_PORT}/info")
     print(f"[*] Health endpoint: GET http://localhost:{BACKEND_PORT}/health")
 
@@ -280,6 +283,7 @@ async def root_get():
             "endpoints": {
                 "run_agent": "POST /",
                 "upload": "POST /upload",
+                "summarize": "POST /summarize (SSE)",
                 "audit_form_state": "GET|PUT /state/audit-form",
                 "save_form": "POST /forms",
                 "list_forms": "GET /forms",
@@ -554,6 +558,95 @@ async def delete_form(form_id: str):
         state.current_form_id = None
 
     return JSONResponse({"message": "Form deleted.", "form_id": form_id})
+
+
+# =========================================================================
+# Document summarization endpoint (NDJSON streaming)
+# =========================================================================
+
+
+class SummarizeDocPayload(BaseModel):
+    """A single document payload sent by the frontend for summarization.
+
+    Attributes:
+        file_name: Original file name.
+        content: Extracted text content of the document.
+        mime_type: MIME type or extension string.
+        document_type: High-level type classification (e.g. "Policy").
+    """
+
+    file_name: str
+    content: str
+    mime_type: str = "unknown"
+    document_type: str = ""
+
+
+class SummarizeRequest(BaseModel):
+    """Request body for ``POST /summarize``.
+
+    The frontend sends the document payloads directly so the endpoint
+    is fully self-contained and does not read from shared AG-UI state.
+
+    Attributes:
+        documents: List of document payloads to summarize.
+        ranking_instructions: Optional user-supplied ranking criteria.
+    """
+
+    documents: list[SummarizeDocPayload]
+    ranking_instructions: str = ""
+
+
+@app.post("/summarize")
+async def summarize_endpoint(body: SummarizeRequest):
+    """Summarize and rank documents one at a time, streaming NDJSON results.
+
+    Processes each document sequentially — the LLM call for one document
+    completes and its result is flushed to the client before the next
+    document starts.  Each line is a self-contained JSON object (NDJSON).
+
+    Args:
+        body: Request with ``documents`` list and optional ``ranking_instructions``.
+
+    Returns:
+        ``StreamingResponse`` with ``application/x-ndjson`` content type.
+    """
+
+    async def _generate():
+        for doc in body.documents:
+            if not doc.content.strip():
+                line = json.dumps({
+                    "file_name": doc.file_name,
+                    "error": "No extractable content.",
+                })
+                yield line + "\n"
+                continue
+
+            try:
+                prompt = format_document_summary_prompt(
+                    file_name=doc.file_name,
+                    document_content=doc.content,
+                    file_type=doc.mime_type,
+                    document_type=doc.document_type,
+                    ranking_instructions=body.ranking_instructions,
+                )
+                result = await document_summary_agent.run(prompt)
+                # Staple file_name back on so the frontend can key by it.
+                payload = result.output.model_dump()
+                payload["file_name"] = doc.file_name
+                yield json.dumps(payload) + "\n"
+            except Exception as exc:
+                print(f"[SUMMARIZE ERROR] {doc.file_name}: {exc}", flush=True)
+                line = json.dumps({"file_name": doc.file_name, "error": str(exc)})
+                yield line + "\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # =========================================================================

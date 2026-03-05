@@ -266,6 +266,53 @@ Each TFR question must have:
 
 
 # ============================================================================
+# DOCUMENT SUMMARIZATION & RANKING
+# ============================================================================
+
+DOCUMENT_SUMMARY_SYSTEM_PROMPT = """\
+You are a document summarization and ranking assistant. Given a single document's \
+content and metadata, produce a structured summary with a relevance/importance ranking. \
+Pay close attention to any Ranking Focus instructions provided by the user. When provided \
+this should be the main focus of the ranking and irrelevant documents should be highly penalized. \
+Assume users are looking for something specific; summaries should inform them on the content at a glance. \
+Use heavy markdown formatting to make the summary more readable and engaging.
+
+Your output must include:
+- **title**: A short, descriptive title (5-12 words) capturing what the document is about.
+- **summary**: A concise, highly structured document-type-agnostic markdown summary (2-4 sentences) that lets a \
+reader understand the document's contents at a glance. Avoid jargon unless it is central \
+to the document. The summary is rendered as **GitHub-flavored Markdown**, so you **should** use \
+formatting for readability: **bold** for key terms, bullet lists for multi-point \
+highlights.
+- **rank**: An integer from 0 (lowest) to 10 (highest).
+- **rank_type**: A short, flavor-text-type label describing the ranking decision with respect to the document's content.
+
+### Ranking behavior
+- If the user provides **ranking focus**, rank the document according to those \
+focus and set ``rank_type`` to a short label summarizing the relevance of the document to the focus.
+- If **no ranking focus** is provided, rank by general importance / \
+information density of the document and set ``rank_type`` to a general blurb/callout descriptor.
+- Note that users will be passing in `focus` in a small text input, so it will be terse. Assume \
+what they pass is the only thing they are looking for in a rank-order list. Irrelevant documents should be highly penalized.
+"""
+
+DOCUMENT_SUMMARY_PROMPT = """\
+Summarize and rank the following document.
+
+## Document Metadata
+- File name: {file_name}
+- File type: {file_type}
+- Document type: {document_type}
+
+## Ranking Focus (OPTIONAL)
+{ranking_instructions}
+
+## Document Content
+{document_content}
+"""
+
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -348,4 +395,40 @@ def format_audit_form_prompt(document_content: str, additional_instructions: str
     return AUDIT_FORM_PROMPT.format(
         document_content=_truncate(document_content),
         additional_instructions=additional_instructions,
+    )
+
+
+def format_document_summary_prompt(
+    file_name: str,
+    document_content: str,
+    file_type: str = "unknown",
+    document_type: str = "",
+    ranking_instructions: str = "",
+) -> str:
+    """Format the document summarization prompt for a single document.
+
+    Args:
+        file_name: Original file name of the document.
+        document_content: Extracted text content of the document.
+        file_type: MIME type or extension string.
+        document_type: High-level type classification (e.g. "Policy", "Report").
+        ranking_instructions: Optional user-supplied ranking criteria. When
+            empty, the agent uses general importance ranking.
+
+    Returns:
+        Formatted prompt string for the document summary agent.
+
+    Example:
+        >>> prompt = format_document_summary_prompt(
+        ...     "report.pdf", "Full text here...", "pdf", "Report",
+        ...     ranking_instructions="Relevance to cyber risk",
+        ... )
+        >>> assert "cyber risk" in prompt
+    """
+    return DOCUMENT_SUMMARY_PROMPT.format(
+        file_name=file_name,
+        file_type=file_type,
+        document_type=document_type or "N/A",
+        ranking_instructions=ranking_instructions or "(None — use general importance ranking.)",
+        document_content=_truncate(document_content),
     )

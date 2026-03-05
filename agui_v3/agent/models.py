@@ -477,6 +477,37 @@ class ChartSpec(A2UIConvertible):
         )
 
 
+class DocumentSummary(BaseModel):
+    """Summarization and ranking output for a single document.
+
+    Produced by the ``document_summary_agent`` sub-agent and streamed
+    to the frontend via the ``POST /summarize`` NDJSON endpoint.
+
+    ``file_name`` is intentionally excluded — the endpoint already knows
+    which document was summarized and staples the identifier back on
+    before streaming to the client, saving LLM output tokens.
+
+    Attributes:
+        title: Short, descriptive title capturing the document's essence.
+        summary: Concise, well-structured document-type-agnostic summary of the contents.
+        rank: Importance / relevance score from 0 (lowest) to 10 (highest).
+        rank_type: Short, flavor-text-type label describing the ranking decision with respect to the document's content.
+    """
+
+    title: str = Field(..., description="Short title capturing the document's essence.")
+    summary: str = Field(
+        ...,
+        description="Concise, well-structured document-type-agnostic summary of the document contents.",
+    )
+    rank: int = Field(..., ge=0, le=10, description="Importance / relevance score (0-10).")
+    rank_type: str | None = Field(
+        ...,
+        description=(
+            "Short (2 to 4 word) flavor-text-type label describing the ranking decision with respect to the document's content."
+        ),
+    )
+
+
 class AnalysisResult(BaseModel):
     """Structured output from the ``run_analysis`` sub-agent.
 

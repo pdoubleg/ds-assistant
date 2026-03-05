@@ -13,6 +13,7 @@ from models import (
     Finding,
     TableSpec,
     ChartSpec,
+    DocumentSummary,
 )
 from prompts import (
     ANALYSIS_SYSTEM_PROMPT,
@@ -26,6 +27,7 @@ from prompts import (
     FINDING_SYSTEM_PROMPT,
     TABLE_SYSTEM_PROMPT,
     CHART_SYSTEM_PROMPT,
+    DOCUMENT_SUMMARY_SYSTEM_PROMPT,
 )
 
 
@@ -83,6 +85,13 @@ charts_agent = Agent(
     model=get_orchestrator_model(),
     output_type=ChartSpec,
     instructions=CHART_SYSTEM_PROMPT,
+)
+
+# Summarizes a single document and assigns a relevance/importance rank.
+document_summary_agent = Agent(
+    model="gpt-4.1-mini",
+    output_type=DocumentSummary,
+    instructions=DOCUMENT_SUMMARY_SYSTEM_PROMPT,
 )
 
 # =============================================================================
