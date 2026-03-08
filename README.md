@@ -2,6 +2,16 @@
 
 # LLM DS Assistant
 
+## Development Setup
+
+This project uses [uv](https://docs.astral.sh/uv/) for Python dependency management. From the repo root:
+
+```bash
+uv sync
+```
+
+Subprojects (e.g. `agui_v2/agent`, `agui_v3/agent`) have their own `pyproject.toml`; run `uv sync` in those directories for isolated installs, or use `uv run` to execute scripts with the correct environment.
+
 # 🧠 Architecture
 
 ```

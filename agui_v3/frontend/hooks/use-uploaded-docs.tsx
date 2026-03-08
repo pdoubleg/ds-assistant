@@ -24,6 +24,9 @@ export interface UploadedDoc {
   create_date: string;
   source_system?: string;
   company_name?: string;
+  /** Extracted text content, stored alongside metadata so it persists
+   *  independently of the AG-UI ``state.documents`` array. */
+  content?: string;
 }
 
 export interface UploadedDocsContextValue {

@@ -48,7 +48,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import type { AuditFormPayload } from "@/hooks/useAuditAgent";
+import type { AuditFormPayload } from "@/hooks/use-audit-agent";
 
 // ── Types ────────────────────────────────────────────────────────
 

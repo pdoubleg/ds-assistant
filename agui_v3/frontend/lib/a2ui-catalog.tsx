@@ -19,8 +19,8 @@
  */
 
 import React from "react";
-import { DocumentCard } from "@/components/A2UI/Documents";
-import { AuditQuestionForm } from "@/components/A2UI/Forms";
+import { DocumentCard } from "@/components/a2ui/documents";
+import { AuditQuestionForm } from "@/components/a2ui/forms";
 import {
   TextBox,
   DataTable,
@@ -28,7 +28,7 @@ import {
   ClaimTimeline,
   SummaryCard,
   FindingCard,
-} from "@/components/A2UI/General";
+} from "@/components/a2ui/general";
 
 /**
  * Semantic zones for component grouping in the three-pane layout.

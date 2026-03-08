@@ -9,9 +9,9 @@
 
 import React, { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useAuditAgent } from "@/hooks/useAuditAgent";
-import type { AuditFormPayload, SavedFormSummary } from "@/hooks/useAuditAgent";
-import { A2UIRenderer } from "@/components/A2UIRenderer";
+import { useAuditAgent } from "@/hooks/use-audit-agent";
+import type { AuditFormPayload, SavedFormSummary } from "@/hooks/use-audit-agent";
+import { A2UIRenderer } from "@/components/a2ui-renderer";
 import { getGridSpan } from "@/lib/layout-engine";
 import {
   Loader2,
@@ -20,6 +20,7 @@ import {
   BarChart3,
   ClipboardCheck,
   FolderArchive,
+  BookmarkCheck,
   ChevronDown as ChevronDownIcon,
   RotateCcw,
   Shield,
@@ -28,6 +29,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useFlaggedHits } from "@/hooks/use-flagged-hits";
+import { FlaggedHitsInline } from "@/components/doc-lens/flagged-hits-panel";
+import { DocumentViewerSheet } from "@/components/document-viewer-sheet";
 
 // ── SavedFormsPanel ──────────────────────────────────────────────
 
@@ -238,6 +242,75 @@ function SavedFormsPanel({
   );
 }
 
+// ── SavedImagesPanel ─────────────────────────────────────────────
+
+function SavedImagesPanel({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const flaggedHits = useFlaggedHits();
+  const [previewDoc, setPreviewDoc] = useState<{
+    file_name: string;
+    _initialPage?: number;
+  } | null>(null);
+
+  if (!open) return null;
+
+  return (
+    <>
+      <div className="border-b border-border/50 bg-background">
+        <div className="flex items-center gap-2 px-5 py-2.5 bg-secondary/30 border-b border-border/30">
+          <BookmarkCheck className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold text-foreground">
+            Saved Images
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {flaggedHits.flagCount} image
+            {flaggedHits.flagCount !== 1 ? "s" : ""}
+          </span>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="ml-auto p-1 rounded text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+            title="Close saved images"
+          >
+            <ChevronDownIcon className="h-4 w-4 rotate-180" />
+          </button>
+        </div>
+
+        <div className="max-h-96 overflow-y-auto px-3 py-2">
+          <FlaggedHitsInline
+            flaggedHits={flaggedHits.flaggedHits}
+            getImageUrl={flaggedHits.getImageUrl}
+            onRemove={flaggedHits.removeFlag}
+            onClearAll={flaggedHits.clearAll}
+            onDownloadImage={flaggedHits.downloadImage}
+            onPreviewDoc={(fileName, page) => {
+              setPreviewDoc({ file_name: fileName, _initialPage: page });
+            }}
+            isFlagged={flaggedHits.isFlagged}
+            onToggleFlag={flaggedHits.toggleFlag}
+          />
+        </div>
+      </div>
+
+      {previewDoc && (
+        <DocumentViewerSheet
+          doc={previewDoc as any}
+          open={!!previewDoc}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) setPreviewDoc(null);
+          }}
+          initialPage={previewDoc._initialPage}
+        />
+      )}
+    </>
+  );
+}
+
 // ── OutputPane ────────────────────────────────────────────────────
 
 export function OutputPane() {
@@ -255,6 +328,8 @@ export function OutputPane() {
   } = useAuditAgent();
   const outputComponents = componentsByZone.output || [];
   const [showSavedForms, setShowSavedForms] = useState(false);
+  const [showSavedImages, setShowSavedImages] = useState(false);
+  const flaggedHits = useFlaggedHits();
 
   const handleFormSubmit = useCallback(
     async (formPayload: AuditFormPayload, title?: string) => {
@@ -310,10 +385,14 @@ export function OutputPane() {
     setShowSavedForms((prev) => !prev);
   }, []);
 
+  const toggleSavedImages = useCallback(() => {
+    setShowSavedImages((prev) => !prev);
+  }, []);
+
   const headerBar = (
     <div className="flex items-center gap-2 px-4 py-2 pr-10 border-b border-border/50 shrink-0">
       <ClipboardCheck className="h-4 w-4 text-primary" />
-      <h2 className="text-sm font-semibold text-foreground">Audit Output</h2>
+      <h2 className="text-sm font-semibold text-foreground">Output</h2>
       {isComplete && (
         <Badge variant="success" className="text-[10px]">
           Complete
@@ -353,6 +432,26 @@ export function OutputPane() {
             className={`h-3 w-3 transition-transform duration-200 ${showSavedForms ? "rotate-180" : ""}`}
           />
         </Button>
+        <Button
+          variant={showSavedImages ? "secondary" : "outline"}
+          size="sm"
+          onClick={toggleSavedImages}
+          className="h-7 gap-1.5 text-xs"
+        >
+          <BookmarkCheck className="h-3.5 w-3.5" />
+          Saved Images
+          {flaggedHits.flagCount > 0 && (
+            <Badge
+              variant="secondary"
+              className="text-[9px] px-1 py-0 h-4 ml-0.5"
+            >
+              {flaggedHits.flagCount}
+            </Badge>
+          )}
+          <ChevronDownIcon
+            className={`h-3 w-3 transition-transform duration-200 ${showSavedImages ? "rotate-180" : ""}`}
+          />
+        </Button>
       </div>
     </div>
   );
@@ -372,6 +471,11 @@ export function OutputPane() {
           activeFormId={state.current_form_id}
         />
 
+        <SavedImagesPanel
+          open={showSavedImages}
+          onToggle={toggleSavedImages}
+        />
+
         <div className="flex flex-col items-center justify-center flex-1 text-center px-8">
           <div className="relative mb-8">
             <div className="absolute inset-0 bg-primary/20 rounded-full blur-3xl scale-150" />
@@ -380,32 +484,31 @@ export function OutputPane() {
             </div>
           </div>
           <h3 className="text-xl font-semibold text-foreground/80 mb-2">
-            No Audit Generated Yet
+            No Generated Content (yet)
           </h3>
           <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
-            Upload documents and ask Q-Bot to generate a TFR audit
-            questionnaire. The forms, charts, and insights will appear here.
+            Explore documents, analyze claim files, and jump start your audit.
           </p>
           <div className="flex items-center gap-8 mt-10 text-muted-foreground/40">
             <div className="flex flex-col items-center gap-2">
               <div className="h-12 w-12 rounded-xl bg-secondary/60 border border-border/30 flex items-center justify-center">
                 <BarChart3 className="h-6 w-6" />
               </div>
-              <span className="text-[11px] font-medium">Charts</span>
+              <span className="text-[11px] font-medium">Analysis</span>
             </div>
             <ChevronRight className="h-4 w-4 mt-[-16px]" />
             <div className="flex flex-col items-center gap-2">
               <div className="h-12 w-12 rounded-xl bg-secondary/60 border border-border/30 flex items-center justify-center">
                 <FileText className="h-6 w-6" />
               </div>
-              <span className="text-[11px] font-medium">Tables</span>
+              <span className="text-[11px] font-medium">Documents</span>
             </div>
             <ChevronRight className="h-4 w-4 mt-[-16px]" />
             <div className="flex flex-col items-center gap-2">
               <div className="h-12 w-12 rounded-xl bg-secondary/60 border border-border/30 flex items-center justify-center">
                 <ClipboardCheck className="h-6 w-6" />
               </div>
-              <span className="text-[11px] font-medium">TFR Form</span>
+              <span className="text-[11px] font-medium">Questionnaires</span>
             </div>
           </div>
         </div>
@@ -424,6 +527,11 @@ export function OutputPane() {
         onDeleteForm={handlePanelDelete}
         listSavedForms={listSavedForms}
         activeFormId={state.current_form_id}
+      />
+
+      <SavedImagesPanel
+        open={showSavedImages}
+        onToggle={toggleSavedImages}
       />
 
       <ScrollArea className="flex-1">

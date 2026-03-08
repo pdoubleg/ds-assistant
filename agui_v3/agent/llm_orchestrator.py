@@ -1,8 +1,9 @@
 """LLM orchestration for claim analysis and TFR question generation."""
 
+from dataclasses import dataclass
 from typing import Any
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelRetry, RunContext
 
 from model_config import get_orchestrator_model
 from models import (
@@ -14,6 +15,9 @@ from models import (
     TableSpec,
     ChartSpec,
     DocumentSummary,
+    DocSearchResult,
+    Documents,
+    BatchTagResult,
 )
 from prompts import (
     ANALYSIS_SYSTEM_PROMPT,
@@ -28,6 +32,8 @@ from prompts import (
     TABLE_SYSTEM_PROMPT,
     CHART_SYSTEM_PROMPT,
     DOCUMENT_SUMMARY_SYSTEM_PROMPT,
+    DOC_SEARCH_SORT_SYSTEM_PROMPT,
+    BATCH_TAGGER_SYSTEM_PROMPT,
 )
 
 
@@ -87,12 +93,79 @@ charts_agent = Agent(
     instructions=CHART_SYSTEM_PROMPT,
 )
 
-# Summarizes a single document and assigns a relevance/importance rank.
+# Summarizes a single document (title + summary + label, no ranking).
 document_summary_agent = Agent(
     model="gpt-4.1-mini",
     output_type=DocumentSummary,
     instructions=DOCUMENT_SUMMARY_SYSTEM_PROMPT,
 )
+
+# Tags a batch of documents (up to 10 or ~25K chars) using the predefined DocTag vocabulary.
+batch_tagger_agent = Agent(
+    model="gpt-4.1-mini",
+    output_type=BatchTagResult,
+    instructions=BATCH_TAGGER_SYSTEM_PROMPT,
+)
+
+
+# =============================================================================
+# Search & Sort agent — scores documents against a user query
+# =============================================================================
+
+
+@dataclass
+class SearchSortDeps:
+    """Runtime dependencies injected into the search/sort agent.
+
+    Attributes:
+        documents: The full collection of documents to score.
+    """
+
+    documents: Documents
+
+
+search_sort_agent = Agent(
+    model="gpt-4.1-mini",
+    output_type=DocSearchResult,
+    deps_type=SearchSortDeps,
+    retries=4,
+    instructions=DOC_SEARCH_SORT_SYSTEM_PROMPT,
+)
+
+
+@search_sort_agent.tool
+def as_metadata_string(ctx: RunContext[SearchSortDeps]) -> str:
+    """Return metadata for all documents (no full text) sorted newest-first.
+
+    Use this to get an overview of every document before deciding which
+    ones to inspect in detail.
+    """
+    print(
+        f"[ORCHESTRATOR] Getting metadata for {len(ctx.deps.documents.documents)} documents...",
+        flush=True,
+    )
+    return ctx.deps.documents.as_metadata_string()
+
+
+@search_sort_agent.tool
+def get_doc_by_content_id(ctx: RunContext[SearchSortDeps], content_id: str) -> str:
+    """Retrieve the full text content of a specific document by its content_id.
+
+    Call this for top candidates that need deeper inspection after
+    reviewing metadata. Limit to a subset of documents only.
+
+    Args:
+        content_id: The ``CONTENT ID`` value from the metadata listing.
+    """
+    print(f"[ORCHESTRATOR] Getting document by content_id: {content_id}...", flush=True)
+    try:
+        doc = ctx.deps.documents.get_doc_by_content_id(content_id)
+        if doc:
+            return doc.as_string()
+        return f"Document with content_id '{content_id}' not found."
+    except ValueError as e:
+        raise ModelRetry(f"Error: {e}") from e
+
 
 # =============================================================================
 # Helper: build combined document text from payloads

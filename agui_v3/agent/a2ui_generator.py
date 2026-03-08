@@ -15,10 +15,6 @@ This module provides factory functions for the A2UI component catalog:
     - SummaryCard: Grid of key-value metric pairs
     - FindingCard: Observation card with severity level
 
-Example usage:
-    >>> from a2ui_generator import generate_document_card, generate_text_box
-    >>> card = generate_document_card(file_name="Policy.pdf", mime_type="application/pdf")
-    >>> text = generate_text_box(title="Summary", content="Analysis results...")
 """
 
 from typing import Any

@@ -266,49 +266,129 @@ Each TFR question must have:
 
 
 # ============================================================================
-# DOCUMENT SUMMARIZATION & RANKING
+# DOCUMENT SUMMARIZATION
 # ============================================================================
 
 DOCUMENT_SUMMARY_SYSTEM_PROMPT = """\
-You are a document summarization and ranking assistant. Given a single document's \
-content and metadata, produce a structured summary with a relevance/importance ranking. \
-Pay close attention to any Ranking Focus instructions provided by the user. When provided \
-this should be the main focus of the ranking and irrelevant documents should be highly penalized. \
-Assume users are looking for something specific; summaries should inform them on the content at a glance. \
-Use heavy markdown formatting to make the summary more readable and engaging.
+You are a document summarization assistant. Given a single document's content and \
+metadata, produce a structured summary that lets a reader understand the document \
+at a glance. Assume users are looking for something specific; summaries should \
+inform them on the content quickly. Use heavy markdown formatting to make the \
+summary more readable and engaging.
 
 Your output must include:
 - **title**: A short, descriptive title (5-12 words) capturing what the document is about.
-- **summary**: A concise, highly structured document-type-agnostic markdown summary (2-4 sentences) that lets a \
-reader understand the document's contents at a glance. Avoid jargon unless it is central \
-to the document. The summary is rendered as **GitHub-flavored Markdown**, so you **should** use \
-formatting for readability: **bold** for key terms, bullet lists for multi-point \
-highlights.
-- **rank**: An integer from 0 (lowest) to 10 (highest).
-- **rank_type**: A short, flavor-text-type label describing the ranking decision with respect to the document's content.
-
-### Ranking behavior
-- If the user provides **ranking focus**, rank the document according to those \
-focus and set ``rank_type`` to a short label summarizing the relevance of the document to the focus.
-- If **no ranking focus** is provided, rank by general importance / \
-information density of the document and set ``rank_type`` to a general blurb/callout descriptor.
-- Note that users will be passing in `focus` in a small text input, so it will be terse. Assume \
-what they pass is the only thing they are looking for in a rank-order list. Irrelevant documents should be highly penalized.
+- **summary**: A concise, highly structured document-type-agnostic markdown summary \
+(2-4 sentences) that lets a reader understand the document's contents at a glance. \
+Avoid jargon unless it is central to the document. The summary is rendered as \
+**GitHub-flavored Markdown**, so you **should** use formatting for readability: \
+**bold** for key terms, bullet lists for multi-point highlights.
+- **label**: A short (2 to 4 word) flavor-text label that captures the document's \
+character or purpose (e.g. "Detailed Estimate", "Policy Overview", "Damage Photos").
 """
 
 DOCUMENT_SUMMARY_PROMPT = """\
-Summarize and rank the following document.
+Summarize the following document.
 
 ## Document Metadata
 - File name: {file_name}
 - File type: {file_type}
 - Document type: {document_type}
 
-## Ranking Focus (OPTIONAL)
-{ranking_instructions}
-
 ## Document Content
 {document_content}
+"""
+
+
+# ============================================================================
+# DOCUMENT SEARCH & SORT AGENT
+# ============================================================================
+
+DOC_SEARCH_SORT_SYSTEM_PROMPT = """\
+You are a document search, sort, and selection assistant. You receive a user query \
+and a set of documents. Your job is to score each document on a 0.0-1.0 float scale \
+and provide a short (2-4 word) flavor-text label for each score.
+
+## Workflow
+1. **Start** by calling ``as_metadata_string`` to see metadata for all documents.
+2. **Analyze** the user query to decide your scoring strategy (see below).
+3. **Inspect** the most promising candidates by calling ``get_doc_by_content_id`` \
+with their content_id to read their full text. You do NOT need to inspect every \
+document — focus on the top candidates where metadata alone is insufficient.
+4. **Return** a ``DocSearchResult`` with a score entry for every document.
+
+## Scoring Strategy — adapt based on the user's intent:
+
+### Ranking / Sorting queries (e.g. "sort by", "rank", "order by", "most relevant")
+- Score documents on a continuous 0.0-1.0 scale based on relevance to the query.
+- Spread scores meaningfully (avoid clustering everything at 0.9).
+- Documents clearly irrelevant to the query should receive 0.0.
+
+### Selection / Finding queries (e.g. "find", "select", "which ones", "show me")
+- Score documents as either **1.0** (matches the selection criteria) or **0.0** \
+(does not match).
+- Be decisive — the user wants a filtered subset, not a ranked list.
+
+## Label Guidelines
+- Each document's ``label`` should be a short (2-4 word) phrase that explains *why* \
+the document received its score relative to the query.
+- Examples: "Key Evidence", "Policy Match", "Not Relevant", "Date Mismatch", \
+"Contains Estimates", "Wrong Domain".
+
+## Important
+- Always return a score for **every** document in the set.
+- Documents with score 0.0 will be hidden from the user.
+- Use ``content_id`` (not file_name) to identify documents in your output.
+"""
+
+DOC_SEARCH_SORT_PROMPT = """\
+Search and score the following documents based on the user query.
+
+## User Query
+{query}
+
+## Instructions
+1. Call ``as_metadata_string`` to review all document metadata.
+2. Identify the scoring strategy (ranking vs. selection) based on the query.
+3. Optionally call ``get_doc_by_content_id`` for top candidates.
+4. Return scores for every document.
+"""
+
+
+# ============================================================================
+# Document Batch Tagging Prompts
+# ============================================================================
+
+BATCH_TAGGER_SYSTEM_PROMPT = """\
+You are a document tagging assistant for insurance claim files. Given a batch \
+of documents (file name + content excerpt), assign **up to 4** tags to each \
+document from the **predefined vocabulary only**.
+
+## Allowed Tags
+
+### Sources (who is associated with this document)
+Insured, Contractor, Agent, Vendor, Attorney
+
+### Types (the document's functional purpose)
+Contact/Status, Estimate, Supplement, Demand, Dwelling, Contents, ALE, EMS, \
+Photos, Damage Report, Weather Report
+
+### Flags (urgent or noteworthy conditions)
+Attorney Demand, Time Sensitive, Compliance Issue, Customer Complaint
+
+## Rules
+- Select **1 to 4 tags** per document. Typical assignment is 1 Source + 1-3 \
+Types/Flags.
+- Use the **exact** tag strings shown above (case-sensitive).
+- Do NOT invent new tags — only the values listed above are valid.
+- Choose the most specific and relevant tags for each document's content.
+"""
+
+BATCH_TAGGER_PROMPT = """\
+Tag each document in this batch using only the predefined tag vocabulary.
+
+## Documents
+{documents_block}
 """
 
 
@@ -403,7 +483,6 @@ def format_document_summary_prompt(
     document_content: str,
     file_type: str = "unknown",
     document_type: str = "",
-    ranking_instructions: str = "",
 ) -> str:
     """Format the document summarization prompt for a single document.
 
@@ -412,8 +491,6 @@ def format_document_summary_prompt(
         document_content: Extracted text content of the document.
         file_type: MIME type or extension string.
         document_type: High-level type classification (e.g. "Policy", "Report").
-        ranking_instructions: Optional user-supplied ranking criteria. When
-            empty, the agent uses general importance ranking.
 
     Returns:
         Formatted prompt string for the document summary agent.
@@ -421,14 +498,56 @@ def format_document_summary_prompt(
     Example:
         >>> prompt = format_document_summary_prompt(
         ...     "report.pdf", "Full text here...", "pdf", "Report",
-        ...     ranking_instructions="Relevance to cyber risk",
         ... )
-        >>> assert "cyber risk" in prompt
+        >>> assert "report.pdf" in prompt
     """
     return DOCUMENT_SUMMARY_PROMPT.format(
         file_name=file_name,
         file_type=file_type,
         document_type=document_type or "N/A",
-        ranking_instructions=ranking_instructions or "(None — use general importance ranking.)",
         document_content=_truncate(document_content),
     )
+
+
+def format_doc_search_sort_prompt(query: str) -> str:
+    """Format the search/sort agent user prompt.
+
+    Args:
+        query: The user's search or sort query.
+
+    Returns:
+        Formatted prompt string for the search/sort agent.
+
+    Example:
+        >>> prompt = format_doc_search_sort_prompt("find all estimates")
+        >>> assert "find all estimates" in prompt
+    """
+    return DOC_SEARCH_SORT_PROMPT.format(query=query)
+
+
+def format_batch_tagger_prompt(
+    documents: list[dict[str, str]],
+) -> str:
+    """Format the batch tagger prompt for a chunk of documents.
+
+    Args:
+        documents: List of dicts with ``file_name``, ``content``, ``document_type``.
+
+    Returns:
+        Formatted prompt string for the batch tagger agent.
+
+    Example:
+        >>> prompt = format_batch_tagger_prompt(
+        ...     [{"file_name": "policy.pdf", "content": "text...", "document_type": "Policy"}],
+        ... )
+        >>> assert "policy.pdf" in prompt
+    """
+    doc_parts: list[str] = []
+    for doc in documents:
+        content = _truncate(doc.get("content", ""), max_length=8_000)
+        doc_parts.append(
+            f"### {doc['file_name']} (type: {doc.get('document_type', 'N/A')})\n{content}"
+        )
+    documents_block = "\n\n".join(doc_parts)
+
+    return BATCH_TAGGER_PROMPT.format(documents_block=documents_block)

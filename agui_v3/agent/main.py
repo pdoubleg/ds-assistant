@@ -22,6 +22,7 @@ load_dotenv()
 
 from fastapi import FastAPI, File, UploadFile, Body  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel, ConfigDict  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 from starlette.responses import JSONResponse, StreamingResponse  # noqa: E402
@@ -30,8 +31,18 @@ from agent import agent, AuditState  # noqa: E402
 from pydantic_ai.ui import StateDeps  # noqa: E402
 from pydantic_ai.ui.ag_ui import AGUIAdapter  # noqa: E402
 from a2ui_generator import generate_audit_question_form  # noqa: E402
-from llm_orchestrator import document_summary_agent  # noqa: E402
-from prompts import format_document_summary_prompt  # noqa: E402
+from llm_orchestrator import (  # noqa: E402
+    document_summary_agent,
+    batch_tagger_agent,
+    search_sort_agent,
+    SearchSortDeps,
+)
+from models import ALL_DOC_TAGS, Document, Documents  # noqa: E402
+from prompts import (  # noqa: E402
+    format_document_summary_prompt,
+    format_batch_tagger_prompt,
+    format_doc_search_sort_prompt,
+)
 
 # Configuration
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8001"))
@@ -589,23 +600,21 @@ class SummarizeRequest(BaseModel):
 
     Attributes:
         documents: List of document payloads to summarize.
-        ranking_instructions: Optional user-supplied ranking criteria.
     """
 
     documents: list[SummarizeDocPayload]
-    ranking_instructions: str = ""
 
 
 @app.post("/summarize")
 async def summarize_endpoint(body: SummarizeRequest):
-    """Summarize and rank documents one at a time, streaming NDJSON results.
+    """Summarize documents one at a time, streaming NDJSON results.
 
     Processes each document sequentially — the LLM call for one document
     completes and its result is flushed to the client before the next
     document starts.  Each line is a self-contained JSON object (NDJSON).
 
     Args:
-        body: Request with ``documents`` list and optional ``ranking_instructions``.
+        body: Request with ``documents`` list.
 
     Returns:
         ``StreamingResponse`` with ``application/x-ndjson`` content type.
@@ -614,10 +623,12 @@ async def summarize_endpoint(body: SummarizeRequest):
     async def _generate():
         for doc in body.documents:
             if not doc.content.strip():
-                line = json.dumps({
-                    "file_name": doc.file_name,
-                    "error": "No extractable content.",
-                })
+                line = json.dumps(
+                    {
+                        "file_name": doc.file_name,
+                        "error": "No extractable content.",
+                    }
+                )
                 yield line + "\n"
                 continue
 
@@ -627,10 +638,8 @@ async def summarize_endpoint(body: SummarizeRequest):
                     document_content=doc.content,
                     file_type=doc.mime_type,
                     document_type=doc.document_type,
-                    ranking_instructions=body.ranking_instructions,
                 )
                 result = await document_summary_agent.run(prompt)
-                # Staple file_name back on so the frontend can key by it.
                 payload = result.output.model_dump()
                 payload["file_name"] = doc.file_name
                 yield json.dumps(payload) + "\n"
@@ -638,6 +647,250 @@ async def summarize_endpoint(body: SummarizeRequest):
                 print(f"[SUMMARIZE ERROR] {doc.file_name}: {exc}", flush=True)
                 line = json.dumps({"file_name": doc.file_name, "error": str(exc)})
                 yield line + "\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# =========================================================================
+# Document search & sort endpoint
+# =========================================================================
+
+
+class SearchSortDocPayload(BaseModel):
+    """A document payload with full metadata for the search/sort agent.
+
+    Includes everything needed to construct a ``Document`` model so the
+    agent can inspect metadata and full text via its tools.
+
+    Attributes:
+        file_name: Original file name.
+        content_id: Unique content identifier.
+        content: Extracted text content.
+        mime_type: MIME type.
+        content_url: URL or path for the document.
+        claim_number: Associated claim number.
+        domain: 'claim' or 'policy'.
+        document_type: High-level type classification.
+        document_sub_type: Finer-grained type.
+        document_description: Human-readable description.
+        create_date: Creation timestamp ISO string.
+        source_system: Originating system.
+        company_name: Associated company.
+    """
+
+    file_name: str
+    content_id: str
+    content: str = ""
+    mime_type: str = "unknown"
+    content_url: str = ""
+    claim_number: str = ""
+    domain: str = "claim"
+    document_type: str = ""
+    document_sub_type: str = ""
+    document_description: str = ""
+    create_date: str = ""
+    source_system: str = ""
+    company_name: str = ""
+
+
+class SearchSortRequest(BaseModel):
+    """Request body for ``POST /search-sort``.
+
+    Attributes:
+        query: The user's search or sort query.
+        documents: Full document payloads including metadata and content.
+    """
+
+    query: str
+    documents: list[SearchSortDocPayload]
+
+
+@app.post("/search-sort")
+async def search_sort_endpoint(body: SearchSortRequest):
+    """Score documents against a user query using the search/sort agent.
+
+    The agent reviews document metadata, optionally inspects top candidates,
+    then returns a float score (0-1) and label for every document.
+
+    Args:
+        body: Request with ``query`` and ``documents`` list.
+
+    Returns:
+        JSON with ``scores`` list and a ``content_id_to_file_name`` mapping
+        so the frontend can key results by file name.
+    """
+    if not body.documents:
+        return JSONResponse({"scores": [], "content_id_to_file_name": {}})
+
+    # Build Documents model from payloads for the agent's tools
+    doc_models = []
+    content_id_to_file_name: dict[str, str] = {}
+    for d in body.documents:
+        content_id_to_file_name[d.content_id] = d.file_name
+        doc_models.append(
+            Document(
+                claimNumber=d.claim_number,
+                contentId=d.content_id,
+                mimeType=d.mime_type,
+                contentURL=d.content_url or d.file_name,
+                domain=d.domain if d.domain in ("claim", "policy") else "claim",
+                documentType=d.document_type or None,
+                documentSubType=d.document_sub_type or None,
+                documentDescription=d.document_description or None,
+                createDate=d.create_date or datetime.now(timezone.utc).isoformat(),
+                sourceSystem=d.source_system or None,
+                companyName=d.company_name or None,
+                text=d.content,
+            )
+        )
+
+    documents = Documents(documents=doc_models)
+    deps = SearchSortDeps(documents=documents)
+
+    try:
+        prompt = format_doc_search_sort_prompt(query=body.query)
+        result = await search_sort_agent.run(prompt, deps=deps)
+        scores = result.output
+
+        # Return scores + a mapping so the frontend can resolve content_id → file_name
+        return JSONResponse(
+            {
+                "scores": [s.model_dump() for s in scores.scores],
+                "content_id_to_file_name": content_id_to_file_name,
+            }
+        )
+
+    except Exception as exc:
+        print(f"[SEARCH-SORT ERROR] {exc}", flush=True)
+        import traceback
+
+        traceback.print_exc()
+        return JSONResponse(
+            {"error": str(exc), "scores": [], "content_id_to_file_name": {}},
+            status_code=500,
+        )
+
+
+# =========================================================================
+# Document tagging endpoint (batched NDJSON streaming)
+# =========================================================================
+
+MAX_BATCH_DOCS = 10
+MAX_BATCH_CHARS = 25_000
+
+
+def _batch_documents(
+    docs: list[SummarizeDocPayload],
+) -> list[list[SummarizeDocPayload]]:
+    """Split documents into batches respecting doc-count and char-size limits.
+
+    Args:
+        docs: Full list of document payloads to partition.
+
+    Returns:
+        List of batches, each a list of ``SummarizeDocPayload``.
+    """
+    batches: list[list[SummarizeDocPayload]] = []
+    current: list[SummarizeDocPayload] = []
+    chars = 0
+
+    for doc in docs:
+        doc_chars = len(doc.content)
+        if current and (len(current) >= MAX_BATCH_DOCS or chars + doc_chars > MAX_BATCH_CHARS):
+            batches.append(current)
+            current, chars = [], 0
+        current.append(doc)
+        chars += doc_chars
+
+    if current:
+        batches.append(current)
+    return batches
+
+
+class TagRequest(BaseModel):
+    """Request body for ``POST /document-tags``.
+
+    Attributes:
+        documents: List of document payloads to tag.
+    """
+
+    documents: list[SummarizeDocPayload]
+
+
+@app.post("/document-tags")
+async def document_tags_endpoint(body: TagRequest):
+    """Tag documents in batches, streaming NDJSON progress.
+
+    Each document receives 1-4 tags from the predefined ``DocTag`` vocabulary.
+    Pydantic validates tag values against the Literal type automatically, so
+    no normalization pass is needed.
+
+    Args:
+        body: Request with ``documents`` list.
+
+    Returns:
+        ``StreamingResponse`` with ``application/x-ndjson`` content type.
+    """
+
+    async def _generate():
+        batches = _batch_documents(body.documents)
+        total_batches = len(batches)
+
+        for batch_idx, batch in enumerate(batches):
+            try:
+                doc_dicts = [
+                    {
+                        "file_name": d.file_name,
+                        "content": d.content,
+                        "document_type": d.document_type,
+                    }
+                    for d in batch
+                ]
+                prompt = format_batch_tagger_prompt(documents=doc_dicts)
+                result = await batch_tagger_agent.run(prompt)
+                batch_results = result.output
+
+                yield (
+                    json.dumps(
+                        {
+                            "batch": batch_idx + 1,
+                            "total_batches": total_batches,
+                            "results": [r.model_dump() for r in batch_results.results],
+                        }
+                    )
+                    + "\n"
+                )
+
+            except Exception as exc:
+                print(f"[TAG BATCH ERROR] Batch {batch_idx + 1}: {exc}", flush=True)
+                yield (
+                    json.dumps(
+                        {
+                            "batch": batch_idx + 1,
+                            "total_batches": total_batches,
+                            "error": str(exc),
+                        }
+                    )
+                    + "\n"
+                )
+
+        # Emit the static canonical tag list so the frontend can populate filter dropdowns
+        yield (
+            json.dumps(
+                {
+                    "done": True,
+                    "canonical_tags": ALL_DOC_TAGS,
+                }
+            )
+            + "\n"
+        )
 
     return StreamingResponse(
         _generate(),
@@ -727,6 +980,61 @@ EXTRACTORS = {
     ".docx": extract_text_from_docx,
     ".xlsx": extract_text_from_xlsx,
 }
+
+EXT_TO_MIME: dict[str, str] = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+# =========================================================================
+# Example / seed documents endpoint
+# =========================================================================
+
+
+@app.get("/example-docs")
+async def example_docs_endpoint():
+    """List pre-loaded example documents from the uploads directory.
+
+    Scans ``UPLOAD_DIR`` for files with a supported extension, extracts text
+    content using the same extractors as the upload endpoint, and returns a
+    JSON array of document metadata + content.
+
+    Returns:
+        ``{"documents": [...]}`` with one entry per supported file.
+    """
+    docs: list[dict[str, Any]] = []
+    try:
+        for fname in sorted(os.listdir(UPLOAD_DIR)):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in EXTRACTORS:
+                continue
+            fpath = os.path.join(UPLOAD_DIR, fname)
+            if not os.path.isfile(fpath):
+                continue
+
+            file_bytes = open(fpath, "rb").read()  # noqa: SIM115
+            text, pages = EXTRACTORS[ext](file_bytes)
+            size = len(file_bytes)
+            size_str = (
+                f"{size / 1024 / 1024:.1f} MB" if size > 1024 * 1024 else f"{size / 1024:.1f} KB"
+            )
+            docs.append(
+                {
+                    "file_name": fname,
+                    "mime_type": EXT_TO_MIME.get(ext, "application/octet-stream"),
+                    "content": text,
+                    "page_count": pages,
+                    "file_size": size_str,
+                    "file_size_bytes": size,
+                    "path": f"/uploads/{fname}",
+                }
+            )
+    except Exception as exc:
+        print(f"[EXAMPLE-DOCS] Error scanning uploads dir: {exc}", flush=True)
+
+    return JSONResponse({"documents": docs})
 
 
 # =========================================================================
@@ -834,6 +1142,336 @@ async def health_endpoint():
             "agent_ready": bool(os.getenv("OPENAI_API_KEY")),
         }
     )
+
+
+# =========================================================================
+# Doc Lens — text-to-image retrieval endpoints
+# =========================================================================
+
+# Lazy singleton: the CLIP embedder warmup is expensive (~5 s) so we only
+# initialize on first actual use rather than at import / startup time.
+_doc_lens_service = None
+
+
+def _get_doc_lens_service():
+    """Return (or create) the shared DocLensService singleton.
+
+    Initialization is deferred to the first call so that the main FastAPI
+    app starts quickly and the CLIP model is only loaded when needed.
+
+    Returns:
+        Fully initialised DocLensService instance.
+    """
+    global _doc_lens_service
+    if _doc_lens_service is not None:
+        return _doc_lens_service
+
+    from doc_lens import (
+        DocLensService,
+        DuckDBStore,
+        FastEmbedCLIPEmbedder,
+        PDFExtractor,
+        Settings,
+    )
+
+    settings = Settings()
+    settings.ensure_dirs()
+
+    db = DuckDBStore(settings.duckdb_path, embedding_dim=settings.embedding_dim)
+    extractor = PDFExtractor(
+        render_dpi=settings.render_dpi,
+        min_area_ratio=settings.min_area_ratio,
+        max_area_ratio=settings.max_area_ratio,
+        crop_padding_px=settings.crop_padding_px,
+    )
+    embedder = FastEmbedCLIPEmbedder(
+        model_key=settings.model_key,
+        text_model_name=settings.text_model_name,
+        image_model_name=settings.image_model_name,
+        cache_dir=str(settings.fastembed_cache_dir),
+    )
+
+    _doc_lens_service = DocLensService(
+        settings=settings,
+        db=db,
+        extractor=extractor,
+        embedder=embedder,
+    )
+    return _doc_lens_service
+
+
+# Mime types that Doc Lens can handle
+DOC_LENS_PDF_MIMES = {"application/pdf"}
+DOC_LENS_IMAGE_MIMES = {"image/jpeg", "image/png"}
+DOC_LENS_ELIGIBLE_MIMES = DOC_LENS_PDF_MIMES | DOC_LENS_IMAGE_MIMES
+
+
+class DocLensFilePayload(BaseModel):
+    """A single file descriptor sent by the frontend for Doc Lens ingestion.
+
+    Attributes:
+        file_name: Original file name (must exist in the uploads directory).
+        mime_type: MIME type string used to decide PDF vs image path.
+    """
+
+    file_name: str
+    mime_type: str
+
+
+class DocLensSessionRequest(BaseModel):
+    """Request body for ``POST /doc-lens/session``.
+
+    Attributes:
+        files: List of file descriptors to ingest into the session.
+    """
+
+    files: list[DocLensFilePayload]
+
+
+class DocLensQueryRequest(BaseModel):
+    """Request body for ``POST /doc-lens/query``.
+
+    Attributes:
+        session_id: Active session identifier.
+        query: Natural language query string.
+        top_k: Maximum number of results (1-100).
+        asset_types: Optional filter on asset types.
+        document_ids: Optional filter on specific documents.
+    """
+
+    session_id: str
+    query: str
+    top_k: int = 10
+    asset_types: list[str] | None = None
+    document_ids: list[str] | None = None
+
+
+class DocLensDocumentAssetsRequest(BaseModel):
+    """Request body for ``POST /doc-lens/document-assets``.
+
+    Attributes:
+        session_id: Active session identifier.
+        document_id: Document identifier to browse.
+    """
+
+    session_id: str
+    document_id: str
+
+
+@app.post("/doc-lens/session")
+async def doc_lens_session_endpoint(body: DocLensSessionRequest):
+    """Create a Doc Lens session and ingest files, streaming NDJSON progress.
+
+    Each NDJSON line reports one of:
+    - ``session_created`` with the new ``session_id``
+    - ``ingest_start`` when a file begins processing
+    - ``ingest_complete`` with per-file stats (page_count, assets, embeddings)
+    - ``ingest_error`` if a single file fails (non-fatal, continues)
+    - ``session_ready`` with the final session summary
+
+    Args:
+        body: Request with a list of file descriptors.
+
+    Returns:
+        StreamingResponse with ``application/x-ndjson`` content type.
+    """
+    session_id = str(uuid4())
+
+    async def _generate():
+        yield json.dumps({"type": "session_created", "session_id": session_id}) + "\n"
+
+        svc = _get_doc_lens_service()
+        total = len(body.files)
+
+        for idx, file_desc in enumerate(body.files):
+            file_index = idx + 1
+            yield json.dumps({
+                "type": "ingest_start",
+                "file_name": file_desc.file_name,
+                "mime_type": file_desc.mime_type,
+                "file_index": file_index,
+                "total_files": total,
+            }) + "\n"
+
+            try:
+                file_path = os.path.join(UPLOAD_DIR, file_desc.file_name)
+                if not os.path.isfile(file_path):
+                    yield json.dumps({
+                        "type": "ingest_error",
+                        "file_name": file_desc.file_name,
+                        "error": f"File not found: {file_desc.file_name}",
+                        "file_index": file_index,
+                        "total_files": total,
+                    }) + "\n"
+                    continue
+
+                if file_desc.mime_type in DOC_LENS_PDF_MIMES:
+                    result = svc.ingest_pdf(
+                        session_id=session_id,
+                        document_name=file_desc.file_name,
+                        pdf_path=file_path,
+                    )
+                elif file_desc.mime_type in DOC_LENS_IMAGE_MIMES:
+                    result = svc.ingest_image(
+                        session_id=session_id,
+                        document_name=file_desc.file_name,
+                        image_path=file_path,
+                    )
+                else:
+                    yield json.dumps({
+                        "type": "ingest_error",
+                        "file_name": file_desc.file_name,
+                        "error": f"Unsupported mime type: {file_desc.mime_type}",
+                        "file_index": file_index,
+                        "total_files": total,
+                    }) + "\n"
+                    continue
+
+                yield json.dumps({
+                    "type": "ingest_complete",
+                    "file_name": file_desc.file_name,
+                    "file_index": file_index,
+                    "total_files": total,
+                    **result.model_dump(),
+                }) + "\n"
+
+            except Exception as exc:
+                print(f"[DOC-LENS INGEST ERROR] {file_desc.file_name}: {exc}", flush=True)
+                yield json.dumps({
+                    "type": "ingest_error",
+                    "file_name": file_desc.file_name,
+                    "error": str(exc),
+                    "file_index": file_index,
+                    "total_files": total,
+                }) + "\n"
+
+        # Final summary
+        try:
+            summary = svc.get_session_summary(session_id)
+            yield json.dumps({
+                "type": "session_ready",
+                **summary.model_dump(),
+            }) + "\n"
+        except Exception as exc:
+            yield json.dumps({
+                "type": "session_error",
+                "error": f"Failed to get session summary: {exc}",
+            }) + "\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/doc-lens/query")
+async def doc_lens_query_endpoint(body: DocLensQueryRequest):
+    """Run a natural-language image query against an active Doc Lens session.
+
+    Args:
+        body: Query request with session_id, query text, and optional filters.
+
+    Returns:
+        JSON QueryResponse with ranked hits.
+    """
+    try:
+        svc = _get_doc_lens_service()
+        response = svc.query(
+            session_id=body.session_id,
+            query_text=body.query,
+            top_k=body.top_k,
+            asset_types=body.asset_types,
+            document_ids=body.document_ids,
+        )
+        return JSONResponse(response.model_dump())
+    except Exception as exc:
+        print(f"[DOC-LENS QUERY ERROR] {exc}", flush=True)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/doc-lens/document-assets")
+async def doc_lens_document_assets_endpoint(body: DocLensDocumentAssetsRequest):
+    """List all extracted assets for one document in an active session.
+
+    Args:
+        body: Request with session_id and document_id.
+
+    Returns:
+        JSON object containing `session_id`, `document_id`, and `hits`.
+    """
+    try:
+        svc = _get_doc_lens_service()
+        hits = svc.list_document_assets(
+            session_id=body.session_id,
+            document_id=body.document_id,
+        )
+        return JSONResponse(
+            {
+                "session_id": body.session_id,
+                "document_id": body.document_id,
+                "hits": [hit.model_dump() for hit in hits],
+            }
+        )
+    except Exception as exc:
+        print(f"[DOC-LENS DOCUMENT-ASSETS ERROR] {exc}", flush=True)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.get("/doc-lens/session/{session_id}")
+async def doc_lens_session_summary(session_id: str):
+    """Return the summary stats for a Doc Lens session.
+
+    Args:
+        session_id: Session identifier.
+
+    Returns:
+        JSON SessionSummary.
+    """
+    try:
+        svc = _get_doc_lens_service()
+        summary = svc.get_session_summary(session_id)
+        return JSONResponse(summary.model_dump())
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.delete("/doc-lens/session/{session_id}")
+async def doc_lens_clear_session(session_id: str):
+    """Clear all data for a Doc Lens session.
+
+    Args:
+        session_id: Session identifier to purge.
+
+    Returns:
+        JSON confirmation.
+    """
+    try:
+        svc = _get_doc_lens_service()
+        svc.clear_session(session_id)
+        return JSONResponse({"message": "Session cleared.", "session_id": session_id})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# =========================================================================
+# Static file serving for uploaded documents (PDF viewer, downloads)
+# =========================================================================
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+# Doc Lens extracted assets — served so the frontend can <img src=...> them.
+# Uses the asset_root from Settings which defaults to .cache/doc_lens_cache/assets.
+_DOC_LENS_ASSET_DIR = os.path.join(
+    os.path.dirname(__file__),
+    ".cache", "doc_lens_cache", "assets",
+)
+os.makedirs(_DOC_LENS_ASSET_DIR, exist_ok=True)
+app.mount(
+    "/doc-lens-assets",
+    StaticFiles(directory=_DOC_LENS_ASSET_DIR),
+    name="doc-lens-assets",
+)
 
 
 if __name__ == "__main__":

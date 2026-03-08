@@ -19,7 +19,6 @@ import {
   LayoutDashboard,
   PanelLeftClose,
 } from "lucide-react";
-import { UploadedDocsProvider } from "@/hooks/use-uploaded-docs";
 import { AppHeader } from "@/components/app-header";
 import { ChatPane } from "@/components/chat-pane";
 import { DocumentsPane } from "@/components/documents-pane";
@@ -29,6 +28,7 @@ import {
   type PaneId,
   type PaneMeta,
 } from "@/components/collapsed-strip";
+import { NativeTooltip } from "@/components/ui/native-tooltip-shadcnui";
 
 const PANE_META: Record<PaneId, PaneMeta> = {
   chat: {
@@ -84,8 +84,7 @@ export default function HomePage() {
   const paneOrder: PaneId[] = ["chat", "documents", "output"];
 
   return (
-    <UploadedDocsProvider>
-      <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
         <AppHeader />
 
         {/* Three-pane layout */}
@@ -122,13 +121,17 @@ export default function HomePage() {
                 >
                   <div className="relative">
                     {canCollapse && (
-                      <button
-                        onClick={() => togglePane(id)}
-                        className="absolute top-2.5 right-2 z-10 p-1 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-secondary/60 transition-colors"
-                        title={`Collapse ${PANE_META[id].label}`}
+                      <NativeTooltip
+                        content={`Collapse ${PANE_META[id].label}`}
+                        side="bottom"
                       >
-                        <PanelLeftClose className="h-3.5 w-3.5" />
-                      </button>
+                        <button
+                          onClick={() => togglePane(id)}
+                          className="absolute top-2.5 right-2 z-10 p-1 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-secondary/60 transition-colors"
+                        >
+                          <PanelLeftClose className="h-3.5 w-3.5" />
+                        </button>
+                      </NativeTooltip>
                     )}
                   </div>
                   <PaneComponent />
@@ -137,7 +140,6 @@ export default function HomePage() {
             })}
           </AnimatePresence>
         </div>
-      </div>
-    </UploadedDocsProvider>
+    </div>
   );
 }

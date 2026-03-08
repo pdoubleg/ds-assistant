@@ -422,6 +422,31 @@ export function useAuditAgent() {
     [agent]
   );
 
+  /** Remove a document from AG-UI state by file_name. */
+  const removeDocument = useCallback(
+    (fileName: string) => {
+      const currentDocs = (agent.state as AuditState)?.documents || [];
+      agent.setState({
+        ...((agent.state as AuditState) || initialState),
+        documents: currentDocs.filter(
+          (d) => (d.file_name as string) !== fileName
+        ),
+      });
+    },
+    [agent]
+  );
+
+  /** Replace the entire documents array in AG-UI state. */
+  const setDocuments = useCallback(
+    (docs: Array<Record<string, unknown>>) => {
+      agent.setState({
+        ...((agent.state as AuditState) || initialState),
+        documents: docs,
+      });
+    },
+    [agent]
+  );
+
   const runAudit = useCallback(
     async (userMessage: string) => {
       setToolActivity([]);
@@ -613,6 +638,8 @@ export function useAuditAgent() {
     toolActivity,
     stepActivity,
     addDocument,
+    removeDocument,
+    setDocuments,
     runAudit,
     stop,
     isGenerating,

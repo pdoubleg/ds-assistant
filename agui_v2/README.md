@@ -67,10 +67,9 @@ Three-pane layout (left to right):
 
 ```bash
 cd agui_v2/agent
-python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
+uv sync
 echo "OPENAI_API_KEY=sk-..." > .env
-python main.py
+uv run uvicorn main:app --reload --port 8001
 # Runs on http://localhost:8001
 ```
 

@@ -15,7 +15,7 @@ import datetime
 from uuid import uuid4
 from pathlib import Path
 from abc import ABC, abstractmethod
-from typing import Any, Literal, Optional, Self
+from typing import Any, Literal, Optional, Self, get_args
 
 from pydantic import (
     BaseModel,
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 class A2UIComponent(BaseModel):
     """Represents a single A2UI component to be rendered on the frontend.
-    
+
     Notes:
         - This is the common interface for all A2UI components.
         - Should be serialized as a dict, e.g. ``component.model_dump()`` when adding to state.
@@ -55,8 +55,8 @@ class A2UIComponent(BaseModel):
     props: dict[str, Any] = Field(default_factory=dict)
     layout: dict[str, Any] | None = None
     zone: str | None = None
-    
-    
+
+
 class A2UIConvertible(BaseModel, ABC):
     """Base model for anything that can render to an A2UI component."""
 
@@ -478,7 +478,7 @@ class ChartSpec(A2UIConvertible):
 
 
 class DocumentSummary(BaseModel):
-    """Summarization and ranking output for a single document.
+    """Summarization output for a single document.
 
     Produced by the ``document_summary_agent`` sub-agent and streamed
     to the frontend via the ``POST /summarize`` NDJSON endpoint.
@@ -490,8 +490,14 @@ class DocumentSummary(BaseModel):
     Attributes:
         title: Short, descriptive title capturing the document's essence.
         summary: Concise, well-structured document-type-agnostic summary of the contents.
-        rank: Importance / relevance score from 0 (lowest) to 10 (highest).
-        rank_type: Short, flavor-text-type label describing the ranking decision with respect to the document's content.
+        label: Short (2-4 word) flavor-text label describing the document's character.
+
+    Example:
+        >>> s = DocumentSummary(
+        ...     title="Roof Damage Estimate",
+        ...     summary="Detailed line-item estimate for hail damage...",
+        ...     label="Detailed Estimate",
+        ... )
     """
 
     title: str = Field(..., description="Short title capturing the document's essence.")
@@ -499,12 +505,123 @@ class DocumentSummary(BaseModel):
         ...,
         description="Concise, well-structured document-type-agnostic summary of the document contents.",
     )
-    rank: int = Field(..., ge=0, le=10, description="Importance / relevance score (0-10).")
-    rank_type: str | None = Field(
+    label: str = Field(
         ...,
-        description=(
-            "Short (2 to 4 word) flavor-text-type label describing the ranking decision with respect to the document's content."
-        ),
+        description="Short (2 to 4 word) flavor-text label describing the document's character or purpose.",
+    )
+
+
+class DocSearchScore(BaseModel):
+    """Search/sort score for a single document.
+
+    Produced by the ``search_sort_agent`` and returned as part of
+    ``DocSearchResult``.
+
+    Attributes:
+        content_id: The content_id of the scored document.
+        score: Relevance score from 0.0 (irrelevant/excluded) to 1.0 (most relevant/selected).
+        label: Short (2-4 word) flavor-text label explaining the score.
+
+    Example:
+        >>> s = DocSearchScore(content_id="cid-42", score=0.85, label="Strong Match")
+    """
+
+    content_id: str = Field(..., description="Content ID of the scored document.")
+    score: float = Field(
+        ..., ge=0.0, le=1.0, description="Relevance score (0.0 = irrelevant, 1.0 = most relevant)."
+    )
+    label: str = Field(
+        ...,
+        description="Short (2 to 4 word) flavor-text label explaining the score.",
+    )
+
+
+class DocSearchResult(BaseModel):
+    """Batch result from the search/sort agent.
+
+    Contains a score entry for every document the agent evaluated.
+    Documents with a score of 0.0 are considered excluded and the
+    frontend hides them from the results.
+
+    Attributes:
+        scores: Per-document search/sort scores.
+
+    Example:
+        >>> r = DocSearchResult(scores=[
+        ...     DocSearchScore(content_id="cid-1", score=0.9, label="Key Evidence"),
+        ...     DocSearchScore(content_id="cid-2", score=0.0, label="Not Relevant"),
+        ... ])
+    """
+
+    scores: list[DocSearchScore] = Field(..., description="Per-document search/sort scores.")
+
+
+DocTag = Literal[
+    # Sources (who)
+    "Insured",
+    "Contractor",
+    "Agent",
+    "Vendor",
+    "Attorney",
+    # Types (what)
+    "Contact/Status",
+    "Estimate",
+    "Supplement",
+    "Demand",
+    "Dwelling",
+    "Contents",
+    "ALE",
+    "EMS",
+    "Photos",
+    "Damage Report",
+    "Weather Report",
+    # Flags (alerts)
+    "Attorney Demand",
+    "Time Sensitive",
+    "Compliance Issue",
+    "Customer Complaint",
+]
+"""Closed vocabulary of document tags.
+
+Tags are grouped into three categories:
+- **Sources**: the party associated with the document.
+- **Types**: the document's functional purpose.
+- **Flags**: urgent or noteworthy conditions.
+"""
+
+ALL_DOC_TAGS: list[str] = list(get_args(DocTag))
+"""Flat list of every valid ``DocTag`` value, derived from the Literal."""
+
+
+class DocumentTagResult(BaseModel):
+    """Tags assigned to a single document by the batch tagger agent.
+
+    Attributes:
+        file_name: The original file name this result corresponds to.
+        tags: Up to 4 predefined tags from the ``DocTag`` vocabulary.
+
+    Example:
+        >>> r = DocumentTagResult(file_name="policy.pdf", tags=["Insured", "Estimate"])
+    """
+
+    file_name: str = Field(..., description="Original file name of the document.")
+    tags: list[DocTag] = Field(
+        ...,
+        min_length=1,
+        max_length=4,
+        description="1-4 tags from the predefined DocTag vocabulary.",
+    )
+
+
+class BatchTagResult(BaseModel):
+    """Output of the batch tagger agent for a single batch of documents.
+
+    Attributes:
+        results: Per-document tag assignments for every document in the batch.
+    """
+
+    results: list[DocumentTagResult] = Field(
+        ..., description="Tag results for each document in the batch."
     )
 
 

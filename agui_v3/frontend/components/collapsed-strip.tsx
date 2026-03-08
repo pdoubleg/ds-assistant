@@ -8,6 +8,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { PanelLeftOpen } from "lucide-react";
+import { NativeTooltip } from "@/components/ui/native-tooltip-shadcnui";
 
 export type PaneId = "chat" | "documents" | "output";
 
@@ -24,20 +25,21 @@ export function CollapsedStrip({
   onExpand: () => void;
 }) {
   return (
-    <motion.button
-      initial={{ width: 0, opacity: 0 }}
-      animate={{ width: 40, opacity: 1 }}
-      exit={{ width: 0, opacity: 0 }}
-      transition={{ duration: 0.2 }}
-      onClick={onExpand}
-      className="shrink-0 flex flex-col items-center justify-center gap-2 border-r border-border/50 bg-card/60 hover:bg-secondary/70 transition-colors cursor-pointer overflow-hidden"
-      title={`Expand ${meta.label}`}
-    >
-      <span className="text-primary">{meta.icon}</span>
-      <span className="text-[10px] font-medium text-muted-foreground [writing-mode:vertical-lr] rotate-180 select-none tracking-wide">
-        {meta.label}
-      </span>
-      <PanelLeftOpen className="h-3.5 w-3.5 text-muted-foreground/60" />
-    </motion.button>
+    <NativeTooltip content={`Expand ${meta.label}`} side="right">
+      <motion.button
+        initial={{ width: 0, opacity: 0 }}
+        animate={{ width: 40, opacity: 1 }}
+        exit={{ width: 0, opacity: 0 }}
+        transition={{ duration: 0.2 }}
+        onClick={onExpand}
+        className="shrink-0 flex flex-col items-center justify-center gap-2 border-r border-border/50 bg-card/60 hover:bg-secondary/70 transition-colors cursor-pointer overflow-hidden"
+      >
+        <span className="text-primary">{meta.icon}</span>
+        <span className="text-[10px] font-medium text-muted-foreground [writing-mode:vertical-lr] rotate-180 select-none tracking-wide">
+          {meta.label}
+        </span>
+        <PanelLeftOpen className="h-3.5 w-3.5 text-muted-foreground/60" />
+      </motion.button>
+    </NativeTooltip>
   );
 }

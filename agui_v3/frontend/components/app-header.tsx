@@ -44,7 +44,7 @@ export function AppHeader() {
         <div className="flex items-center gap-4 shrink-0">
           <div className="relative">
             <Image
-              src="/q-bot.PNG"
+              src="/q-bot.png"
               alt="Q-Bot"
               width={76}
               height={76}

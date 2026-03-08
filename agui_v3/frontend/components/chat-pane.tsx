@@ -10,10 +10,12 @@
  *   - Progress bar for long-running agent tasks
  */
 
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
-import { useAuditAgent, type StepActivity } from "@/hooks/useAuditAgent";
+import { useAuditAgent, type StepActivity } from "@/hooks/use-audit-agent";
 import { useUploadedDocs } from "@/hooks/use-uploaded-docs";
+import { useChatDocs } from "@/hooks/use-chat-docs";
+import { deriveFileExt } from "@/components/a2ui/documents";
 import {
   Send,
   Loader2,
@@ -24,9 +26,11 @@ import {
   ChevronDown,
   ChevronRight,
   User,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ShineBorder } from "@/components/ui/shine-border";
 import {
   Tooltip,
   TooltipTrigger,
@@ -37,6 +41,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
 const TOOL_MESSAGE_MAX_CHARS = 110;
+const AI_SHINE_COLORS = ["var(--ring)", "var(--primary)", "var(--accent)"];
 
 const EXT_TO_MIME: Record<string, string> = {
   pdf: "application/pdf",
@@ -194,13 +199,16 @@ export function ChatPane() {
   const {
     runAudit,
     addDocument,
+    removeDocument,
+    setDocuments,
     isGenerating,
     currentRunStepLabel,
     state,
     lastAssistantMessage,
     stepActivity,
   } = useAuditAgent();
-  const { addUploadedDoc, updateUploadedDoc } = useUploadedDocs();
+  const { uploadedDocs, addUploadedDoc, updateUploadedDoc } = useUploadedDocs();
+  const { chatDocNames, removeChatDoc, addChatDoc } = useChatDocs();
   const [message, setMessage] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [collapsedToolBubbleIds, setCollapsedToolBubbleIds] = useState<
@@ -235,6 +243,71 @@ export function ChatPane() {
       },
     ]);
   }, [lastAssistantMessage, isGenerating]);
+
+  // ── Sync state.documents with chatDocNames ────────────────────────
+
+  // Build a content lookup from uploadedDocs + current state.documents
+  const docContentPool = useMemo(() => {
+    const pool = new Map<string, Record<string, unknown>>();
+    // uploadedDocs may include content from example docs or user uploads
+    for (const d of uploadedDocs) {
+      if (d.content) {
+        pool.set(d.file_name, {
+          file_name: d.file_name,
+          claim_number: d.claim_number || "",
+          content_id: d.content_id || "",
+          mime_type: d.mime_type,
+          content_url: d.content_url || "",
+          domain: d.domain || "claim",
+          document_type: d.document_type || "",
+          document_description: d.document_description || "",
+          create_date: d.create_date || "",
+          source_system: d.source_system || "",
+          content: d.content,
+        });
+      }
+    }
+    // state.documents may have content from prior uploads
+    for (const d of state.documents || []) {
+      const name = (d.file_name as string) || "";
+      if (name && !pool.has(name)) pool.set(name, d);
+    }
+    return pool;
+  }, [uploadedDocs, state.documents]);
+
+  // When chatDocNames changes, rebuild state.documents to match
+  const prevChatDocNamesRef = useRef<Set<string>>(chatDocNames);
+  useEffect(() => {
+    if (prevChatDocNamesRef.current === chatDocNames) return;
+    prevChatDocNamesRef.current = chatDocNames;
+
+    const newDocs: Array<Record<string, unknown>> = [];
+    for (const name of chatDocNames) {
+      const poolDoc = docContentPool.get(name);
+      if (poolDoc) newDocs.push(poolDoc);
+    }
+    setDocuments(newDocs);
+  }, [chatDocNames, docContentPool, setDocuments]);
+
+  // Chat context doc list for the bar
+  const chatContextDocs = useMemo(() => {
+    const docs: Array<{ file_name: string; mime_type: string }> = [];
+    for (const name of chatDocNames) {
+      const up = uploadedDocs.find((d) => d.file_name === name);
+      if (up) {
+        docs.push({ file_name: up.file_name, mime_type: up.mime_type });
+      } else {
+        const sd = (state.documents || []).find(
+          (d) => (d.file_name as string) === name
+        );
+        docs.push({
+          file_name: name,
+          mime_type: (sd?.mime_type as string) || "application/octet-stream",
+        });
+      }
+    }
+    return docs;
+  }, [chatDocNames, uploadedDocs, state.documents]);
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -302,6 +375,7 @@ export function ChatPane() {
           document_description: `${data.file_size || friendlySize}, ${data.page_count ?? 0} pages`,
           create_date: nowIso,
           source_system: "UPLOAD",
+          content: data.content ?? "",
         });
 
         addDocument({
@@ -317,6 +391,9 @@ export function ChatPane() {
           source_system: "UPLOAD",
           content: data.content ?? "",
         });
+
+        // Auto-add uploaded docs to chat agent context
+        addChatDoc(data.filename || file.name);
       } catch (err) {
         console.error(`Upload error for ${file.name}:`, err);
         updateUploadedDoc(file.name, {
@@ -346,7 +423,7 @@ export function ChatPane() {
         });
       }
     },
-    [addDocument, addUploadedDoc, updateUploadedDoc]
+    [addDocument, addUploadedDoc, updateUploadedDoc, addChatDoc]
   );
 
   const handleFileSelect = useCallback(
@@ -519,6 +596,37 @@ export function ChatPane() {
         )}
       </div>
 
+      {/* ── Chat context doc bar (gold border) ────────────────────── */}
+      {chatContextDocs.length > 0 && (
+        <div className="border-b-2 agent-doc-border bg-amber-50/30 dark:bg-amber-900/10 px-3 py-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <FileText className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 mr-0.5">
+              Agent docs
+            </span>
+            {chatContextDocs.map((doc) => {
+              const ext = deriveFileExt(doc.mime_type, doc.file_name).toUpperCase();
+              return (
+                <Badge
+                  key={doc.file_name}
+                  variant="outline"
+                  className="text-[11px] px-2 py-0.5 gap-1.5 bg-background/70 border-amber-500/30 cursor-pointer hover:bg-destructive/10 hover:border-destructive/30 group"
+                  onClick={() => removeChatDoc(doc.file_name)}
+                >
+                  <span className="font-mono text-[9px] font-bold text-muted-foreground">
+                    {ext}
+                  </span>
+                  <span className="truncate max-w-[120px]">
+                    {doc.file_name}
+                  </span>
+                  <X className="h-3 w-3 text-muted-foreground/50 group-hover:text-destructive" />
+                </Badge>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Chat messages */}
       <ScrollArea className="flex-1">
         <div className="px-4 py-4 space-y-4">
@@ -602,7 +710,7 @@ export function ChatPane() {
                             ) && (
                               <div className="flex items-center gap-2 text-sm text-muted-foreground pt-0.5">
                                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
-                                <span>Working...</span>
+                                Working...
                               </div>
                             )}
                         </div>
@@ -702,20 +810,29 @@ export function ChatPane() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant="default"
+                variant="outline"
                 size="icon"
                 onClick={handleSend}
                 disabled={
                   isGenerating ||
                   (!message.trim() && attachedFiles.length === 0)
                 }
-                className="shrink-0 h-9 w-9"
+                className="relative h-9 w-9 shrink-0 overflow-hidden border-primary/50 bg-background/80 text-primary hover:border-primary hover:bg-primary/10"
               >
-                {isGenerating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
+                {!isGenerating ? (
+                  <ShineBorder
+                    borderWidth={1}
+                    duration={16}
+                    shineColor={AI_SHINE_COLORS}
+                  />
+                ) : null}
+                <span className="relative z-10 inline-flex items-center justify-center">
+                  {isGenerating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>Send message</TooltipContent>

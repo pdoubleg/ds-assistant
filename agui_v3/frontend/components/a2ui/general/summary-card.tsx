@@ -153,22 +153,22 @@ export function SummaryCard({
 
             return (
               <div key={idx} className="rounded-lg border bg-card p-3 shadow-xs">
-                <div className="flex items-center gap-1.5 text-muted-foreground">
+                <div className="flex items-start gap-1.5 text-muted-foreground">
                   {iconNode && (
-                    <span className="text-muted-foreground/70">
+                    <span className="mt-0.5 shrink-0 text-muted-foreground/70">
                       {iconNode}
                     </span>
                   )}
-                  <span className="text-xs font-medium truncate">
+                  <span className="min-w-0 text-xs font-medium whitespace-normal wrap-anywhere">
                     {metric.label}
                   </span>
                 </div>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-lg font-semibold text-foreground truncate">
+                  <span className="min-w-0 flex-1 text-lg leading-snug font-semibold text-foreground whitespace-normal wrap-anywhere">
                     {metric.value}
                   </span>
                   {trendCfg && (
-                    <span className={trendCfg.color}>{trendCfg.icon}</span>
+                    <span className={`shrink-0 ${trendCfg.color}`}>{trendCfg.icon}</span>
                   )}
                 </div>
               </div>
