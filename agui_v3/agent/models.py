@@ -1,30 +1,50 @@
-"""Domain models, validation contracts, and UI conversion primitives.
+"""Pydantic models for agent outputs, document workflows, and UI payloads.
 
-This module centralizes Pydantic models for the agent workflow and follows
-three patterns:
-1) Canonical domain schemas live here and enforce invariants at model edges.
-2) Serialization/validation behavior is encoded with Pydantic fields,
-   validators, and computed fields rather than ad-hoc downstream logic.
-3) Renderable entities implement the ``A2UIConvertible`` contract to map
-   backend state into frontend ``A2UIComponent`` payloads.
+This module defines the typed contracts shared across the backend agent layer,
+document-processing workflows, and the A2UI frontend. The models in this file
+generally fall into five groups:
+
+1. UI transport models such as ``A2UIComponent`` and ``A2UIConvertible`` that
+   describe how backend state is converted into frontend-renderable payloads.
+2. Claim analysis and audit models such as the ``TFR*`` classes,
+   ``TimelineEvent``, ``SummaryMetric``, ``Finding``, ``TableSpec``,
+   ``ChartSpec``, and ``AnalysisResult`` that capture structured outputs from
+   LLM-driven analysis flows.
+3. Document-agent result models such as ``DocumentSummary``, ``DocSearch*``,
+   and ``DocumentTag*`` that represent the outputs of summarization, ranking,
+   and tagging operations.
+4. Runtime tagging schema helpers such as ``RuntimeBatchTagSchema`` and its
+   builders that generate constrained Pydantic models for the active document
+   tag set used in a given run.
+5. Source document models such as ``Document`` and ``Documents`` that model
+   ingested claim and policy files and provide helper representations for
+   prompting, lookup, and serialization.
+
+Together, these models form the validation boundary between raw source data,
+structured agent responses, and the frontend components rendered in the app.
 """
 
+import hashlib
 import logging
 import uuid
 import datetime
+from dataclasses import dataclass
+from functools import lru_cache
 from uuid import uuid4
 from pathlib import Path
 from abc import ABC, abstractmethod
-from typing import Any, Literal, Optional, Self, get_args
+from typing import Any, Literal, Optional, Self, Sequence, get_args
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    create_model,
     computed_field,
     field_serializer,
     model_validator,
 )
+from pydantic_ai import ModelRetry
 from pydantic.json_schema import SkipJsonSchema
 
 logger = logging.getLogger(__name__)
@@ -227,7 +247,7 @@ class TFRAnalysisResult(A2UIConvertible):
 
 
 # ============================================================================
-# Analysis Schema (run_analysis structured output)
+# Analysis Schema
 # ============================================================================
 
 
@@ -477,6 +497,76 @@ class ChartSpec(A2UIConvertible):
         )
 
 
+class AnalysisResult(BaseModel):
+    """Structured output from the ``run_analysis`` sub-agent.
+
+    Each optional section maps to one or more A2UI components. The
+    sub-agent populates whichever sections are relevant given the input
+    documents and the user's focus area.
+
+    Attributes:
+        title: Concise title for the summary text box.
+        summary: Narrative summary rendered as a TextBox. Can be used for any general statements that should be passed to the front end and displayed.
+        timeline_events: Optional Chronological events rendered as a ClaimTimeline.
+        summary_metrics: Optional Key-value metrics rendered as a SummaryCard.
+        findings: Optional Observations rendered as FindingCard(s).
+        tables: Optional Tabular data rendered as DataTable(s).
+        charts: Optional Visualizations rendered as SimpleChart(s).
+    """
+
+    title: str = Field(..., description="A concise title for the summary text box.")
+    summary: str = Field(
+        ...,
+        description=(
+            "A concise narrative summary of the claim suitable for display "
+            "in a summary text box. 2-4 sentences. Consider the focus; if just a general inquiry a full claim overview may not be necessary."
+        ),
+    )
+    timeline_events: list[TimelineEvent] | None = Field(
+        None,
+        description=(
+            "Optional chronological events in the claim lifecycle. Populate when the "
+            "documents contain dated activities (inspections, estimates, "
+            "payments, correspondence)."
+        ),
+    )
+    summary_metrics: list[SummaryMetric] | None = Field(
+        None,
+        description=(
+            "Optional key claim metrics at a glance (amounts, dates, statuses, parties). "
+            "Populate when the documents contain quantifiable claim data."
+        ),
+    )
+    findings: list[Finding] | None = Field(
+        None,
+        description=(
+            "Optional observations, flags, or insights the auditor should be aware of. "
+            "Populate when noteworthy patterns, gaps, or risks are identified."
+        ),
+    )
+    tables: list[TableSpec] | None = Field(
+        None,
+        description=(
+            "Optional structured tabular data such as estimate line items, coverage "
+            "breakdowns, or payment history. Populate when the documents "
+            "contain structured/tabular information."
+        ),
+    )
+    charts: list[ChartSpec] | None = Field(
+        None,
+        description=(
+            "Optional simple visualizations (bar, line, or pie) for numeric data. "
+            "Populate when a visual breakdown adds clarity (e.g. costs by "
+            "category, payment timeline)."
+        ),
+    )
+
+
+# ============================================================================
+# Document Agents Schemas
+# ============================================================================
+
+
 class DocumentSummary(BaseModel):
     """Summarization output for a single document.
 
@@ -581,16 +671,90 @@ DocTag = Literal[
     "Compliance Issue",
     "Customer Complaint",
 ]
-"""Closed vocabulary of document tags.
 
-Tags are grouped into three categories:
-- **Sources**: the party associated with the document.
-- **Types**: the document's functional purpose.
-- **Flags**: urgent or noteworthy conditions.
-"""
 
 ALL_DOC_TAGS: list[str] = list(get_args(DocTag))
 """Flat list of every valid ``DocTag`` value, derived from the Literal."""
+
+CUSTOM_FALLBACK_TAG_LABEL = "No Applicable Tags"
+"""Special custom-mode tag used when no selected labels fit a document."""
+
+
+TagSelectionMode = Literal["default", "custom"]
+"""Frontend-selectable document tagging modes."""
+
+
+TagIconName = Literal[
+    "general",
+    "insured",
+    "contractor",
+    "agent",
+    "vendor",
+    "attorney",
+    "contact_status",
+    "estimate",
+    "supplement",
+    "demand",
+    "dwelling",
+    "contents",
+    "ale",
+    "ems",
+    "photos",
+    "damage_report",
+    "weather_report",
+    "attorney_demand",
+    "time_sensitive",
+    "compliance_issue",
+    "customer_complaint",
+]
+"""Allowed icon identifiers for document tags."""
+
+
+ALL_TAG_ICON_NAMES: list[str] = list(get_args(TagIconName))
+"""Flat list of every valid ``TagIconName`` value."""
+
+
+DEFAULT_TAG_ICON_BY_LABEL: dict[str, TagIconName] = {
+    "Insured": "insured",
+    "Contractor": "contractor",
+    "Agent": "agent",
+    "Vendor": "vendor",
+    "Attorney": "attorney",
+    "Contact/Status": "contact_status",
+    "Estimate": "estimate",
+    "Supplement": "supplement",
+    "Demand": "demand",
+    "Dwelling": "dwelling",
+    "Contents": "contents",
+    "ALE": "ale",
+    "EMS": "ems",
+    "Photos": "photos",
+    "Damage Report": "damage_report",
+    "Weather Report": "weather_report",
+    "Attorney Demand": "attorney_demand",
+    "Time Sensitive": "time_sensitive",
+    "Compliance Issue": "compliance_issue",
+    "Customer Complaint": "customer_complaint",
+}
+"""Default icon mapping for the canonical document tag set."""
+
+
+class DefaultDocumentTagAssignment(BaseModel):
+    """Single tag/icon pair emitted by the default batch tagger.
+
+    Attributes:
+        label: Canonical tag label selected for the document.
+        icon: Icon identifier chosen for that label.
+
+    Example:
+        >>> assignment = DefaultDocumentTagAssignment(
+        ...     label="Estimate",
+        ...     icon="estimate",
+        ... )
+    """
+
+    label: DocTag = Field(..., description="Canonical tag label for the document.")
+    icon: TagIconName = Field(..., description="Icon identifier paired with the tag.")
 
 
 class DocumentTagResult(BaseModel):
@@ -598,18 +762,24 @@ class DocumentTagResult(BaseModel):
 
     Attributes:
         file_name: The original file name this result corresponds to.
-        tags: Up to 4 predefined tags from the ``DocTag`` vocabulary.
+        tags: Up to 4 predefined tag/icon pairs from the ``DocTag`` vocabulary.
 
     Example:
-        >>> r = DocumentTagResult(file_name="policy.pdf", tags=["Insured", "Estimate"])
+        >>> r = DocumentTagResult(
+        ...     file_name="policy.pdf",
+        ...     tags=[
+        ...         DefaultDocumentTagAssignment(label="Insured", icon="insured"),
+        ...         DefaultDocumentTagAssignment(label="Estimate", icon="estimate"),
+        ...     ],
+        ... )
     """
 
     file_name: str = Field(..., description="Original file name of the document.")
-    tags: list[DocTag] = Field(
+    tags: list[DefaultDocumentTagAssignment] = Field(
         ...,
         min_length=1,
         max_length=4,
-        description="1-4 tags from the predefined DocTag vocabulary.",
+        description="1-4 tag/icon assignments from the predefined DocTag vocabulary.",
     )
 
 
@@ -625,69 +795,131 @@ class BatchTagResult(BaseModel):
     )
 
 
-class AnalysisResult(BaseModel):
-    """Structured output from the ``run_analysis`` sub-agent.
-
-    Each optional section maps to one or more A2UI components. The
-    sub-agent populates whichever sections are relevant given the input
-    documents and the user's focus area.
+@dataclass(frozen=True)
+class RuntimeBatchTagSchema:
+    """Dynamically generated schema bundle for one tagging run.
 
     Attributes:
-        title: Concise title for the summary text box.
-        summary: Narrative summary rendered as a TextBox. Can be used for any general statements that should be passed to the front end and displayed.
-        timeline_events: Optional Chronological events rendered as a ClaimTimeline.
-        summary_metrics: Optional Key-value metrics rendered as a SummaryCard.
-        findings: Optional Observations rendered as FindingCard(s).
-        tables: Optional Tabular data rendered as DataTable(s).
-        charts: Optional Visualizations rendered as SimpleChart(s).
+        tag_literal: Runtime ``Literal`` type of valid tag labels.
+        tag_assignment_model: Pydantic model for a single ``{label, icon}`` pair.
+        document_result_model: Pydantic model for one document's tagging result.
+        batch_result_model: Top-level Pydantic model passed to ``agent.run``.
     """
 
-    title: str = Field(..., description="A concise title for the summary text box.")
-    summary: str = Field(
-        ...,
-        description=(
-            "A concise narrative summary of the claim suitable for display "
-            "in a summary text box. 2-4 sentences. Consider the focus; if just a general inquiry a full claim overview may not be necessary."
+    tag_literal: Any
+    tag_assignment_model: type[BaseModel]
+    document_result_model: type[BaseModel]
+    batch_result_model: type[BaseModel]
+
+
+def _build_literal(values: tuple[str, ...]) -> Any:
+    """Create a runtime ``Literal`` type from string values."""
+    return Literal.__getitem__(values)
+
+
+@lru_cache(maxsize=32)
+def _build_runtime_batch_tag_schema_cached(
+    active_labels: tuple[str, ...],
+) -> RuntimeBatchTagSchema:
+    """Create cached runtime Pydantic models for a tag selection.
+
+    Args:
+        active_labels: Ordered tuple of labels allowed for the current run.
+
+    Returns:
+        Schema bundle containing the runtime label literal and result models.
+    """
+    if not active_labels:
+        raise ValueError("At least one active label is required to build a tag schema.")
+
+    schema_suffix = hashlib.sha1("|".join(active_labels).encode("utf-8")).hexdigest()[:12]
+    tag_literal = _build_literal(active_labels)
+    icon_literal = _build_literal(tuple(ALL_TAG_ICON_NAMES))
+    model_config = ConfigDict(extra="forbid")
+    fallback_label = (
+        CUSTOM_FALLBACK_TAG_LABEL if CUSTOM_FALLBACK_TAG_LABEL in active_labels else None
+    )
+
+    tag_assignment_model = create_model(
+        f"DynamicDocumentTagAssignment_{schema_suffix}",
+        __config__=model_config,
+        label=(
+            tag_literal,
+            Field(..., description="Selected tag label for the document."),
+        ),
+        icon=(
+            icon_literal,
+            Field(..., description="Selected icon identifier for the tag."),
         ),
     )
-    timeline_events: list[TimelineEvent] | None = Field(
-        None,
-        description=(
-            "Optional chronological events in the claim lifecycle. Populate when the "
-            "documents contain dated activities (inspections, estimates, "
-            "payments, correspondence)."
+
+    class _DynamicDocumentTagResultBase(BaseModel):
+        """Shared validator enforcing runtime fallback-tag rules."""
+
+        model_config = ConfigDict(extra="forbid")
+
+        @model_validator(mode="after")
+        def validate_fallback_tag_usage(self) -> Self:
+            """Ensure the fallback tag is only used as a sole tag."""
+            if fallback_label is None:
+                return self
+
+            labels = [getattr(tag, "label", None) for tag in self.tags]
+            if fallback_label in labels and len(labels) != 1:
+                raise ModelRetry(
+                    "The fallback tag "
+                    f"'{fallback_label}' may only be returned when no other tag applies. "
+                    "If one or more real tags apply, remove the fallback tag. "
+                    "If no tags apply, return only the fallback tag with the general icon."
+                )
+            return self
+
+    document_result_model = create_model(
+        f"DynamicDocumentTagResult_{schema_suffix}",
+        __base__=_DynamicDocumentTagResultBase,
+        file_name=(str, Field(..., description="Original file name of the document.")),
+        tags=(
+            list[tag_assignment_model],
+            Field(
+                ...,
+                min_length=1,
+                max_length=4,
+                description="1-4 tag/icon assignments from the active tag vocabulary.",
+            ),
         ),
     )
-    summary_metrics: list[SummaryMetric] | None = Field(
-        None,
-        description=(
-            "Optional key claim metrics at a glance (amounts, dates, statuses, parties). "
-            "Populate when the documents contain quantifiable claim data."
+    batch_result_model = create_model(
+        f"DynamicBatchTagResult_{schema_suffix}",
+        __config__=model_config,
+        results=(
+            list[document_result_model],
+            Field(..., description="Tagging results for the processed batch."),
         ),
     )
-    findings: list[Finding] | None = Field(
-        None,
-        description=(
-            "Optional observations, flags, or insights the auditor should be aware of. "
-            "Populate when noteworthy patterns, gaps, or risks are identified."
-        ),
+
+    return RuntimeBatchTagSchema(
+        tag_literal=tag_literal,
+        tag_assignment_model=tag_assignment_model,
+        document_result_model=document_result_model,
+        batch_result_model=batch_result_model,
     )
-    tables: list[TableSpec] | None = Field(
-        None,
-        description=(
-            "Optional structured tabular data such as estimate line items, coverage "
-            "breakdowns, or payment history. Populate when the documents "
-            "contain structured/tabular information."
-        ),
-    )
-    charts: list[ChartSpec] | None = Field(
-        None,
-        description=(
-            "Optional simple visualizations (bar, line, or pie) for numeric data. "
-            "Populate when a visual breakdown adds clarity (e.g. costs by "
-            "category, payment timeline)."
-        ),
-    )
+
+
+def build_runtime_batch_tag_schema(active_labels: Sequence[str]) -> RuntimeBatchTagSchema:
+    """Build runtime-safe document tagging models for the active label set.
+
+    Args:
+        active_labels: Ordered list of labels that the agent may emit.
+
+    Returns:
+        Cached runtime schema bundle keyed by the ordered tag list.
+
+    Example:
+        >>> schema = build_runtime_batch_tag_schema(["Estimate", "Photos"])
+        >>> assert schema.batch_result_model is not None
+    """
+    normalized = tuple(label.strip() for label in active_labels if label.strip())
+    return _build_runtime_batch_tag_schema_cached(normalized)
 
 
 # ============================================================================

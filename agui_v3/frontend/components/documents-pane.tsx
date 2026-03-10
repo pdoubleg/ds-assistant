@@ -46,13 +46,21 @@ import {
   type BulkExpandedCommand,
   deriveFileExt,
   type DocumentCardUiState,
+  type DocumentTagData,
   type DocumentSummaryData,
   type DocSearchData,
   type CardVariant,
 } from "@/components/a2ui/documents";
 import { DocumentViewerSheet } from "@/components/document-viewer-sheet";
-import { getTagConfig, ALL_TAGS } from "@/lib/tag-registry";
 import {
+  CUSTOM_FALLBACK_TAG_LABEL,
+  getTagConfig,
+  getDefaultTagIconName,
+  isTagIconName,
+  ALL_TAGS,
+} from "@/lib/tag-registry";
+import {
+  AlertTriangle,
   FileUp,
   Sparkles,
   Search,
@@ -72,6 +80,10 @@ import {
   Undo2,
   ScanSearch,
   Info,
+  Plus,
+  Square,
+  CheckSquare,
+  Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,6 +126,7 @@ const HIDDEN_DOCK_UI_STORAGE_KEY = "agui_v3.hiddenDockUi.v1";
 
 type DocWithId = UploadedDoc & { _id: string };
 type SortKey = "default" | "score" | "date" | "title";
+type AutoTagMode = "default" | "custom";
 type HiddenSortKey =
   | "file_name"
   | "ext"
@@ -140,6 +153,42 @@ const EMPTY_FILTERS: Filters = {
   domains: new Set(),
   tags: new Set(),
 };
+
+const MAX_CUSTOM_TAGS = 20;
+const DEFAULT_TAG_SET = new Set(ALL_TAGS);
+
+function normalizeTagLabel(label: string): string {
+  return label.replace(/\s+/g, " ").trim();
+}
+
+function parseStoredTagData(value: unknown): DocumentTagData[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (typeof item === "string") {
+      const label = normalizeTagLabel(item);
+      return label
+        ? [{ label, icon: getDefaultTagIconName(label) }]
+        : [];
+    }
+
+    if (
+      item &&
+      typeof item === "object" &&
+      typeof (item as { label?: unknown }).label === "string"
+    ) {
+      const label = normalizeTagLabel((item as { label: string }).label);
+      if (!label) return [];
+      const rawIcon =
+        typeof (item as { icon?: unknown }).icon === "string"
+          ? ((item as { icon?: string }).icon ?? null)
+          : null;
+      return [{ label, icon: isTagIconName(rawIcon) ? rawIcon : null }];
+    }
+
+    return [];
+  });
+}
 
 // ── Utility: check if any filter is active ─────────────────────────────
 
@@ -405,6 +454,7 @@ export function DocumentsPane() {
     total: 0,
   });
   const [showSummarizeInput, setShowSummarizeInput] = useState(false);
+  const [summarizeInstructions, setSummarizeInstructions] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
   // ── Search & Sort state ────────────────────────────────────────────
@@ -419,19 +469,31 @@ export function DocumentsPane() {
 
   // ── Tagging state ───────────────────────────────────────────────────
 
-  const [agentTags, setAgentTags] = useState<Map<string, string[]>>(
+  const [agentTags, setAgentTags] = useState<Map<string, DocumentTagData[]>>(
     new Map()
   );
+  const [tagMode, setTagMode] = useState<AutoTagMode>("default");
+  const [customTagCatalog, setCustomTagCatalog] = useState<string[]>(ALL_TAGS);
+  const [selectedCustomTags, setSelectedCustomTags] = useState<string[]>(ALL_TAGS);
+  const [customTagDraft, setCustomTagDraft] = useState("");
+  const [customTagError, setCustomTagError] = useState<string | null>(null);
 
   // Derive filter options from the tags actually assigned to documents
   const allTagOptions = useMemo(() => {
     const seen = new Set<string>();
     for (const tags of agentTags.values()) {
-      for (const t of tags) seen.add(t);
+      for (const tag of tags) seen.add(tag.label);
     }
-    // Preserve the canonical order from ALL_TAGS
-    return ALL_TAGS.filter((t) => seen.has(t));
+    const defaultLabels = ALL_TAGS.filter((tag) => seen.has(tag));
+    const customLabels = [...seen]
+      .filter((tag) => !DEFAULT_TAG_SET.has(tag))
+      .sort((a, b) => a.localeCompare(b));
+    return [...defaultLabels, ...customLabels];
   }, [agentTags]);
+  const selectedCustomTagSet = useMemo(
+    () => new Set(selectedCustomTags),
+    [selectedCustomTags]
+  );
   const [cardUiByFileName, setCardUiByFileName] = useState<
     Map<string, DocumentCardUiState>
   >(new Map());
@@ -443,6 +505,7 @@ export function DocumentsPane() {
     batch: number;
     totalBatches: number;
   } | null>(null);
+  const [showTagConfirm, setShowTagConfirm] = useState(false);
   const tagAbortRef = useRef<AbortController | null>(null);
 
   // ── Doc Lens state ──────────────────────────────────────────────────
@@ -491,10 +554,7 @@ export function DocumentsPane() {
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           const entries = Object.entries(parsed as Record<string, unknown>)
             .filter(([k, v]) => typeof k === "string" && Array.isArray(v))
-            .map(([k, v]) => [
-              k,
-              (v as unknown[]).filter((item): item is string => typeof item === "string"),
-            ]) as [string, string[]][];
+            .map(([k, v]) => [k, parseStoredTagData(v)]) as [string, DocumentTagData[]][];
           setAgentTags(new Map(entries));
         }
       }
@@ -677,7 +737,7 @@ export function DocumentsPane() {
     if (filters.tags.size > 0) {
       docs = docs.filter((d) => {
         const docTags = agentTags.get(d.file_name) || [];
-        return docTags.some((t) => filters.tags.has(t));
+        return docTags.some((tag) => filters.tags.has(tag.label));
       });
     }
 
@@ -1110,6 +1170,7 @@ export function DocumentsPane() {
   const runSummarize = useCallback(async () => {
     const payloads = buildVisiblePayloads();
     if (payloads.length === 0) return;
+    const trimmedAdditionalInstructions = summarizeInstructions.trim();
 
     setIsSummarizing(true);
     setSummarizeProgress({ done: 0, total: payloads.length });
@@ -1121,7 +1182,12 @@ export function DocumentsPane() {
       const resp = await fetch(`${BACKEND_URL}/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documents: payloads }),
+        body: JSON.stringify({
+          documents: payloads,
+          ...(trimmedAdditionalInstructions
+            ? { additional_instructions: trimmedAdditionalInstructions }
+            : {}),
+        }),
         signal: controller.signal,
       });
 
@@ -1185,7 +1251,7 @@ export function DocumentsPane() {
       setShowSummarizeInput(false);
       abortRef.current = null;
     }
-  }, [buildVisiblePayloads]);
+  }, [buildVisiblePayloads, summarizeInstructions]);
 
   const cancelSummarize = useCallback(() => {
     abortRef.current?.abort();
@@ -1292,12 +1358,77 @@ export function DocumentsPane() {
 
   // ── Auto-tag via NDJSON stream ──────────────────────────────────────
 
+  const addCustomTag = useCallback(() => {
+    const label = normalizeTagLabel(customTagDraft);
+    if (!label) {
+      setCustomTagError("Enter a tag name before adding it.");
+      return;
+    }
+
+    const isDuplicate = customTagCatalog.some(
+      (existing) => existing.toLowerCase() === label.toLowerCase()
+    );
+    if (isDuplicate) {
+      setCustomTagError(`Duplicate tags are not allowed: "${label}" already exists.`);
+      return;
+    }
+
+    if (customTagCatalog.length >= MAX_CUSTOM_TAGS) {
+      setCustomTagError(`You can customize up to ${MAX_CUSTOM_TAGS} tags in total.`);
+      return;
+    }
+
+    setCustomTagCatalog((prev) => [...prev, label]);
+    setSelectedCustomTags((prev) => [...prev, label]);
+    setCustomTagDraft("");
+    setCustomTagError(null);
+  }, [customTagCatalog, customTagDraft]);
+
+  const toggleCustomTagSelection = useCallback((label: string) => {
+    setSelectedCustomTags((prev) =>
+      prev.includes(label)
+        ? prev.filter((tag) => tag !== label)
+        : [...prev, label]
+    );
+  }, []);
+
+  const removeCustomTag = useCallback((label: string) => {
+    setCustomTagCatalog((prev) => prev.filter((tag) => tag !== label));
+    setSelectedCustomTags((prev) => prev.filter((tag) => tag !== label));
+    setCustomTagError(null);
+  }, []);
+
+  const selectAllCustomTags = useCallback(() => {
+    setSelectedCustomTags(customTagCatalog);
+  }, [customTagCatalog]);
+
+  const unselectAllCustomTags = useCallback(() => {
+    setSelectedCustomTags([]);
+  }, []);
+
+  const removeAllCustomTags = useCallback(() => {
+    setCustomTagCatalog([]);
+    setSelectedCustomTags([]);
+    setCustomTagError(null);
+  }, []);
+
+  const restoreDefaultCustomTags = useCallback(() => {
+    setCustomTagCatalog(ALL_TAGS);
+    setSelectedCustomTags(ALL_TAGS);
+    setCustomTagError(null);
+  }, []);
+
   const runAutoTag = useCallback(async () => {
     // Tag visible docs (not hidden) so the user can use tags to filter
     const payloads = buildVisiblePayloads();
+    const activeCustomTags = customTagCatalog.filter((tag) =>
+      selectedCustomTagSet.has(tag)
+    );
 
     if (payloads.length === 0) return;
+    if (tagMode === "custom" && activeCustomTags.length === 0) return;
 
+    setShowTagConfirm(false);
     setIsTagging(true);
     setTaggingProgress(null);
 
@@ -1308,7 +1439,11 @@ export function DocumentsPane() {
       const resp = await fetch(`${BACKEND_URL}/document-tags`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documents: payloads }),
+        body: JSON.stringify({
+          documents: payloads,
+          tag_mode: tagMode,
+          selected_tags: tagMode === "custom" ? activeCustomTags : [],
+        }),
         signal: controller.signal,
       });
 
@@ -1344,7 +1479,7 @@ export function DocumentsPane() {
               if (!obj.error) {
                 const results = obj.results as Array<{
                   file_name: string;
-                  tags: string[];
+                  tags: DocumentTagData[];
                 }>;
                 setAgentTags((prev) => {
                   const next = new Map(prev);
@@ -1367,12 +1502,18 @@ export function DocumentsPane() {
       setTaggingProgress(null);
       tagAbortRef.current = null;
     }
-  }, [buildVisiblePayloads]);
+  }, [
+    buildVisiblePayloads,
+    customTagCatalog,
+    selectedCustomTagSet,
+    tagMode,
+  ]);
 
   const cancelAutoTag = useCallback(() => {
     tagAbortRef.current?.abort();
     setIsTagging(false);
     setTaggingProgress(null);
+    setShowTagConfirm(false);
   }, []);
 
   // ── Collect active filter chips for display ─────────────────────────
@@ -1394,6 +1535,13 @@ export function DocumentsPane() {
       chips.push({ key: "tags", value: v, label: v });
     return chips;
   }, [filters]);
+
+  const customSelectionCount = selectedCustomTags.length;
+  const hasCustomSelection = customSelectionCount > 0;
+  const customSelectionNotice =
+    tagMode === "custom" && !hasCustomSelection
+      ? "No tags selected. Auto-tagging is disabled until you select at least one tag."
+      : null;
 
   // ═══════════════════════════════════════════════════════════════════
   // Render
@@ -1575,148 +1723,192 @@ export function DocumentsPane() {
           <div className="flex items-center gap-1">
           {/* Auto-tag */}
           <NativeTooltip
-            content={isTagging ? "Cancel auto-tagging" : "Auto-tag"}
+            content={
+              isTagging
+                ? "Cancel auto-tagging"
+                : filteredDocs.length === 0
+                  ? "Requires at least one document"
+                  : "Auto-tag"
+            }
             side="bottom"
             animation="blur"
             shine
           >
-            <Button
-              variant="outline"
-              size="sm"
-              className="relative h-7 gap-1 overflow-hidden text-[11px]"
-              onClick={isTagging ? cancelAutoTag : runAutoTag}
-              disabled={filteredDocs.length === 0 && !isTagging}
-            >
-              {!isTagging ? (
-                <ShineBorder
-                  borderWidth={1}
-                  duration={16}
-                  shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
-                />
-              ) : null}
-              <span className="relative z-10 inline-flex items-center gap-1">
-                {isTagging ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {taggingProgress
-                      ? `${taggingProgress.batch}/${taggingProgress.totalBatches}`
-                      : "..."}
-                  </>
-                ) : (
-                  <>
-                    <Tag className="h-3 w-3" />
-                    {isNarrow ? "" : "Auto-tag"}
-                  </>
-                )}
-              </span>
-            </Button>
+            <span className="inline-flex">
+              <Button
+                variant={showTagConfirm ? "secondary" : "outline"}
+                size="sm"
+                className="relative h-7 gap-1 overflow-hidden text-[11px]"
+                onClick={() => {
+                  if (isTagging) cancelAutoTag();
+                  else {
+                    setShowTagConfirm((p) => !p);
+                    setShowSummarizeInput(false);
+                    setShowSearchInput(false);
+                  }
+                }}
+                disabled={filteredDocs.length === 0 && !isTagging}
+              >
+                {!isTagging ? (
+                  <ShineBorder
+                    borderWidth={1}
+                    duration={16}
+                    shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
+                  />
+                ) : null}
+                <span className="relative z-10 inline-flex items-center gap-1">
+                  {isTagging ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {taggingProgress
+                        ? `${taggingProgress.batch}/${taggingProgress.totalBatches}`
+                        : "..."}
+                    </>
+                  ) : (
+                    <>
+                      <Tag className="h-3 w-3" />
+                      {isNarrow ? "" : "Auto-tag"}
+                    </>
+                  )}
+                </span>
+              </Button>
+            </span>
           </NativeTooltip>
 
           {/* Summarize */}
           <NativeTooltip
-            content={isSummarizing ? "Cancel summarization" : "Summarize"}
+            content={
+              isSummarizing
+                ? "Cancel summarization"
+                : filteredDocs.length === 0
+                  ? "Requires at least one document"
+                  : "Summarize"
+            }
             side="bottom"
             animation="blur"
             shine
           >
-            <Button
-              variant={showSummarizeInput ? "secondary" : "outline"}
-              size="sm"
-              className="relative h-7 gap-1 overflow-hidden text-[11px]"
-              onClick={() => {
-                if (isSummarizing) cancelSummarize();
-                else {
-                  setShowSummarizeInput((p) => !p);
-                  setShowSearchInput(false);
-                }
-              }}
-              disabled={filteredDocs.length === 0 && !isSummarizing}
-            >
-              {!isSummarizing ? (
-                <ShineBorder
-                  borderWidth={1}
-                  duration={16}
-                  shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
-                />
-              ) : null}
-              <span className="relative z-10 inline-flex items-center gap-1">
-                {isSummarizing ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {summarizeProgress.done}/{summarizeProgress.total}
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-3 w-3" />
-                    {isNarrow ? "" : "Summarize"}
-                  </>
-                )}
-              </span>
-            </Button>
+            <span className="inline-flex">
+              <Button
+                variant={showSummarizeInput ? "secondary" : "outline"}
+                size="sm"
+                className="relative h-7 gap-1 overflow-hidden text-[11px]"
+                onClick={() => {
+                  if (isSummarizing) cancelSummarize();
+                  else {
+                    setShowSummarizeInput((p) => !p);
+                    setShowTagConfirm(false);
+                    setShowSearchInput(false);
+                  }
+                }}
+                disabled={filteredDocs.length === 0 && !isSummarizing}
+              >
+                {!isSummarizing ? (
+                  <ShineBorder
+                    borderWidth={1}
+                    duration={16}
+                    shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
+                  />
+                ) : null}
+                <span className="relative z-10 inline-flex items-center gap-1">
+                  {isSummarizing ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {summarizeProgress.done}/{summarizeProgress.total}
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3 w-3" />
+                      {isNarrow ? "" : "Summarize"}
+                    </>
+                  )}
+                </span>
+              </Button>
+            </span>
           </NativeTooltip>
 
           {/* Search & Sort */}
           <NativeTooltip
-            content={isSearching ? "Cancel search" : "Search & Sort"}
+            content={
+              isSearching
+                ? "Cancel search"
+                : filteredDocs.length < 2
+                  ? "Requires at least two documents"
+                  : "Search & Sort"
+            }
             side="bottom"
             animation="blur"
             shine
           >
-            <Button
-              variant={showSearchInput ? "secondary" : "outline"}
-              size="sm"
-              className="relative h-7 gap-1 overflow-hidden text-[11px]"
-              onClick={() => {
-                if (isSearching) cancelSearchSort();
-                else {
-                  setShowSearchInput((p) => !p);
-                  setShowSummarizeInput(false);
-                }
-              }}
-              disabled={filteredDocs.length === 0 && !isSearching}
-            >
-              {!isSearching ? (
+            <span className="inline-flex">
+              <Button
+                variant={showSearchInput ? "secondary" : "outline"}
+                size="sm"
+                className="relative h-7 gap-1 overflow-hidden text-[11px]"
+                onClick={() => {
+                  if (isSearching) cancelSearchSort();
+                  else {
+                    setShowSearchInput((p) => !p);
+                    setShowTagConfirm(false);
+                    setShowSummarizeInput(false);
+                  }
+                }}
+                disabled={filteredDocs.length < 2 && !isSearching}
+              >
+                {!isSearching ? (
+                  <ShineBorder
+                    borderWidth={1}
+                    duration={16}
+                    shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
+                  />
+                ) : null}
+                <span className="relative z-10 inline-flex items-center gap-1">
+                  {isSearching ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Scoring...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="h-3 w-3" />
+                      {isNarrow ? "" : "Search & Sort"}
+                    </>
+                  )}
+                </span>
+              </Button>
+            </span>
+          </NativeTooltip>
+
+          {/* Doc Lens */}
+          <NativeTooltip
+            content={
+              filteredDocs.length === 0
+                ? "Requires at least one document"
+                : "Document image search (Doc Lens)"
+            }
+            side="bottom"
+            animation="blur"
+            shine
+          >
+            <span className="inline-flex">
+              <Button
+                variant="outline"
+                size="sm"
+                className="relative h-7 gap-1 overflow-hidden text-[11px]"
+                onClick={handleDocLensClick}
+                disabled={filteredDocs.length === 0}
+              >
                 <ShineBorder
                   borderWidth={1}
                   duration={16}
                   shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
                 />
-              ) : null}
-              <span className="relative z-10 inline-flex items-center gap-1">
-                {isSearching ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Scoring...
-                  </>
-                ) : (
-                  <>
-                    <Search className="h-3 w-3" />
-                    {isNarrow ? "" : "Search & Sort"}
-                  </>
-                )}
-              </span>
-            </Button>
-          </NativeTooltip>
-
-          {/* Doc Lens */}
-          <NativeTooltip content="Document image search (Doc Lens)" side="bottom" animation="blur" shine>
-            <Button
-              variant="outline"
-              size="sm"
-              className="relative h-7 gap-1 overflow-hidden text-[11px]"
-              onClick={handleDocLensClick}
-              disabled={filteredDocs.length === 0}
-            >
-              <ShineBorder
-                borderWidth={1}
-                duration={16}
-                shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
-              />
-              <span className="relative z-10 inline-flex items-center gap-1">
-                <ScanSearch className="h-3 w-3" />
-                {isNarrow ? "" : "Doc Lens"}
-              </span>
-            </Button>
+                <span className="relative z-10 inline-flex items-center gap-1">
+                  <ScanSearch className="h-3 w-3" />
+                  {isNarrow ? "" : "Doc Lens"}
+                </span>
+              </Button>
+            </span>
           </NativeTooltip>
 
           </div>{/* end buttons row */}
@@ -1765,7 +1957,293 @@ export function DocumentsPane() {
         )}
       </AnimatePresence>
 
-      {/* ── Summarize confirmation bar ──────────────────────────── */}
+      {/* ── Auto-tag confirmation bar ───────────────────────────── */}
+      <AnimatePresence>
+        {showTagConfirm && !isTagging && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-b border-border/30"
+          >
+            <div className="px-3 py-3 space-y-3">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground">
+                    Auto-tag {filteredDocs.length} visible document
+                    {filteredDocs.length !== 1 ? "s" : ""}?
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <NativeTooltip content="Run auto-tagging" side="bottom" animation="blur">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="h-7 text-[11px] gap-1"
+                      onClick={runAutoTag}
+                      disabled={
+                        filteredDocs.length === 0 ||
+                        (tagMode === "custom" && !hasCustomSelection)
+                      }
+                    >
+                      <Send className="h-3 w-3" />
+                      Run
+                    </Button>
+                  </NativeTooltip>
+                  <NativeTooltip content="Cancel" side="bottom" animation="blur">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => setShowTagConfirm(false)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </NativeTooltip>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+                <p className="text-[11px] font-medium text-foreground">Tag Mode</p>
+                <div className="flex items-center rounded-md border border-border/60 overflow-hidden shrink-0">
+                  <NativeTooltip
+                    content="Use the default tag set."
+                    side="bottom"
+                    animation="blur"
+                  >
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant={tagMode === "default" ? "secondary" : "ghost"}
+                        size="sm"
+                        className="h-7 rounded-none px-3 text-[11px]"
+                        onClick={() => {
+                          setTagMode("default");
+                          setCustomTagError(null);
+                        }}
+                      >
+                        Default
+                      </Button>
+                    </span>
+                  </NativeTooltip>
+                  <NativeTooltip
+                    content="Customize which tags the model can use."
+                    side="bottom"
+                    animation="blur"
+                  >
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant={tagMode === "custom" ? "secondary" : "ghost"}
+                        size="sm"
+                        className="h-7 rounded-none border-l border-border/60 px-3 text-[11px]"
+                        onClick={() => {
+                          setTagMode("custom");
+                          setCustomTagError(null);
+                        }}
+                      >
+                        Custom
+                      </Button>
+                    </span>
+                  </NativeTooltip>
+                </div>
+              </div>
+
+              {tagMode === "custom" && (
+                <div className="rounded-md border border-border/50 bg-muted/10">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
+                    <div>
+                      <p className="text-[11px] font-medium text-foreground">
+                        Custom Tag Set
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {selectedCustomTags.length} selected of {customTagCatalog.length} configured
+                        tags ({MAX_CUSTOM_TAGS} max).
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={selectAllCustomTags}
+                        disabled={customTagCatalog.length === 0}
+                      >
+                        <CheckSquare className="mr-1 h-3 w-3" />
+                        Select all
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={unselectAllCustomTags}
+                        disabled={customTagCatalog.length === 0}
+                      >
+                        <Square className="mr-1 h-3 w-3" />
+                        Unselect all
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={restoreDefaultCustomTags}
+                        disabled={
+                          customTagCatalog.length === ALL_TAGS.length &&
+                          customTagCatalog.every((tag, index) => tag === ALL_TAGS[index]) &&
+                          selectedCustomTags.length === ALL_TAGS.length &&
+                          selectedCustomTags.every((tag, index) => tag === ALL_TAGS[index])
+                        }
+                      >
+                        Restore Default
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={removeAllCustomTags}
+                        disabled={customTagCatalog.length === 0}
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        Remove all
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 border-b border-border/40 px-3 py-3 sm:flex-row">
+                    <Input
+                      value={customTagDraft}
+                      onChange={(e) => {
+                        setCustomTagDraft(e.target.value);
+                        if (customTagError) setCustomTagError(null);
+                      }}
+                      placeholder="Add a tag"
+                      className="h-8 text-xs flex-1"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addCustomTag();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-[11px] shrink-0"
+                      onClick={addCustomTag}
+                      disabled={customTagCatalog.length >= MAX_CUSTOM_TAGS}
+                    >
+                      <Plus className="mr-1 h-3 w-3" />
+                      Add tag
+                    </Button>
+                  </div>
+
+                  {(customSelectionNotice || customTagError) && (
+                    <div className="space-y-1 px-3 pt-3">
+                      {customSelectionNotice && (
+                        <div className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          {customSelectionNotice}
+                        </div>
+                      )}
+                      {customTagError && (
+                        <div className="flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-[11px] text-destructive">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          {customTagError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="px-3 pt-3">
+                    <div className="flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/10 px-2.5 py-2 text-[11px] text-sky-800 dark:text-sky-200">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      Docs with no matching custom tags will get `{CUSTOM_FALLBACK_TAG_LABEL}`.
+                    </div>
+                  </div>
+
+                  <div className="px-3 py-3">
+                    <div className="rounded-md border border-border/40 overflow-hidden">
+                      <div className="max-h-72 overflow-y-auto">
+                        <Table>
+                          <TableHeader className="sticky top-0 z-10 bg-background">
+                            <TableRow>
+                              <TableHead className="w-[60%]">Tag</TableHead>
+                              <TableHead>Selected</TableHead>
+                              <TableHead className="w-[64px] text-right">Remove</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {customTagCatalog.map((tagLabel) => {
+                              const cfg = getTagConfig(tagLabel);
+                              const Icon = cfg.icon;
+                              const isSelected = selectedCustomTagSet.has(tagLabel);
+                              return (
+                                <TableRow key={tagLabel}>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      <Badge
+                                        variant="outline"
+                                        className={cn(
+                                          "text-[10px] px-2 py-0.5 inline-flex items-center gap-1",
+                                          cfg.bg,
+                                          cfg.text,
+                                          cfg.border
+                                        )}
+                                      >
+                                        <Icon className="h-3 w-3 shrink-0" />
+                                        {tagLabel}
+                                      </Badge>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button
+                                      type="button"
+                                      variant={isSelected ? "secondary" : "outline"}
+                                      size="sm"
+                                      className="h-7 text-[11px]"
+                                      onClick={() => toggleCustomTagSelection(tagLabel)}
+                                    >
+                                      {isSelected ? (
+                                        <CheckSquare className="mr-1 h-3 w-3" />
+                                      ) : (
+                                        <Square className="mr-1 h-3 w-3" />
+                                      )}
+                                      {isSelected ? "Selected" : "Unselected"}
+                                    </Button>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={() => removeCustomTag(tagLabel)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Summarize instruction input ─────────────────────────── */}
       <AnimatePresence>
         {showSummarizeInput && !isSummarizing && (
           <motion.div
@@ -1776,19 +2254,25 @@ export function DocumentsPane() {
             className="overflow-hidden border-b border-border/30"
           >
             <div className="flex items-center gap-1.5 px-3 py-2">
-              <span className="text-xs text-muted-foreground flex-1">
-                Summarize {filteredDocs.length} visible document{filteredDocs.length !== 1 ? "s" : ""}?
-              </span>
+              <Input
+                value={summarizeInstructions}
+                onChange={(e) => setSummarizeInstructions(e.target.value)}
+                placeholder={`Optional: tell the summarizer what to focus on for ${filteredDocs.length} visible document${filteredDocs.length !== 1 ? "s" : ""}`}
+                className="h-7 text-xs flex-1"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") runSummarize();
+                }}
+                autoFocus
+              />
               <NativeTooltip content="Run summarization" side="bottom" animation="blur">
                 <Button
                   variant="default"
-                  size="sm"
-                  className="h-7 text-[11px] gap-1 shrink-0"
+                  size="icon"
+                  className="h-7 w-7 shrink-0"
                   onClick={runSummarize}
                   disabled={filteredDocs.length === 0}
                 >
                   <Send className="h-3 w-3" />
-                  Run
                 </Button>
               </NativeTooltip>
               <NativeTooltip content="Cancel" side="bottom" animation="blur">
@@ -2347,16 +2831,16 @@ export function DocumentsPane() {
                                           {visibleTags.length > 0 ? (
                                             <div className="flex items-center gap-1 flex-wrap">
                                               {visibleTags.map((tag) => {
-                                                const cfg = getTagConfig(tag);
+                                                const cfg = getTagConfig(tag.label, tag.icon);
                                                 const Icon = cfg.icon;
                                                 return (
                                                   <Badge
-                                                    key={`${doc._id}-${tag}`}
+                                                    key={`${doc._id}-${tag.label}-${tag.icon ?? "general"}`}
                                                     variant="outline"
                                                     className={`text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5 ${cfg.bg} ${cfg.text} ${cfg.border}`}
                                                   >
                                                     <Icon className="h-2.5 w-2.5 shrink-0" />
-                                                    {tag}
+                                                    {tag.label}
                                                   </Badge>
                                                 );
                                               })}

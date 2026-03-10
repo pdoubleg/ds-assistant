@@ -17,3 +17,4 @@ src/mcp/.cache/
 **/node_modules/
 **/agui_v2/frontend/node_modules/
 agui_v3/agent/.cache/doc_lens_cache/
+agui_v4/backend/.cache/

@@ -39,7 +39,7 @@ class Settings(BaseModel):
     # PDF extraction settings
     # ------------------------------------------------------------------
     render_dpi: int = Field(default=int(os.getenv("DOC_LENS_RENDER_DPI", "300")))
-    min_area_ratio: float = Field(default=float(os.getenv("DOC_LENS_MIN_AREA_RATIO", "0.02")))
+    min_area_ratio: float = Field(default=float(os.getenv("DOC_LENS_MIN_AREA_RATIO", "0.10")))
     max_area_ratio: float = Field(default=float(os.getenv("DOC_LENS_MAX_AREA_RATIO", "0.95")))
     crop_padding_px: int = Field(default=int(os.getenv("DOC_LENS_CROP_PADDING_PX", "8")))
 

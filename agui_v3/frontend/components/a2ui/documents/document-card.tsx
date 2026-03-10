@@ -13,11 +13,10 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
-import { getTagConfig } from "@/lib/tag-registry";
+import { getTagConfig, type TagIconName } from "@/lib/tag-registry";
 import { Badge } from "@/components/ui/badge";
+import { GfmMarkdown } from "@/components/a2ui/general/gfm-markdown";
 import {
   Collapsible,
   CollapsibleContent,
@@ -74,6 +73,11 @@ export interface BulkExpandedCommand {
   summaryOpen: boolean;
 }
 
+export interface DocumentTagData {
+  label: string;
+  icon?: TagIconName | null;
+}
+
 export interface DocumentCardProps {
   file_name: string;
   mime_type: string;
@@ -92,7 +96,7 @@ export interface DocumentCardProps {
   /** Search/sort agent score. When present the card can show a score section. */
   searchData?: DocSearchData;
   /** Agent-generated tags shown as small pills. */
-  tags?: string[];
+  tags?: DocumentTagData[];
 
   /** Responsive layout tier set by the parent pane. */
   variant?: CardVariant;
@@ -521,12 +525,12 @@ export function DocumentCard({
             {tagsOpen && (
               <div className="px-3 pb-1.5 pt-0.5 flex items-center gap-1.5 flex-wrap pl-6">
                 {tags.map((tag) => {
-                  const isActive = activeTagFilters?.has(tag);
-                  const cfg = getTagConfig(tag);
+                  const isActive = activeTagFilters?.has(tag.label);
+                  const cfg = getTagConfig(tag.label, tag.icon);
                   const Icon = cfg.icon;
                   return (
                     <Badge
-                      key={tag}
+                      key={`${tag.label}-${tag.icon ?? "general"}`}
                       variant="outline"
                       className={cn(
                         "text-[11px] px-2 py-0.5 font-medium transition-all inline-flex items-center gap-1",
@@ -538,11 +542,11 @@ export function DocumentCard({
                       )}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onTagClick?.(tag);
+                        onTagClick?.(tag.label);
                       }}
                     >
                       <Icon className="h-3 w-3 shrink-0" />
-                      {tag}
+                      {tag.label}
                     </Badge>
                   );
                 })}
@@ -580,11 +584,11 @@ export function DocumentCard({
                 <p className="text-xs font-semibold text-foreground leading-tight">
                   {summaryData.title}
                 </p>
-                <div className="doc-summary-markdown text-xs text-muted-foreground leading-relaxed prose prose-xs dark:prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {summaryData.summary}
-                  </ReactMarkdown>
-                </div>
+                <GfmMarkdown
+                  content={summaryData.summary}
+                  compact
+                  className="doc-summary-markdown text-xs text-muted-foreground leading-relaxed"
+                />
               </div>
             )}
           </div>

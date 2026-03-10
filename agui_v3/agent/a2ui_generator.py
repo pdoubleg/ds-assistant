@@ -1,21 +1,4 @@
-"""
-A2UI Component Generator - Factory functions for creating audit UI components.
-
-This module provides factory functions for the A2UI component catalog:
-
-  Audit components (unchanged):
-    - DocumentCard: Document display with metadata and checkbox
-    - AuditQuestionForm: TFR audit questions with sub-questions, peril, and outcome
-
-  Analysis / insight components:
-    - TextBox: General-purpose text display
-    - DataTable: Structured tabular data
-    - SimpleChart: Simple bar/line/pie charts
-    - ClaimTimeline: Vertical timeline of claim lifecycle events
-    - SummaryCard: Grid of key-value metric pairs
-    - FindingCard: Observation card with severity level
-
-"""
+"""A2UI Component Generator - Helper functions for creating audit UI components."""
 
 from typing import Any
 

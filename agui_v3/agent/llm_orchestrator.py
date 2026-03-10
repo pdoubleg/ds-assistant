@@ -100,12 +100,25 @@ document_summary_agent = Agent(
     instructions=DOCUMENT_SUMMARY_SYSTEM_PROMPT,
 )
 
-# Tags a batch of documents (up to 10 or ~25K chars) using the predefined DocTag vocabulary.
+# Shared batch tagger. Callers may override ``instructions`` and ``output_type``
+# at runtime to support custom tag vocabularies and schemas.
 batch_tagger_agent = Agent(
     model="gpt-4.1-mini",
     output_type=BatchTagResult,
+    retries=5,
     instructions=BATCH_TAGGER_SYSTEM_PROMPT,
 )
+
+
+def get_batch_tagger_agent() -> Agent:
+    """Return the shared batch tagger agent for runtime overrides.
+
+    The agent is configured with a safe default schema and instructions, but
+    callers can supply request-specific ``output_type`` and ``instructions``
+    via ``agent.run(...)`` and ``agent.override(...)``.
+    """
+
+    return batch_tagger_agent
 
 
 # =============================================================================

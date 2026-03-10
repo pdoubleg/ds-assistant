@@ -13,7 +13,7 @@ import re
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Self
 from uuid import uuid4
 from dotenv import load_dotenv
 
@@ -23,7 +23,7 @@ load_dotenv()
 from fastapi import FastAPI, File, UploadFile, Body  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
-from pydantic import BaseModel, ConfigDict  # noqa: E402
+from pydantic import BaseModel, ConfigDict, Field, model_validator  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 from starlette.responses import JSONResponse, StreamingResponse  # noqa: E402
 
@@ -33,12 +33,20 @@ from pydantic_ai.ui.ag_ui import AGUIAdapter  # noqa: E402
 from a2ui_generator import generate_audit_question_form  # noqa: E402
 from llm_orchestrator import (  # noqa: E402
     document_summary_agent,
-    batch_tagger_agent,
+    get_batch_tagger_agent,
     search_sort_agent,
     SearchSortDeps,
 )
-from models import ALL_DOC_TAGS, Document, Documents  # noqa: E402
+from models import (  # noqa: E402
+    ALL_DOC_TAGS,
+    CUSTOM_FALLBACK_TAG_LABEL,
+    Document,
+    Documents,
+    TagSelectionMode,
+    build_runtime_batch_tag_schema,
+)
 from prompts import (  # noqa: E402
+    build_batch_tagger_instructions,
     format_document_summary_prompt,
     format_batch_tagger_prompt,
     format_doc_search_sort_prompt,
@@ -600,9 +608,12 @@ class SummarizeRequest(BaseModel):
 
     Attributes:
         documents: List of document payloads to summarize.
+        additional_instructions: Optional user guidance to apply to every
+            summarized document in the batch.
     """
 
     documents: list[SummarizeDocPayload]
+    additional_instructions: str = ""
 
 
 @app.post("/summarize")
@@ -614,7 +625,8 @@ async def summarize_endpoint(body: SummarizeRequest):
     document starts.  Each line is a self-contained JSON object (NDJSON).
 
     Args:
-        body: Request with ``documents`` list.
+        body: Request with ``documents`` list and optional
+            ``additional_instructions``.
 
     Returns:
         ``StreamingResponse`` with ``application/x-ndjson`` content type.
@@ -638,6 +650,7 @@ async def summarize_endpoint(body: SummarizeRequest):
                     document_content=doc.content,
                     file_type=doc.mime_type,
                     document_type=doc.document_type,
+                    additional_instructions=body.additional_instructions,
                 )
                 result = await document_summary_agent.run(prompt)
                 payload = result.output.model_dump()
@@ -819,18 +832,59 @@ class TagRequest(BaseModel):
 
     Attributes:
         documents: List of document payloads to tag.
+        tag_mode: Whether the run should use the default or custom tag set.
+        selected_tags: Active tag labels when the user customizes the tag set.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     documents: list[SummarizeDocPayload]
+    tag_mode: TagSelectionMode = "default"
+    selected_tags: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_selected_tags(self) -> Self:
+        """Normalize user-selected tags and enforce custom-mode constraints."""
+        normalized_tags: list[str] = []
+        seen_labels: dict[str, str] = {}
+
+        for raw_tag in self.selected_tags:
+            label = re.sub(r"\s+", " ", raw_tag).strip()
+            if not label:
+                raise ValueError("Tag labels cannot be empty.")
+
+            normalized_key = label.casefold()
+            if normalized_key in seen_labels:
+                raise ValueError(
+                    f"Duplicate tag labels are not allowed: '{seen_labels[normalized_key]}' and '{label}'."
+                )
+
+            seen_labels[normalized_key] = label
+            normalized_tags.append(label)
+
+        if len(normalized_tags) > 20:
+            raise ValueError("A maximum of 20 selected tags is allowed.")
+
+        if self.tag_mode == "custom" and not normalized_tags:
+            raise ValueError("Custom tagging requires at least one selected tag.")
+
+        self.selected_tags = normalized_tags
+        return self
+
+    def get_active_tags(self) -> list[str]:
+        """Return the runtime tag vocabulary for this request."""
+        if self.tag_mode == "custom":
+            return [*self.selected_tags, CUSTOM_FALLBACK_TAG_LABEL]
+        return list(ALL_DOC_TAGS)
 
 
 @app.post("/document-tags")
 async def document_tags_endpoint(body: TagRequest):
     """Tag documents in batches, streaming NDJSON progress.
 
-    Each document receives 1-4 tags from the predefined ``DocTag`` vocabulary.
-    Pydantic validates tag values against the Literal type automatically, so
-    no normalization pass is needed.
+    Each document receives 1-4 tag/icon assignments from the active runtime
+    vocabulary. The backend validates custom label selections before invoking
+    the tagger and swaps the response schema per request.
 
     Args:
         body: Request with ``documents`` list.
@@ -838,6 +892,10 @@ async def document_tags_endpoint(body: TagRequest):
     Returns:
         ``StreamingResponse`` with ``application/x-ndjson`` content type.
     """
+    active_tags = body.get_active_tags()
+    runtime_schema = build_runtime_batch_tag_schema(active_tags)
+    instructions = build_batch_tagger_instructions(active_tags)
+    batch_tagger_agent = get_batch_tagger_agent()
 
     async def _generate():
         batches = _batch_documents(body.documents)
@@ -853,8 +911,15 @@ async def document_tags_endpoint(body: TagRequest):
                     }
                     for d in batch
                 ]
-                prompt = format_batch_tagger_prompt(documents=doc_dicts)
-                result = await batch_tagger_agent.run(prompt)
+                prompt = format_batch_tagger_prompt(
+                    documents=doc_dicts,
+                    active_tags=active_tags,
+                )
+                with batch_tagger_agent.override(instructions=instructions):
+                    result = await batch_tagger_agent.run(
+                        prompt,
+                        output_type=runtime_schema.batch_result_model,
+                    )
                 batch_results = result.output
 
                 yield (
@@ -886,7 +951,8 @@ async def document_tags_endpoint(body: TagRequest):
             json.dumps(
                 {
                     "done": True,
-                    "canonical_tags": ALL_DOC_TAGS,
+                    "canonical_tags": active_tags,
+                    "tag_mode": body.tag_mode,
                 }
             )
             + "\n"
@@ -1285,24 +1351,34 @@ async def doc_lens_session_endpoint(body: DocLensSessionRequest):
 
         for idx, file_desc in enumerate(body.files):
             file_index = idx + 1
-            yield json.dumps({
-                "type": "ingest_start",
-                "file_name": file_desc.file_name,
-                "mime_type": file_desc.mime_type,
-                "file_index": file_index,
-                "total_files": total,
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "type": "ingest_start",
+                        "file_name": file_desc.file_name,
+                        "mime_type": file_desc.mime_type,
+                        "file_index": file_index,
+                        "total_files": total,
+                    }
+                )
+                + "\n"
+            )
 
             try:
                 file_path = os.path.join(UPLOAD_DIR, file_desc.file_name)
                 if not os.path.isfile(file_path):
-                    yield json.dumps({
-                        "type": "ingest_error",
-                        "file_name": file_desc.file_name,
-                        "error": f"File not found: {file_desc.file_name}",
-                        "file_index": file_index,
-                        "total_files": total,
-                    }) + "\n"
+                    yield (
+                        json.dumps(
+                            {
+                                "type": "ingest_error",
+                                "file_name": file_desc.file_name,
+                                "error": f"File not found: {file_desc.file_name}",
+                                "file_index": file_index,
+                                "total_files": total,
+                            }
+                        )
+                        + "\n"
+                    )
                     continue
 
                 if file_desc.mime_type in DOC_LENS_PDF_MIMES:
@@ -1318,45 +1394,79 @@ async def doc_lens_session_endpoint(body: DocLensSessionRequest):
                         image_path=file_path,
                     )
                 else:
-                    yield json.dumps({
-                        "type": "ingest_error",
-                        "file_name": file_desc.file_name,
-                        "error": f"Unsupported mime type: {file_desc.mime_type}",
-                        "file_index": file_index,
-                        "total_files": total,
-                    }) + "\n"
+                    yield (
+                        json.dumps(
+                            {
+                                "type": "ingest_error",
+                                "file_name": file_desc.file_name,
+                                "error": f"Unsupported mime type: {file_desc.mime_type}",
+                                "file_index": file_index,
+                                "total_files": total,
+                            }
+                        )
+                        + "\n"
+                    )
                     continue
 
-                yield json.dumps({
-                    "type": "ingest_complete",
-                    "file_name": file_desc.file_name,
-                    "file_index": file_index,
-                    "total_files": total,
-                    **result.model_dump(),
-                }) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "type": "ingest_complete",
+                            "file_name": file_desc.file_name,
+                            "file_index": file_index,
+                            "total_files": total,
+                            **result.model_dump(),
+                        }
+                    )
+                    + "\n"
+                )
 
             except Exception as exc:
                 print(f"[DOC-LENS INGEST ERROR] {file_desc.file_name}: {exc}", flush=True)
-                yield json.dumps({
-                    "type": "ingest_error",
-                    "file_name": file_desc.file_name,
-                    "error": str(exc),
-                    "file_index": file_index,
-                    "total_files": total,
-                }) + "\n"
+                # If DuckDB's connection was fatally invalidated, drop the
+                # singleton so _get_doc_lens_service() rebuilds it cleanly on
+                # the next request instead of handing out a broken instance.
+                from doc_lens.db import _is_fatal_duckdb_error
+
+                if _is_fatal_duckdb_error(exc):
+                    global _doc_lens_service
+                    _doc_lens_service = None
+                    print("[DOC-LENS] Service singleton reset after fatal DB error.", flush=True)
+                yield (
+                    json.dumps(
+                        {
+                            "type": "ingest_error",
+                            "file_name": file_desc.file_name,
+                            "error": str(exc),
+                            "file_index": file_index,
+                            "total_files": total,
+                        }
+                    )
+                    + "\n"
+                )
 
         # Final summary
         try:
             summary = svc.get_session_summary(session_id)
-            yield json.dumps({
-                "type": "session_ready",
-                **summary.model_dump(),
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "type": "session_ready",
+                        **summary.model_dump(),
+                    }
+                )
+                + "\n"
+            )
         except Exception as exc:
-            yield json.dumps({
-                "type": "session_error",
-                "error": f"Failed to get session summary: {exc}",
-            }) + "\n"
+            yield (
+                json.dumps(
+                    {
+                        "type": "session_error",
+                        "error": f"Failed to get session summary: {exc}",
+                    }
+                )
+                + "\n"
+            )
 
     return StreamingResponse(
         _generate(),
@@ -1464,7 +1574,9 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 # Uses the asset_root from Settings which defaults to .cache/doc_lens_cache/assets.
 _DOC_LENS_ASSET_DIR = os.path.join(
     os.path.dirname(__file__),
-    ".cache", "doc_lens_cache", "assets",
+    ".cache",
+    "doc_lens_cache",
+    "assets",
 )
 os.makedirs(_DOC_LENS_ASSET_DIR, exist_ok=True)
 app.mount(

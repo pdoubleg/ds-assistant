@@ -51,6 +51,8 @@ class AuditState(BaseModel):
         analysis_result: Raw analysis output from run_analysis.
         audit_form_result: Canonical editable audit form payload.
         current_form_id: ID of the currently active persisted form, if any.
+        claim_number: Active claim number selected in the frontend session.
+        effective_date: Optional effective date associated with the active claim.
         status: Current processing status.
         progress: Completion percentage (0-100).
         current_step: Human-readable description of current activity.
@@ -64,6 +66,8 @@ class AuditState(BaseModel):
     analysis_result: dict[str, Any] = Field(default_factory=dict)
     audit_form_result: dict[str, Any] = Field(default_factory=dict)
     current_form_id: str | None = None
+    claim_number: str = ""
+    effective_date: str = ""
 
     status: str = "idle"  # idle | analyzing | generating | complete | error
     progress: int = 0
