@@ -21,6 +21,14 @@ async def get_audit_form_state(
     return JSONResponse(audit_state_service.get_audit_form_state())
 
 
+@router.get("/state/runtime")
+async def get_runtime_state(
+    audit_state_service: AuditStateService = Depends(get_audit_state_service),
+) -> JSONResponse:
+    """Get live runtime status fields from shared state for polling clients."""
+    return JSONResponse(audit_state_service.get_runtime_state())
+
+
 @router.put("/state/audit-form")
 async def put_audit_form_state(
     body: AuditFormRequestBody,
@@ -33,7 +41,9 @@ async def put_audit_form_state(
     if validation_error:
         return JSONResponse({"error": validation_error}, status_code=400)
 
-    state_payload = audit_state_service.sync_audit_form(payload, current_form_id=body.current_form_id)
+    state_payload = audit_state_service.sync_audit_form(
+        payload, current_form_id=body.current_form_id
+    )
     return JSONResponse(
         {
             "message": "Audit form state synchronized.",
@@ -120,7 +130,9 @@ async def restore_form(
     payload = form_store.to_form_payload(record)
     validation_error = form_store.validate_form_payload(payload)
     if validation_error:
-        return JSONResponse({"error": f"Saved form is invalid: {validation_error}"}, status_code=500)
+        return JSONResponse(
+            {"error": f"Saved form is invalid: {validation_error}"}, status_code=500
+        )
 
     resolved_form_id = record.get("id", form_id)
     return JSONResponse(audit_state_service.restore_form(resolved_form_id, payload))

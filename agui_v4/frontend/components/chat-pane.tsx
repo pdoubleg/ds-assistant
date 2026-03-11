@@ -585,15 +585,9 @@ export function ChatPane() {
   return (
     <div className="flex flex-col h-full">
       {/* Chat header */}
-      <div className="flex items-center gap-2 px-4 py-3 pr-10 border-b border-border/50">
-        <Send className="h-4 w-4 text-primary" />
-        <h2 className="text-sm font-semibold text-foreground">Chat</h2>
-        {isGenerating && (
-          <Badge variant="outline" className="ml-auto text-[10px] gap-1">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            {currentRunStepLabel}
-          </Badge>
-        )}
+      <div className="flex items-center gap-2.5 px-4 pr-10 border-b border-border/50 h-12">
+        <Send className="h-[18px] w-[18px] text-primary" />
+        <h2 className="text-[15px] font-semibold tracking-tight text-foreground">Chat</h2>
       </div>
 
       {/* ── Chat context doc bar (gold border) ────────────────────── */}
@@ -722,6 +716,13 @@ export function ChatPane() {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin text-primary" />
                       <span>{currentRunStepLabel}</span>
+                    </div>
+                  )}
+
+                  {!msg.isLive && msg.steps.length === 0 && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Check className="h-4 w-4 text-emerald-500" />
+                      <span>{currentRunStepLabel || "Complete"}</span>
                     </div>
                   )}
 

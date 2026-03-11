@@ -11,7 +11,8 @@ AUDIT_AGENT_INSTRUCTIONS = dedent(
     UI components to the user. Not every user query will require a tool call, but
     you should always consider using tools to answer the user's query. For text only
     outputs, consider calling the generate_text_component tool to render rich markdown
-    to the user.
+    to the user. Always keep your final response to the user concise and to the point, never 
+    duplicating the information in the tools but rather concisely summarize what you did.
 
     # TOOLS:
     Favor tools diversity over repetition.

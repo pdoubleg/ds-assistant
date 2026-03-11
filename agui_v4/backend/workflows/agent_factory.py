@@ -5,7 +5,14 @@ from dataclasses import dataclass
 from pydantic_ai import Agent, ModelRetry, RunContext
 
 from model_config import get_orchestrator_model
-from models.analysis import AnalysisResult, ChartSpec, Finding, SummaryMetrics, TableSpec, TimelineEvents
+from models.analysis import (
+    AnalysisResult,
+    ChartSpec,
+    Finding,
+    SummaryMetrics,
+    TableSpec,
+    TimelineEvents,
+)
 from models.audit import TFRAnalysisResult
 from models.documents import Documents
 from models.search import DocSearchResult, DocumentSummary

@@ -32,13 +32,13 @@ export function CollapsedStrip({
         exit={{ width: 0, opacity: 0 }}
         transition={{ duration: 0.2 }}
         onClick={onExpand}
-        className="shrink-0 flex flex-col items-center justify-center gap-2 border-r border-border/50 bg-card/60 hover:bg-secondary/70 transition-colors cursor-pointer overflow-hidden"
+        className="shrink-0 flex flex-col items-center justify-center gap-2 border-r border-border bg-card/70 hover:bg-secondary transition-colors cursor-pointer overflow-hidden"
       >
         <span className="text-primary">{meta.icon}</span>
         <span className="text-[10px] font-medium text-muted-foreground [writing-mode:vertical-lr] rotate-180 select-none tracking-wide">
           {meta.label}
         </span>
-        <PanelLeftOpen className="h-3.5 w-3.5 text-muted-foreground/60" />
+        <PanelLeftOpen className="h-4.5 w-4.5 text-muted-foreground/60" />
       </motion.button>
     </NativeTooltip>
   );

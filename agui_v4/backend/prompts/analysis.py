@@ -1,6 +1,5 @@
 """Prompt templates for claim analysis and component generation."""
 
-
 TIMELINE_EVENT_SYSTEM_PROMPT = """
 You are a Generative-UI assistant specialized in generating a timeline of events. Given an input string containing \
 timeline event details, generate a list of timeline event objects in the proper format. Do not change any of the input data, \
@@ -192,7 +191,9 @@ def _truncate(text: str, max_length: int = 30_000) -> str:
     return text
 
 
-def format_analysis_prompt(document_content: str | None, focus: str = "General claim review") -> str:
+def format_analysis_prompt(
+    document_content: str | None, focus: str = "General claim review"
+) -> str:
     """Format the analysis user prompt for the context-analysis agent."""
     doc_text = _truncate(document_content) if document_content else "(No documents provided.)"
     return ANALYSIS_PROMPT.format(document_content=doc_text, focus=focus)

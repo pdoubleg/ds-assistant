@@ -197,7 +197,9 @@ def finding_to_component(payload: dict[str, Any]) -> A2UIComponent:
     )
 
 
-def table_spec_to_component(caption: str, headers: list[str], rows: list[list[Any]]) -> A2UIComponent:
+def table_spec_to_component(
+    caption: str, headers: list[str], rows: list[list[Any]]
+) -> A2UIComponent:
     """Convert a table specification into an A2UI component."""
     return generate_data_table(headers=headers, rows=rows, caption=caption, sortable=True)
 

@@ -30,8 +30,11 @@ async def lifespan(app: FastAPI):
     print(f"[*] AG-UI endpoint: POST http://localhost:{backend_port}/")
     print(f"[*] Upload endpoint: POST http://localhost:{backend_port}/upload")
     print(f"[*] Form state sync endpoint: GET/PUT http://localhost:{backend_port}/state/audit-form")
+    print(f"[*] Runtime state endpoint: GET http://localhost:{backend_port}/state/runtime")
     print(f"[*] Form persistence endpoints: POST/GET http://localhost:{backend_port}/forms")
-    print(f"[*] Form restore endpoint: POST http://localhost:{backend_port}/forms/{{form_id}}/restore")
+    print(
+        f"[*] Form restore endpoint: POST http://localhost:{backend_port}/forms/{{form_id}}/restore"
+    )
     print(f"[*] Summarize endpoint: POST http://localhost:{backend_port}/summarize (SSE)")
     print(f"[*] Info endpoint: GET http://localhost:{backend_port}/info")
     print(f"[*] Health endpoint: GET http://localhost:{backend_port}/health")

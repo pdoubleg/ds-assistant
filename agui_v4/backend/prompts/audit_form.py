@@ -1,6 +1,5 @@
 """Prompt templates for TFR audit-form generation."""
 
-
 AUDIT_FORM_SYSTEM_PROMPT = (
     "You are an expert Targeted File Review (TFR) auditor. Generate a comprehensive "
     "TFR analysis from optional claim documents. You must determine the peril (Interior or "

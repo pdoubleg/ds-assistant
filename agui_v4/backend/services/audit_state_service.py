@@ -22,6 +22,21 @@ class AuditStateService:
             "audit_form_result": self.state.audit_form_result,
         }
 
+    def get_runtime_state(self) -> dict[str, object]:
+        """Return the live runtime fields needed for incremental UI updates.
+
+        Returns:
+            A lightweight state payload containing only the fields that change
+            during agent execution and are safe to poll frequently.
+        """
+        return {
+            "status": self.state.status,
+            "progress": self.state.progress,
+            "current_step": self.state.current_step,
+            "activity_log": self.state.activity_log,
+            "error_message": self.state.error_message,
+        }
+
     def upsert_audit_form_component(self, payload: dict[str, object]) -> None:
         """Replace or append the active audit form component.
 

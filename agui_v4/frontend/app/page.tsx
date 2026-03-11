@@ -115,8 +115,8 @@ export default function HomePage() {
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.25 }}
                   className={`min-w-0 min-h-0 flex flex-col ${
-                    !isLast ? "border-r border-border/50" : ""
-                  } ${id === "output" ? "bg-background" : "bg-card/40"}`}
+                    !isLast ? "border-r border-border" : ""
+                  } ${id === "output" ? "bg-background" : "bg-card/80"}`}
                   style={{ flex: PANE_FLEX[id] }}
                 >
                   <div className="relative">
@@ -127,9 +127,9 @@ export default function HomePage() {
                       >
                         <button
                           onClick={() => togglePane(id)}
-                          className="absolute top-2.5 right-2 z-10 p-1 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-secondary/60 transition-colors"
+                          className="absolute top-2.5 right-2 z-10 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary hover:ring-1 hover:ring-border transition-colors"
                         >
-                          <PanelLeftClose className="h-3.5 w-3.5" />
+                          <PanelLeftClose className="h-4.5 w-4.5" />
                         </button>
                       </NativeTooltip>
                     )}

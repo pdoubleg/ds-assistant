@@ -200,7 +200,7 @@ export function AppHeader() {
               <button
                 type="button"
                 aria-label="Start a new audit session"
-                className="relative rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70 dark:focus-visible:ring-cyan-500/70"
+                className="qbot-launch-btn relative rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70 dark:focus-visible:ring-cyan-500/70"
               >
                 <Image
                   src="/q-bot.png"

@@ -117,7 +117,9 @@ class TextExtractionService:
             return f"{size_bytes / 1024 / 1024:.1f} MB"
         return f"{size_bytes / 1024:.1f} KB"
 
-    def build_example_document_payload(self, file_name: str, file_bytes: bytes) -> dict[str, object]:
+    def build_example_document_payload(
+        self, file_name: str, file_bytes: bytes
+    ) -> dict[str, object]:
         """Build the example-doc payload for one uploaded file.
 
         Args:

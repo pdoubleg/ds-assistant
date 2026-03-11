@@ -44,6 +44,7 @@ async def root_get() -> JSONResponse:
                 "upload": "POST /upload",
                 "summarize": "POST /summarize (SSE)",
                 "audit_form_state": "GET|PUT /state/audit-form",
+                "runtime_state": "GET /state/runtime",
                 "save_form": "POST /forms",
                 "list_forms": "GET /forms",
                 "get_form": "GET /forms/{form_id}",

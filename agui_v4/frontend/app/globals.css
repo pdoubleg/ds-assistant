@@ -3,38 +3,38 @@
 
 @layer base {
   :root {
-    --background: oklch(1 0 0);
+    --background: oklch(0.98 0 0);
     --foreground: oklch(0.14 0 0);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.14 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.14 0 0);
-    --primary: oklch(0.2 0 0);
+    --primary: oklch(0.17 0 0);
     --primary-foreground: oklch(0.99 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.2 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.56 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.2 0 0);
+    --secondary: oklch(0.93 0 0);
+    --secondary-foreground: oklch(0.18 0 0);
+    --muted: oklch(0.93 0 0);
+    --muted-foreground: oklch(0.46 0 0);
+    --accent: oklch(0.93 0 0);
+    --accent-foreground: oklch(0.18 0 0);
     --destructive: oklch(0.58 0.24 28.48);
     --destructive-foreground: oklch(0.99 0 0);
-    --border: oklch(0.92 0 0);
-    --input: oklch(0.92 0 0);
-    --ring: oklch(0.71 0 0);
+    --border: oklch(0.83 0 0);
+    --input: oklch(0.85 0 0);
+    --ring: oklch(0.55 0 0);
     --chart-1: oklch(0.65 0.22 36.85);
     --chart-2: oklch(0.6 0.11 184.15);
     --chart-3: oklch(0.4 0.07 227.18);
     --chart-4: oklch(0.83 0.17 81.03);
     --chart-5: oklch(0.77 0.17 65.36);
-    --sidebar: oklch(0.99 0 0);
+    --sidebar: oklch(0.96 0 0);
     --sidebar-foreground: oklch(0.14 0 0);
-    --sidebar-primary: oklch(0.2 0 0);
+    --sidebar-primary: oklch(0.17 0 0);
     --sidebar-primary-foreground: oklch(0.99 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.2 0 0);
-    --sidebar-border: oklch(0.92 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar-accent: oklch(0.91 0 0);
+    --sidebar-accent-foreground: oklch(0.18 0 0);
+    --sidebar-border: oklch(0.83 0 0);
+    --sidebar-ring: oklch(0.55 0 0);
 
     --font-sans:
       "Geist", "Geist Fallback", ui-sans-serif, system-ui, -apple-system,
@@ -50,14 +50,14 @@
 
     --radius: 0.625rem;
 
-    --shadow-2xs: 0 1px 3px 0 oklch(0 0 0 / 0.05);
-    --shadow-xs: 0 1px 3px 0 oklch(0 0 0 / 0.05);
-    --shadow-sm: 0 1px 3px 0 oklch(0 0 0 / 0.1), 0 1px 2px -1px oklch(0 0 0 / 0.1);
-    --shadow: 0 1px 3px 0 oklch(0 0 0 / 0.1), 0 1px 2px -1px oklch(0 0 0 / 0.1);
-    --shadow-md: 0 1px 3px 0 oklch(0 0 0 / 0.1), 0 2px 4px -1px oklch(0 0 0 / 0.1);
-    --shadow-lg: 0 1px 3px 0 oklch(0 0 0 / 0.1), 0 4px 6px -1px oklch(0 0 0 / 0.1);
-    --shadow-xl: 0 1px 3px 0 oklch(0 0 0 / 0.1), 0 8px 10px -1px oklch(0 0 0 / 0.1);
-    --shadow-2xl: 0 1px 3px 0 oklch(0 0 0 / 0.25);
+    --shadow-2xs: 0 1px 2px 0 oklch(0 0 0 / 0.06);
+    --shadow-xs: 0 1px 3px 0 oklch(0 0 0 / 0.08);
+    --shadow-sm: 0 1px 3px 0 oklch(0 0 0 / 0.12), 0 1px 2px -1px oklch(0 0 0 / 0.08);
+    --shadow: 0 2px 4px 0 oklch(0 0 0 / 0.1), 0 1px 2px -1px oklch(0 0 0 / 0.08);
+    --shadow-md: 0 4px 8px -1px oklch(0 0 0 / 0.12), 0 2px 4px -2px oklch(0 0 0 / 0.06);
+    --shadow-lg: 0 8px 16px -2px oklch(0 0 0 / 0.12), 0 4px 6px -2px oklch(0 0 0 / 0.06);
+    --shadow-xl: 0 16px 32px -4px oklch(0 0 0 / 0.12), 0 6px 12px -2px oklch(0 0 0 / 0.06);
+    --shadow-2xl: 0 24px 48px -8px oklch(0 0 0 / 0.25);
 
     /* Existing component compatibility tokens. */
     --sidebar-background: var(--sidebar);
@@ -221,21 +221,22 @@
 }
 
 .glass {
-  background: oklch(from var(--card) l c h / 0.85);
+  background: oklch(from var(--card) l c h / 0.9);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
 }
 
 .glass-subtle {
-  background: oklch(from var(--card) l c h / 0.6);
+  background: oklch(from var(--card) l c h / 0.7);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
 
 .dialog-zinc-surface {
-  background-color: oklch(0.985 0 0);
-  border: 1px solid oklch(0.9 0 0);
-  box-shadow: 0 24px 60px -32px oklch(0 0 0 / 0.35);
+  background-color: oklch(1 0 0);
+  border: 1px solid oklch(0.83 0 0);
+  box-shadow: 0 8px 24px -4px oklch(0 0 0 / 0.12), 0 24px 60px -32px oklch(0 0 0 / 0.2);
 }
 
 .dark .dialog-zinc-surface {
@@ -245,7 +246,7 @@
 }
 
 .dialog-zinc-section {
-  background-color: oklch(0.97 0 0);
+  background-color: oklch(0.96 0 0);
 }
 
 .dark .dialog-zinc-section {
@@ -261,10 +262,10 @@ body {
   color: var(--foreground);
 }
 
-/* Light mode depth. */
+/* Light mode depth — subtle warm-gray gradient for layered feel. */
 :root body {
   background-image:
-    radial-gradient(120% 100% at 50% 0%, oklch(0.99 0 0), oklch(0.96 0 0));
+    radial-gradient(120% 100% at 50% 0%, oklch(0.985 0 0), oklch(0.94 0 0));
 }
 
 /* Dark mode baseline to match the dashboard look. */
@@ -289,12 +290,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.72 0 0);
+  background: oklch(0.76 0 0);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.62 0 0);
+  background: oklch(0.64 0 0);
 }
 
 /* Custom scrollbar — dark mode */
@@ -517,6 +518,61 @@ body {
 
 :where(.dark, .dark *) .agent-doc-border {
   border-color: oklch(0.72 0.14 80);
+}
+
+/* ── Q-Bot launch button — hover pop & active press ─────────────── */
+
+.qbot-launch-btn {
+  transition:
+    transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.22s ease;
+}
+
+.qbot-launch-btn:hover {
+  transform: scale(1.06);
+}
+
+.qbot-launch-btn:hover img {
+  filter: brightness(1.08);
+}
+
+.qbot-launch-btn:active {
+  transform: scale(0.96);
+  transition-duration: 0.1s;
+}
+
+@keyframes qbot-glow-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+.qbot-launch-btn::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 1.125rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  box-shadow:
+    0 0 12px 2px oklch(0.7 0.14 230 / 0.35),
+    0 0 24px 4px oklch(0.7 0.14 230 / 0.15);
+}
+
+.dark .qbot-launch-btn::before {
+  box-shadow:
+    0 0 14px 3px oklch(0.6 0.16 200 / 0.4),
+    0 0 28px 6px oklch(0.6 0.16 200 / 0.18);
+}
+
+.qbot-launch-btn:hover::before {
+  opacity: 1;
+  animation: qbot-glow-pulse 2.4s ease-in-out infinite;
+}
+
+.qbot-launch-btn:active::before {
+  opacity: 0.5;
+  animation: none;
 }
 
 /* CopilotKit Sidebar Overrides */

@@ -387,32 +387,32 @@ export function OutputPane() {
   }, []);
 
   const headerBar = (
-    <div className="flex items-center gap-2 px-4 py-2 pr-10 border-b border-border/50 shrink-0">
-      <ClipboardCheck className="h-4 w-4 text-primary" />
-      <h2 className="text-sm font-semibold text-foreground">Output</h2>
+    <div className="flex items-center gap-2.5 px-4 pr-10 border-b border-border/50 shrink-0 h-12">
+      <ClipboardCheck className="h-[18px] w-[18px] text-primary" />
+      <h2 className="text-[15px] font-semibold tracking-tight text-foreground">Output</h2>
       {isComplete && (
-        <Badge variant="success" className="text-[10px]">
+        <Badge variant="success" className="text-[11px]">
           Complete
         </Badge>
       )}
       {isGenerating && (
-        <Badge variant="outline" className="text-[10px] gap-1">
+        <Badge variant="outline" className="text-[11px] gap-1">
           <Loader2 className="h-3 w-3 animate-spin" />
           Generating
         </Badge>
       )}
       {outputComponents.length > 0 && (
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground">
           {outputComponents.length} component
           {outputComponents.length !== 1 ? "s" : ""}
         </span>
       )}
 
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex items-center gap-2">
         {state.current_form_id && (
           <Badge
             variant="outline"
-            className="text-[10px] text-muted-foreground border-border/40"
+            className="text-[11px] text-muted-foreground border-border/40"
           >
             Form: {state.current_form_id.slice(0, 8)}...
           </Badge>
@@ -421,19 +421,19 @@ export function OutputPane() {
           variant={showSavedForms ? "secondary" : "outline"}
           size="sm"
           onClick={toggleSavedForms}
-          className="h-7 gap-1.5 text-xs"
+          className="h-8 gap-1.5 text-[11px]"
         >
           <FolderArchive className="h-3.5 w-3.5" />
           Saved Forms
           <ChevronDownIcon
-            className={`h-3 w-3 transition-transform duration-200 ${showSavedForms ? "rotate-180" : ""}`}
+            className={`h-3.5 w-3.5 transition-transform duration-200 ${showSavedForms ? "rotate-180" : ""}`}
           />
         </Button>
         <Button
           variant={showSavedImages ? "secondary" : "outline"}
           size="sm"
           onClick={toggleSavedImages}
-          className="h-7 gap-1.5 text-xs"
+          className="h-8 gap-1.5 text-[11px]"
         >
           <BookmarkCheck className="h-3.5 w-3.5" />
           Saved Images
@@ -446,7 +446,7 @@ export function OutputPane() {
             </Badge>
           )}
           <ChevronDownIcon
-            className={`h-3 w-3 transition-transform duration-200 ${showSavedImages ? "rotate-180" : ""}`}
+            className={`h-3.5 w-3.5 transition-transform duration-200 ${showSavedImages ? "rotate-180" : ""}`}
           />
         </Button>
       </div>
@@ -476,7 +476,7 @@ export function OutputPane() {
         <div className="relative flex flex-col items-center justify-center flex-1 overflow-hidden select-none">
           {/* ── Dot-grid texture ── */}
           <div
-            className="pointer-events-none absolute inset-0 opacity-[0.035] dark:opacity-[0.06]"
+            className="pointer-events-none absolute inset-0 opacity-[0.08] dark:opacity-[0.06]"
             style={{
               backgroundImage:
                 "radial-gradient(circle, currentColor 0.75px, transparent 0.75px)",
@@ -547,8 +547,9 @@ export function OutputPane() {
             <h3 className="text-base font-medium tracking-tight text-foreground/60">
               No generated content yet
             </h3>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground/50 max-w-[260px]">
-              Explore documents and analyze claims to get started.
+            <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground/50 max-w-[320px]">
+              Q-Bot's output will appear here as it's created, and will persist throughout the session. 
+              Rendered components can be saved, exported, or copied to the clipboard.
             </p>
           </motion.div>
         </div>

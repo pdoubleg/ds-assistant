@@ -24,7 +24,11 @@ from presenters.a2ui import (
     tfr_analysis_to_component,
     timeline_events_to_component,
 )
-from services.agent_helpers import build_doc_payloads_from_state, log_tool_call
+from services.agent_helpers import (
+    StateStatusReporter,
+    build_doc_payloads_from_state,
+    log_tool_call,
+)
 from services.document_mapper import DocumentMapper
 from workflows.agent_factory import (
     charts_agent,
@@ -59,12 +63,13 @@ agent = Agent(
 
 
 @agent.tool
-def get_documents_listing(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
+async def get_documents_listing(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
     """Get a listing of current documents from the shared state and return it as a string.
 
     Returns:
         ToolReturn with a string containing the document listing and a state snapshot.
     """
+    
     state = ctx.deps.state
     state.current_step = "Retrieving documents..."
 
@@ -113,8 +118,9 @@ def get_documents_content(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
         combined_text, doc_count = mapper.combine_documents(doc_payloads)
     else:
         combined_text = "No documents available."
+    state.current_step = f"Retrieved {doc_count} document(s) content."
     log_tool_call(
-        state, f"Retrieved {doc_count} document(s) content.", "completed", "get_documents_content"
+        state, state.current_step, "completed", "get_documents_content"
     )
 
     return ToolReturn(
@@ -169,7 +175,7 @@ async def generate_text_component(
         StateSnapshotEvent to sync updated state with the frontend.
     """
     state = ctx.deps.state
-    state.current_step = f"Generating text component: {title}, {content[:100]}..., {variant}"
+    state.current_step = f"Generating text component: {title}, {content[:150]}..., {variant}"
     log_tool_call(state, state.current_step, "in_progress", "generate_text_component")
     component = generate_text_box(title=title, content=content, variant=variant)
     state.components.append(component.model_dump())
@@ -244,14 +250,18 @@ async def generate_summary_metrics_component(
     """
     state = ctx.deps.state
     state.current_step = f"Generating summary metrics component: {input_spec[:100]}..."
-    log_tool_call(state, state.current_step, "in_progress", "generate_summary_metrics_component")
+    log_tool_call(
+        state, state.current_step, "in_progress", "generate_summary_metrics_component"
+    )
     summary_metrics_result = await summary_metrics_agent.run(input_spec)
     summary_metrics = summary_metrics_result.output
     component = summary_metrics_to_component(
         [metric.model_dump() for metric in summary_metrics.metrics]
     )
     state.components.append(component.model_dump())
-    log_tool_call(state, state.current_step, "completed", "generate_summary_metrics_component")
+    log_tool_call(
+        state, state.current_step, "completed", "generate_summary_metrics_component"
+    )
     metric_count = len(summary_metrics.metrics)
     if metric_count == 0:
         return_message = "Summary metrics component generated with 0 metric(s)."
@@ -421,6 +431,10 @@ async def generate_audit_form(
 
     state = ctx.deps.state
     doc_payloads = build_doc_payloads_from_state(state)
+    nested_status_reporter = StateStatusReporter(
+        state=state,
+        source_name="generate_audit_questions",
+    )
 
     state.status = "generating"
     state.progress = max(state.progress, 50)
@@ -432,6 +446,7 @@ async def generate_audit_form(
     tfr_result_dict = await generate_audit_questions(
         doc_payloads,
         additional_instructions=additional_instructions,
+        reporter=nested_status_reporter,
     )
     log_tool_call(state, state.current_step, "completed", "generate_audit_form")
 

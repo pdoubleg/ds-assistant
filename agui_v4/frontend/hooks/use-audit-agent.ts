@@ -17,6 +17,7 @@ import type { A2UIComponent, SemanticZone } from "@/lib/a2ui-catalog";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
+const RUNTIME_STATE_POLL_INTERVAL_MS = 1200;
 
 /**
  * Audit state synchronized with backend agent.
@@ -79,6 +80,55 @@ export interface StepActivity {
   status: "in_progress" | "completed" | "error";
   /** ISO timestamp if known. */
   timestamp: string;
+}
+
+/**
+ * Lightweight runtime-state payload polled from the backend while a run is active.
+ */
+interface AuditRuntimeState {
+  status: AuditState["status"];
+  progress: number;
+  current_step: string;
+  activity_log: AuditState["activity_log"];
+  error_message: string | null;
+}
+
+/**
+ * Normalize human-readable step labels before comparing backend activity rows
+ * with AG-UI tool event labels.
+ *
+ * Args:
+ *   message: Candidate step label from backend state or AG-UI events.
+ *
+ * Returns:
+ *   A trimmed label suitable for stable equality checks.
+ */
+function normalizeStepMessage(message: string): string {
+  return message.trim();
+}
+
+/**
+ * Compare the polled runtime-state fields we merge into local AG-UI state.
+ *
+ * Args:
+ *   currentState: Existing local audit state.
+ *   nextState: Candidate runtime-state payload from the backend.
+ *
+ * Returns:
+ *   True when the relevant runtime fields already match.
+ */
+function hasMatchingRuntimeState(
+  currentState: AuditState,
+  nextState: AuditRuntimeState
+): boolean {
+  return (
+    currentState.status === nextState.status &&
+    currentState.progress === nextState.progress &&
+    currentState.current_step === nextState.current_step &&
+    currentState.error_message === nextState.error_message &&
+    JSON.stringify(currentState.activity_log) ===
+      JSON.stringify(nextState.activity_log)
+  );
 }
 
 /** Initial state for the audit agent. */
@@ -453,6 +503,7 @@ export function useAuditAgent() {
 
   // Tool call activity tracking from AG-UI events
   const [toolActivity, setToolActivity] = useState<ToolCallActivity[]>([]);
+  const hasRunningToolCall = toolActivity.some((tc) => tc.status === "running");
 
   useEffect(() => {
     const subscription = agent.subscribe({
@@ -506,6 +557,89 @@ export function useAuditAgent() {
     });
   }, [state.current_step, state.status]);
 
+  const shouldPollRuntimeState =
+    agent.isRunning ||
+    hasRunningToolCall ||
+    state.status === "analyzing" ||
+    state.status === "generating";
+
+  useEffect(() => {
+    if (!shouldPollRuntimeState) {
+      return;
+    }
+
+    let cancelled = false;
+    let activeController: AbortController | null = null;
+    let timeoutId: number | null = null;
+
+    const scheduleNextPoll = (): void => {
+      if (cancelled) {
+        return;
+      }
+      timeoutId = window.setTimeout(() => {
+        void pollRuntimeState();
+      }, RUNTIME_STATE_POLL_INTERVAL_MS);
+    };
+
+    const pollRuntimeState = async (): Promise<void> => {
+      activeController?.abort();
+      activeController = new AbortController();
+
+      try {
+        const response = await fetch(`${BACKEND_URL}/state/runtime`, {
+          signal: activeController.signal,
+        });
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        const runtimeState = (await response.json()) as AuditRuntimeState;
+        const currentState = (agent.state as AuditState) || initialState;
+        if (!hasMatchingRuntimeState(currentState, runtimeState)) {
+          agent.setState({
+            ...currentState,
+            status: runtimeState.status,
+            progress: runtimeState.progress,
+            current_step: runtimeState.current_step,
+            activity_log: runtimeState.activity_log,
+            error_message: runtimeState.error_message,
+          });
+        }
+
+        const runtimeIsActive =
+          runtimeState.status === "analyzing" ||
+          runtimeState.status === "generating";
+        const localRunIsActive =
+          agent.isRunning ||
+          stateRef.current.status === "analyzing" ||
+          stateRef.current.status === "generating" ||
+          hasRunningToolCall;
+
+        if (runtimeIsActive || localRunIsActive) {
+          scheduleNextPoll();
+        }
+      } catch (error) {
+        if (
+          cancelled ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        scheduleNextPoll();
+      }
+    };
+
+    void pollRuntimeState();
+
+    return () => {
+      cancelled = true;
+      activeController?.abort();
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [agent, hasRunningToolCall, shouldPollRuntimeState]);
+
   const stepActivity = useMemo<StepActivity[]>(() => {
     const currentlyGenerating =
       agent.isRunning ||
@@ -526,10 +660,20 @@ export function useAuditAgent() {
         timestamp: entry.timestamp,
       })
     );
+    const loggedMessages = new Set(
+      fromStateLog
+        .map((entry) => normalizeStepMessage(entry.message))
+        .filter(Boolean)
+    );
 
-    // Secondary source: active tool calls while waiting for next state snapshot.
+    // Secondary source: active tool calls while waiting for the first nested
+    // backend milestone. Once the backend logs the same visible message, prefer
+    // the state-owned row so the UI shows a single spinner/check entry.
     const fromRunningTools: StepActivity[] = toolActivity
       .filter((tc) => tc.status === "running")
+      .filter(
+        (tc) => !loggedMessages.has(normalizeStepMessage(tc.displayName))
+      )
       .map((tc) => ({
         id: `tool-${tc.id}`,
         message: tc.displayName,
@@ -539,10 +683,12 @@ export function useAuditAgent() {
 
     // If backend set current_step but hasn't logged it yet, keep it visible.
     const liveStepText = getLiveStepText(state);
+    const normalizedLiveStepText = normalizeStepMessage(liveStepText);
     const hasCurrentStepAlready =
-      !liveStepText ||
+      !normalizedLiveStepText ||
       [...fromStateLog, ...fromRunningTools].some(
-        (entry) => entry.message === liveStepText
+        (entry) =>
+          normalizeStepMessage(entry.message) === normalizedLiveStepText
       );
     const currentStepEntry: StepActivity[] = hasCurrentStepAlready
       ? []

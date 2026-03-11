@@ -8,10 +8,10 @@
  * an optional category badge.
  */
 
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Info, AlertTriangle, AlertOctagon } from "lucide-react";
+import { Info, AlertTriangle, AlertOctagon, Copy, Check } from "lucide-react";
 
 export interface FindingCardProps {
   title: string;
@@ -79,23 +79,50 @@ export function FindingCard({
   category,
 }: FindingCardProps): React.ReactElement {
   const config = SEVERITY_CONFIG[severity];
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard access may be denied in some contexts */
+    }
+  }, [content]);
 
   return (
     <Card className={`border-l-4 ${config.border} ${config.bg}`}>
       <CardHeader className="pb-2">
-        <div className="flex items-center gap-2">
-          {config.icon}
-          <h3 className={`text-sm font-semibold ${config.titleColor}`}>
-            {title}
-          </h3>
-          {category && (
-            <Badge
-              variant="outline"
-              className={`ml-auto text-[11px] font-medium border-0 ${config.badgeColor}`}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            {config.icon}
+            <h3 className={`text-sm font-semibold ${config.titleColor}`}>
+              {title}
+            </h3>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {category && (
+              <Badge
+                variant="outline"
+                className={`text-[11px] font-medium border-0 ${config.badgeColor}`}
+              >
+                {category}
+              </Badge>
+            )}
+            <button
+              type="button"
+              onClick={handleCopy}
+              aria-label={copied ? "Copied" : "Copy content"}
+              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
-              {category}
-            </Badge>
-          )}
+              {copied ? (
+                <Check className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

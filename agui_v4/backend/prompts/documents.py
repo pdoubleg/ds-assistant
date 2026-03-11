@@ -1,6 +1,5 @@
 """Prompt templates for document summary and search/sort workflows."""
 
-
 DOCUMENT_SUMMARY_SYSTEM_PROMPT = """\
 You are a document summarization assistant. Given a single document's content and \
 metadata, produce a structured summary that lets a reader understand the document \
