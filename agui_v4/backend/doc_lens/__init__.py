@@ -5,7 +5,7 @@ from .db import DuckDBStore
 from .embedder import BaseEmbedder, FastEmbedCLIPEmbedder
 from .extractor import PDFExtractor
 from .settings import Settings
-from .models import IngestResponse, QueryRequest, QueryResponse, SessionSummary
+from .models import IngestResponse, QueryRequest, QueryResponse, SearchMode, SessionSummary
 
 __all__ = [
     "DocLensService",
@@ -17,5 +17,6 @@ __all__ = [
     "QueryRequest",
     "IngestResponse",
     "QueryResponse",
+    "SearchMode",
     "SessionSummary",
 ]

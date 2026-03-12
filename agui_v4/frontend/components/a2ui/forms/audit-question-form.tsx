@@ -27,18 +27,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Copy,
   ClipboardCheck,
+  ClipboardList,
   AlertTriangle,
   CheckCircle2,
-  Shield,
   FileWarning,
   Save,
   Loader2,
@@ -165,26 +161,37 @@ function AutoResizeTextarea(
 const ANSWER_OPTIONS: {
   value: AnswerValue;
   label: string;
+  icon: React.ReactNode;
+  iconSm: React.ReactNode;
   active: string;
   idle: string;
 }[] = [
   {
     value: "Yes",
     label: "Yes",
-    active: "bg-emerald-600 text-white shadow-sm",
-    idle: "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20",
+    icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+    iconSm: <CheckCircle2 className="h-3 w-3" />,
+    active:
+      "bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-600/30 ring-offset-1 ring-offset-background",
+    idle: "text-emerald-700 dark:text-emerald-400 border-emerald-500/30 dark:border-emerald-500/25 hover:bg-emerald-500/15 dark:hover:bg-emerald-500/20",
   },
   {
     value: "No",
     label: "No",
-    active: "bg-red-600 text-white shadow-sm",
-    idle: "text-red-700 dark:text-red-400 hover:bg-red-500/20",
+    icon: <XCircle className="h-3.5 w-3.5" />,
+    iconSm: <XCircle className="h-3 w-3" />,
+    active:
+      "bg-red-600 text-white shadow-sm ring-2 ring-red-600/30 ring-offset-1 ring-offset-background",
+    idle: "text-red-700 dark:text-red-400 border-red-500/30 dark:border-red-500/25 hover:bg-red-500/15 dark:hover:bg-red-500/20",
   },
   {
     value: "Insufficient information",
     label: "Insufficient",
-    active: "bg-amber-600 text-white shadow-sm",
-    idle: "text-amber-700 dark:text-amber-400 hover:bg-amber-500/20",
+    icon: <AlertTriangle className="h-3.5 w-3.5" />,
+    iconSm: <AlertTriangle className="h-3 w-3" />,
+    active:
+      "bg-amber-600 text-white shadow-sm ring-2 ring-amber-600/30 ring-offset-1 ring-offset-background",
+    idle: "text-amber-700 dark:text-amber-400 border-amber-500/30 dark:border-amber-500/25 hover:bg-amber-500/15 dark:hover:bg-amber-500/20",
   },
 ];
 
@@ -202,28 +209,34 @@ function AnswerPills({
   yesDisabledTitle?: string;
 }) {
   const pillClass =
-    size === "sm" ? "px-2.5 py-1 text-xs" : "px-4 py-2 text-sm";
+    size === "sm"
+      ? "px-2.5 py-1 text-xs gap-1"
+      : "px-3.5 py-1.5 text-sm gap-1.5";
 
   return (
-    <div className="flex items-center gap-1">
-      {ANSWER_OPTIONS.map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          disabled={disableYes && opt.value === "Yes"}
-          title={
-            disableYes && opt.value === "Yes" ? yesDisabledTitle : undefined
-          }
-          type="button"
-          className={`${pillClass} rounded-md font-semibold border transition-all duration-150 disabled:opacity-45 disabled:cursor-not-allowed ${
-            value === opt.value
-              ? `${opt.active} border-transparent`
-              : `${opt.idle} border-border/40 bg-transparent`
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
+    <div className="flex items-center gap-1.5">
+      {ANSWER_OPTIONS.map((opt) => {
+        const isActive = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            disabled={disableYes && opt.value === "Yes"}
+            title={
+              disableYes && opt.value === "Yes" ? yesDisabledTitle : undefined
+            }
+            type="button"
+            className={`${pillClass} inline-flex items-center rounded-lg font-semibold border transition-all duration-150 hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 ${
+              isActive
+                ? `${opt.active} border-transparent`
+                : `${opt.idle} bg-transparent`
+            }`}
+          >
+            {size === "sm" ? opt.iconSm : opt.icon}
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -244,10 +257,14 @@ function SubQuestionRow({
   onCommentsChange: (comments: string) => void;
 }) {
   const subAnswer = sub.answer || "No";
+  const borderColor =
+    subAnswer === "Yes"
+      ? "border-l-emerald-500/60 dark:border-l-emerald-500/40"
+      : "border-l-red-500/60 dark:border-l-red-500/40";
 
   return (
-    <div className="flex items-start gap-4 py-4 pl-11 pr-5 bg-secondary/20 border-l-2 border-l-red-500/30">
-      <span className="shrink-0 text-xs font-mono font-semibold text-primary mt-0.5 min-w-[64px]">
+    <div className={`flex items-start gap-4 py-4 pl-10 pr-5 border-l-[3px] ${borderColor} transition-colors`}>
+      <span className="shrink-0 text-[10px] font-mono font-bold text-primary bg-primary/8 dark:bg-primary/12 border border-primary/10 dark:border-primary/8 rounded px-1.5 py-0.5 mt-0.5">
         {sub.id}
       </span>
       <div className="flex-1 min-w-0">
@@ -260,44 +277,46 @@ function SubQuestionRow({
           <label className="text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
             Sub-Question Answer
           </label>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-1.5 mt-1">
             <button
               type="button"
               onClick={() => onAnswerChange("No")}
-              className={`px-3.5 py-1.5 rounded-md text-sm font-semibold border transition-colors ${
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all duration-150 hover:scale-[1.03] active:scale-[0.97] ${
                 subAnswer === "No"
-                  ? "bg-red-600 text-white border-red-600 shadow-sm"
-                  : "bg-red-500/10 border-red-500/35 text-red-700 dark:text-red-300 hover:bg-red-500/20"
+                  ? "bg-red-600 text-white border-transparent shadow-sm ring-2 ring-red-600/30 ring-offset-1 ring-offset-background"
+                  : "border-red-500/30 dark:border-red-500/25 text-red-700 dark:text-red-400 bg-transparent hover:bg-red-500/15 dark:hover:bg-red-500/20"
               }`}
             >
+              <XCircle className="h-3 w-3" />
               No
             </button>
             <button
               type="button"
               onClick={() => onAnswerChange("Yes")}
-              className={`px-3.5 py-1.5 rounded-md text-sm font-semibold border transition-colors ${
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all duration-150 hover:scale-[1.03] active:scale-[0.97] ${
                 subAnswer === "Yes"
-                  ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
-                  : "bg-emerald-500/10 border-emerald-500/35 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20"
+                  ? "bg-emerald-600 text-white border-transparent shadow-sm ring-2 ring-emerald-600/30 ring-offset-1 ring-offset-background"
+                  : "border-emerald-500/30 dark:border-emerald-500/25 text-emerald-700 dark:text-emerald-400 bg-transparent hover:bg-emerald-500/15 dark:hover:bg-emerald-500/20"
               }`}
             >
+              <CheckCircle2 className="h-3 w-3" />
               Yes
             </button>
           </div>
         </div>
 
         {/* Reasoning (editable) */}
-        <div className="mt-1">
-          <label className="text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
+        <div className="mt-2">
+          <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
             Reasoning
           </label>
-          <div className="flex items-start gap-1 mt-0.5">
+          <div className="flex items-start gap-1 mt-1">
             <AutoResizeTextarea
               value={sub.reasoning}
               onChange={(e) => onReasoningChange(e.target.value)}
               placeholder="Explain the reasoning..."
               rows={2}
-              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[56px] leading-relaxed"
+              className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed shadow-2xs"
             />
             <CopyButton text={sub.reasoning} />
           </div>
@@ -305,16 +324,16 @@ function SubQuestionRow({
 
         {/* Citations (editable) */}
         <div className="mt-2">
-          <label className="text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
+          <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
             Citations
           </label>
-          <div className="flex items-start gap-1 mt-0.5">
+          <div className="flex items-start gap-1 mt-1">
             <AutoResizeTextarea
               value={sub.citations}
               onChange={(e) => onCitationsChange(e.target.value)}
               placeholder="Reference specific evidence..."
               rows={1}
-              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[48px] leading-relaxed"
+              className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[44px] leading-relaxed shadow-2xs"
             />
             <CopyButton text={sub.citations} />
           </div>
@@ -322,16 +341,16 @@ function SubQuestionRow({
 
         {/* Final comments (editable) */}
         <div className="mt-2">
-          <label className="text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
+          <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
             Final Comments
           </label>
-          <div className="flex items-start gap-1 mt-0.5">
+          <div className="flex items-start gap-1 mt-1">
             <AutoResizeTextarea
               value={sub.comments || ""}
               onChange={(e) => onCommentsChange(e.target.value)}
               placeholder="Optional final comments for this sub-question..."
               rows={2}
-              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[56px] leading-relaxed"
+              className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed shadow-2xs"
             />
             <CopyButton text={sub.comments || ""} />
           </div>
@@ -386,39 +405,33 @@ function QuestionRow({
   }, [isNo, hasSubs]);
 
   const subsToShow = useMemo(() => {
-    if (!hasSubs) return [];
-    if (expanded) return question.sub_questions!;
-    return isNo ? question.sub_questions! : [];
-  }, [expanded, hasSubs, question.sub_questions, isNo]);
+    if (!hasSubs || !expanded) return [];
+    return question.sub_questions!;
+  }, [expanded, hasSubs, question.sub_questions]);
 
   const showSubSection = subsToShow.length > 0;
 
+  const subCount = hasSubs ? question.sub_questions!.length : 0;
+
+  const answerAccent =
+    question.answer === "Yes"
+      ? "border-l-emerald-500/70 dark:border-l-emerald-500/50"
+      : question.answer === "No"
+        ? "border-l-red-500/70 dark:border-l-red-500/50"
+        : question.answer === "Insufficient information"
+          ? "border-l-amber-500/70 dark:border-l-amber-500/50"
+          : "border-l-transparent";
+
   return (
-    <div className="border border-border/40 rounded-xl overflow-hidden bg-secondary/10">
+    <div className={`border border-border/60 dark:border-border/25 border-l-[3px] ${answerAccent} rounded-xl overflow-hidden bg-card dark:bg-card/90 shadow-xs hover:shadow-sm transition-all`}>
       {/* Main question row */}
       <div className="flex items-start gap-4 p-5">
-        <button
-          onClick={() => hasSubs && setExpanded((prev) => !prev)}
-          className="shrink-0 mt-0.5 text-muted-foreground"
-          type="button"
-        >
-          {hasSubs ? (
-            expanded ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )
-          ) : (
-            <div className="w-4" />
-          )}
-        </button>
-
-        <span className="shrink-0 text-sm font-mono text-primary mt-0.5 min-w-[64px]">
+        <span className="shrink-0 text-[11px] font-mono font-bold text-primary bg-primary/8 dark:bg-primary/12 border border-primary/12 dark:border-primary/8 rounded-md px-2 py-0.5 mt-0.5">
           {question.id}
         </span>
 
         <div className="flex-1 min-w-0">
-          <p className="text-lg text-foreground leading-relaxed font-normal">
+          <p className="text-base text-foreground leading-relaxed font-normal">
             {question.text}
           </p>
 
@@ -434,11 +447,34 @@ function QuestionRow({
                   onChange={(e) => onMissingInfoChange(e.target.value)}
                   placeholder="What information is needed to make a determination?"
                   rows={2}
-                  className="flex-1 text-base bg-amber-500/5 border border-amber-500/30 rounded-md px-3.5 py-2.5 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-amber-500/50 min-h-[56px] leading-relaxed"
+                  className="flex-1 text-sm bg-amber-500/5 dark:bg-amber-500/8 border border-amber-500/40 dark:border-amber-500/25 rounded-lg px-3 py-2 text-foreground/95 placeholder:text-muted-foreground/55 focus:outline-none focus:ring-1 focus:ring-amber-500/50 min-h-[52px] leading-relaxed shadow-2xs"
                 />
                 <CopyButton text={question.missing_info || ""} />
               </div>
             </div>
+          )}
+
+          {/* Sub-question toggle pill */}
+          {hasSubs && (
+            <button
+              type="button"
+              onClick={() => setExpanded((prev) => !prev)}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-secondary/50 dark:bg-secondary/20 hover:bg-secondary/80 dark:hover:bg-secondary/35 border border-border/50 dark:border-border/20 transition-all shadow-2xs"
+            >
+              {expanded ? (
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              )}
+              <span className="text-foreground/70 dark:text-foreground/60">
+                {subCount} sub-question{subCount !== 1 ? "s" : ""}
+              </span>
+              {noDriverCount > 0 && (
+                <span className="ml-0.5 inline-flex items-center rounded-full bg-red-500/15 dark:bg-red-500/25 border border-red-500/20 dark:border-red-500/15 px-1.5 py-px text-[10px] font-semibold text-red-700 dark:text-red-400">
+                  {noDriverCount} driver{noDriverCount !== 1 ? "s" : ""}
+                </span>
+              )}
+            </button>
           )}
         </div>
 
@@ -454,30 +490,15 @@ function QuestionRow({
 
       {/* Driver validation banner for "No" answers */}
       {isNo && hasSubs && (
-        <div className="px-5 py-2.5 border-t flex items-center gap-2 text-sm bg-red-500/8 border-red-500/15 text-red-700 dark:text-red-400">
+        <div className="px-5 py-2 border-t border-red-500/25 dark:border-red-500/15 flex items-center gap-2 text-sm bg-red-500/10 dark:bg-red-500/12 text-red-700 dark:text-red-400">
           <AlertTriangle className="h-3.5 w-3.5" />
           {noDriverCount} driver{noDriverCount !== 1 ? "s" : ""} identified
         </div>
       )}
 
-      {/* Sub-questions */}
+      {/* Sub-questions (collapsible) */}
       {showSubSection && (
-        <div className="border-t border-border/25 divide-y divide-border/15">
-          {!expanded && hasSubs && (
-            <div className="px-5 py-2 text-xs text-muted-foreground/80 bg-secondary/10 flex items-center justify-between">
-              <span>
-                {subsToShow.length} sub-question
-                {subsToShow.length > 1 ? "s" : ""}
-              </span>
-              <button
-                type="button"
-                onClick={() => setExpanded(true)}
-                className="font-medium text-primary hover:text-foreground hover:underline"
-              >
-                Show all
-              </button>
-            </div>
-          )}
+        <div className="border-t border-border/50 dark:border-border/20 bg-secondary/40 dark:bg-secondary/12 shadow-[inset_0_2px_6px_-2px_oklch(0_0_0/0.06)] dark:shadow-[inset_0_2px_6px_-2px_oklch(0_0_0/0.15)] divide-y divide-border/40 dark:divide-border/15">
           {subsToShow.map((sub) => (
             <SubQuestionRow
               key={sub.id}
@@ -513,6 +534,7 @@ export function AuditQuestionForm({
   currentFormId,
 }: AuditQuestionFormProps): React.ReactElement {
   const [peril, setPeril] = useState(initialPeril);
+  const [isFullyCollapsed, setIsFullyCollapsed] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "success">("idle");
   const [formTitle, setFormTitle] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
@@ -751,13 +773,13 @@ export function AuditQuestionForm({
   );
 
   return (
-    <Card className="border-primary/20 bg-linear-to-br from-card to-secondary/20">
-      <CardHeader className="pb-5">
+    <Card className="border-border/60 dark:border-border/20 bg-linear-to-br from-card to-secondary/15 dark:from-card dark:to-secondary/8 shadow-sm">
+      <CardHeader className="pb-4">
         {/* Peril + outcome header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <Shield className="h-5 w-5 text-primary" />
+              <ClipboardList className="h-5 w-5 text-primary" />
               <h2 className="text-xl font-semibold text-foreground">
                 TFR Questionnaire
               </h2>
@@ -775,7 +797,7 @@ export function AuditQuestionForm({
             >
               <Badge
                 variant="outline"
-                className={`text-sm font-semibold cursor-pointer ${
+                className={`text-sm font-semibold cursor-pointer transition-colors ${
                   peril.peril === "Exterior"
                     ? "bg-blue-500/20 text-blue-700 dark:text-blue-400 border-blue-500/30"
                     : "bg-orange-500/20 text-orange-700 dark:text-orange-400 border-orange-500/30"
@@ -786,30 +808,45 @@ export function AuditQuestionForm({
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              setOverallOutcome((prev) =>
-                prev === "Meets" ? "Does Not Meet Expectations" : "Meets"
-              )
-            }
-            title="Click to toggle outcome"
-          >
-            <Badge
-              className={`text-sm font-semibold cursor-pointer ${
-                overallOutcome === "Meets"
-                  ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
-                  : "bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30"
-              }`}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setOverallOutcome((prev) =>
+                  prev === "Meets" ? "Does Not Meet Expectations" : "Meets"
+                )
+              }
+              title="Click to toggle outcome"
             >
-              {overallOutcome === "Meets" ? (
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              <Badge
+                className={`text-sm font-semibold cursor-pointer transition-colors ${
+                  overallOutcome === "Meets"
+                    ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                    : "bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30"
+                }`}
+              >
+                {overallOutcome === "Meets" ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                ) : (
+                  <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                )}
+                {overallOutcome}
+              </Badge>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsFullyCollapsed((prev) => !prev)}
+              title={isFullyCollapsed ? "Expand form" : "Collapse to compact view"}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            >
+              {isFullyCollapsed ? (
+                <ChevronDown className="h-4 w-4" />
               ) : (
-                <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                <ChevronUp className="h-4 w-4" />
               )}
-              {overallOutcome}
-            </Badge>
-          </button>
+            </button>
+          </div>
         </div>
 
         {/* Counts bar */}
@@ -848,6 +885,7 @@ export function AuditQuestionForm({
         )}
       </CardHeader>
 
+      {!isFullyCollapsed && (
       <CardContent className="space-y-4">
         {questions.map((q) => (
           <QuestionRow
@@ -875,7 +913,7 @@ export function AuditQuestionForm({
         <Separator className="my-5" />
 
         {/* Outcome justification (editable) */}
-        <div className="border border-border/40 rounded-xl p-5 bg-secondary/10">
+        <div className="border border-border/60 dark:border-border/25 rounded-xl p-5 bg-card dark:bg-card/80 shadow-2xs">
           <label className="text-sm font-semibold text-foreground/85 uppercase tracking-wider">
             Outcome Justification
           </label>
@@ -885,14 +923,14 @@ export function AuditQuestionForm({
               onChange={(e) => setOutcomeJustification(e.target.value)}
               placeholder="Justification for the overall outcome..."
               rows={3}
-              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[88px] leading-relaxed"
+              className="flex-1 text-sm bg-secondary/20 dark:bg-background/50 border border-border/70 dark:border-border/20 rounded-lg px-3 py-2.5 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[80px] leading-relaxed"
             />
             <CopyButton text={outcomeJustification} />
           </div>
         </div>
 
         {/* Additional analysis (editable) */}
-        <div className="border border-border/40 rounded-xl p-5 bg-secondary/10">
+        <div className="border border-border/60 dark:border-border/25 rounded-xl p-5 bg-card dark:bg-card/80 shadow-2xs">
           <label className="text-sm font-semibold text-foreground/85 uppercase tracking-wider">
             Additional Analysis
           </label>
@@ -907,14 +945,14 @@ export function AuditQuestionForm({
               onChange={(e) => setAdditionalAnalysis(e.target.value)}
               placeholder="Optional additional analysis..."
               rows={2}
-              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[56px] leading-relaxed"
+              className="flex-1 text-sm bg-secondary/20 dark:bg-background/50 border border-border/70 dark:border-border/20 rounded-lg px-3 py-2.5 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed"
             />
             <CopyButton text={additionalAnalysis} />
           </div>
         </div>
 
         {/* Follow-ups (editable) */}
-        <div className="border border-border/40 rounded-xl p-5 bg-secondary/10">
+        <div className="border border-border/60 dark:border-border/25 rounded-xl p-5 bg-card dark:bg-card/80 shadow-2xs">
           <label className="text-sm font-semibold text-foreground/85 uppercase tracking-wider">
             Recommended Follow-Ups
           </label>
@@ -924,7 +962,7 @@ export function AuditQuestionForm({
               onChange={(e) => setFollowUps(e.target.value)}
               placeholder="Optional follow-up actions..."
               rows={2}
-              className="flex-1 text-base bg-background/80 border border-border/70 rounded-md px-3.5 py-2.5 text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[56px] leading-relaxed"
+              className="flex-1 text-sm bg-secondary/20 dark:bg-background/50 border border-border/70 dark:border-border/20 rounded-lg px-3 py-2.5 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed"
             />
             <CopyButton text={followUps} />
           </div>
@@ -938,7 +976,7 @@ export function AuditQuestionForm({
             const busy = isSaving || isDeleting;
 
             return (
-              <div className="rounded-xl p-5 mt-2 border border-border/40 bg-secondary/10">
+              <div className="rounded-xl p-5 mt-2 border border-border/60 dark:border-border/25 bg-card dark:bg-card/80 shadow-2xs">
                 {/* Title input row */}
                 <div className="mb-3">
                   <Input
@@ -1052,6 +1090,7 @@ export function AuditQuestionForm({
             );
           })()}
       </CardContent>
+      )}
     </Card>
   );
 }

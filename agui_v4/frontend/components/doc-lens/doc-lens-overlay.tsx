@@ -71,6 +71,7 @@ interface DocLensOverlayProps {
   summaries?: Map<string, DocumentSummaryData>;
   searchScores?: Map<string, DocSearchData>;
   agentTags?: Map<string, DocumentTagData[]>;
+  getTextContent?: (fileName: string) => string;
   cardVariant?: CardVariant;
 
   /** Per-card UI expansion state. */
@@ -121,6 +122,7 @@ export function DocLensOverlay({
   summaries,
   searchScores,
   agentTags,
+  getTextContent,
   cardVariant = "narrow",
   cardUiByFileName,
   bulkExpandedCommand,
@@ -155,6 +157,7 @@ export function DocLensOverlay({
   const [previewDoc, setPreviewDoc] = useState<
     (UploadedDoc & { _id: string; _initialPage?: number }) | null
   >(null);
+  const [previewQuery, setPreviewQuery] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Stable ref for onCardUiStateChange to avoid infinite re-render loops.
@@ -226,6 +229,19 @@ export function DocLensOverlay({
     });
   }, [ctx]);
 
+  const handleSearchModeChange = useCallback(
+    (searchMode: "image" | "text") => {
+      if (ctx.queryParams.search_mode === searchMode) return;
+      ctx.setQueryParams((prev) => ({
+        ...prev,
+        search_mode: searchMode,
+        asset_types: searchMode === "image" ? prev.asset_types : null,
+      }));
+      handleClearResults();
+    },
+    [ctx, handleClearResults]
+  );
+
   const handleBrowseDocument = useCallback(
     async (documentId: string) => {
       if (documentId === "none") {
@@ -253,9 +269,10 @@ export function DocLensOverlay({
   );
 
   const handlePreviewDoc = useCallback(
-    (fileName: string, page: number) => {
+    (fileName: string, page: number, query?: string) => {
       const doc = docs.find((d) => d.file_name === fileName);
       if (doc) {
+        setPreviewQuery(query ?? "");
         setPreviewDoc({
           ...doc,
           _id: doc.file_name,
@@ -271,6 +288,7 @@ export function DocLensOverlay({
   const isInitializing = ctx.status === "initializing";
   const isQuerying = ctx.status === "querying";
   const isReady = ctx.status === "ready";
+  const isTextMode = ctx.queryParams.search_mode === "text";
   const completedFiles = ctx.ingestProgress.filter(
     (p) => p.status === "complete"
   );
@@ -297,10 +315,15 @@ export function DocLensOverlay({
         ) {
           return false;
         }
-        if (postFilters.assetType !== "all" && hit.asset_type !== postFilters.assetType) {
+        if (
+          !isTextMode &&
+          postFilters.assetType !== "all" &&
+          hit.asset_type !== postFilters.assetType
+        ) {
           return false;
         }
         if (
+          !isTextMode &&
           postFilters.extractionMethod !== "all" &&
           hit.extraction_method !== postFilters.extractionMethod
         ) {
@@ -308,7 +331,7 @@ export function DocLensOverlay({
         }
         return true;
       }),
-    [activeHits, postFilters]
+    [activeHits, isTextMode, postFilters]
   );
   const completedDocTargets = ctx.ingestProgress.filter(
     (p): p is IngestFileProgress & { document_id: string } =>
@@ -649,101 +672,109 @@ export function DocLensOverlay({
                             </Select>
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-[10px] text-muted-foreground font-medium">
-                              Asset type
-                            </label>
-                            <Select
-                              value={postFilters.assetType}
-                              onValueChange={(v) =>
-                                setPostFilters((prev) => ({
-                                  ...prev,
-                                  assetType: v as "all" | "page" | "photo",
-                                }))
-                              }
-                              disabled={activeHits.length === 0}
-                            >
-                              <SelectTrigger className="h-7 w-[110px] text-[11px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent className="z-150">
-                                <SelectItem value="all" className="text-[11px]">
-                                  All
-                                </SelectItem>
-                                <SelectItem value="photo" className="text-[11px]">
-                                  Photo
-                                </SelectItem>
-                                <SelectItem value="page" className="text-[11px]">
-                                  Page
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-[10px] text-muted-foreground font-medium">
-                              Extraction
-                            </label>
-                            <Select
-                              value={postFilters.extractionMethod}
-                              onValueChange={(v) =>
-                                setPostFilters((prev) => ({ ...prev, extractionMethod: v }))
-                              }
-                              disabled={activeHits.length === 0}
-                            >
-                              <SelectTrigger className="h-7 w-[170px] text-[11px]">
-                                <SelectValue placeholder="All methods" />
-                              </SelectTrigger>
-                              <SelectContent className="z-150">
-                                <SelectItem value="all" className="text-[11px]">
-                                  All methods
-                                </SelectItem>
-                                {postFilterOptions.extractionMethods.map((method) => (
-                                  <SelectItem key={method} value={method} className="text-[11px]">
-                                    {method}
+                          {!isTextMode && (
+                            <div className="flex items-center gap-1.5">
+                              <label className="text-[10px] text-muted-foreground font-medium">
+                                Asset type
+                              </label>
+                              <Select
+                                value={postFilters.assetType}
+                                onValueChange={(v) =>
+                                  setPostFilters((prev) => ({
+                                    ...prev,
+                                    assetType: v as "all" | "page" | "photo",
+                                  }))
+                                }
+                                disabled={activeHits.length === 0}
+                              >
+                                <SelectTrigger className="h-7 w-[110px] text-[11px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="z-150">
+                                  <SelectItem value="all" className="text-[11px]">
+                                    All
                                   </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
+                                  <SelectItem value="photo" className="text-[11px]">
+                                    Photo
+                                  </SelectItem>
+                                  <SelectItem value="page" className="text-[11px]">
+                                    Page
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+
+                          {!isTextMode && (
+                            <div className="flex items-center gap-1.5">
+                              <label className="text-[10px] text-muted-foreground font-medium">
+                                Extraction
+                              </label>
+                              <Select
+                                value={postFilters.extractionMethod}
+                                onValueChange={(v) =>
+                                  setPostFilters((prev) => ({ ...prev, extractionMethod: v }))
+                                }
+                                disabled={activeHits.length === 0}
+                              >
+                                <SelectTrigger className="h-7 w-[170px] text-[11px]">
+                                  <SelectValue placeholder="All methods" />
+                                </SelectTrigger>
+                                <SelectContent className="z-150">
+                                  <SelectItem value="all" className="text-[11px]">
+                                    All methods
+                                  </SelectItem>
+                                  {postFilterOptions.extractionMethods.map((method) => (
+                                    <SelectItem key={method} value={method} className="text-[11px]">
+                                      {method}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
 
                           <div className="flex items-center gap-1.5 ml-auto">
-                            <label className="text-[10px] text-muted-foreground font-medium">
-                              View all images
-                            </label>
-                            <Select
-                              value={browseDocumentId}
-                              onValueChange={handleBrowseDocument}
-                              disabled={
-                                !isReady ||
-                                !isResultsSpaceClear ||
-                                completedDocTargets.length === 0
-                              }
-                            >
-                              <SelectTrigger className="h-7 w-[220px] text-[11px]">
-                                <SelectValue
-                                  placeholder={
-                                    isResultsSpaceClear
-                                      ? "Select document"
-                                      : "Clear results to enable"
+                            {!isTextMode && (
+                              <>
+                                <label className="text-[10px] text-muted-foreground font-medium">
+                                  View all images
+                                </label>
+                                <Select
+                                  value={browseDocumentId}
+                                  onValueChange={handleBrowseDocument}
+                                  disabled={
+                                    !isReady ||
+                                    !isResultsSpaceClear ||
+                                    completedDocTargets.length === 0
                                   }
-                                />
-                              </SelectTrigger>
-                              <SelectContent className="z-150">
-                                <SelectItem value="none" className="text-[11px]">
-                                  None
-                                </SelectItem>
-                                {completedDocTargets.map((docTarget) => (
-                                  <SelectItem
-                                    key={docTarget.document_id}
-                                    value={docTarget.document_id}
-                                    className="text-[11px]"
-                                  >
-                                    {docTarget.file_name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                >
+                                  <SelectTrigger className="h-7 w-[220px] text-[11px]">
+                                    <SelectValue
+                                      placeholder={
+                                        isResultsSpaceClear
+                                          ? "Select document"
+                                          : "Clear results to enable"
+                                      }
+                                    />
+                                  </SelectTrigger>
+                                  <SelectContent className="z-150">
+                                    <SelectItem value="none" className="text-[11px]">
+                                      None
+                                    </SelectItem>
+                                    {completedDocTargets.map((docTarget) => (
+                                      <SelectItem
+                                        key={docTarget.document_id}
+                                        value={docTarget.document_id}
+                                        className="text-[11px]"
+                                      >
+                                        {docTarget.file_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"
@@ -762,7 +793,9 @@ export function DocLensOverlay({
                             <span className="text-sm">
                               {loadingDocumentAssets
                                 ? "Loading document images..."
-                                : "Searching images..."}
+                                : isTextMode
+                                  ? "Searching text..."
+                                  : "Searching images..."}
                             </span>
                           </div>
                         )}
@@ -804,8 +837,9 @@ export function DocLensOverlay({
                               Ready to search. Enter a query below.
                             </p>
                             <p className="text-xs opacity-60">
-                              Describe the image you&rsquo;re looking for using
-                              natural language.
+                              {isTextMode
+                                ? "Search extracted document text and jump directly to matching pages."
+                                : "Describe the image you&rsquo;re looking for using natural language."}
                             </p>
                           </div>
                         )}
@@ -816,7 +850,7 @@ export function DocLensOverlay({
                             <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
                               <ScanSearch className="h-10 w-10 opacity-30" />
                               <p className="text-sm">
-                                No images match the current post-query filters.
+                                No {isTextMode ? "text hits" : "images"} match the current post-query filters.
                               </p>
                               <p className="text-xs opacity-60">
                                 Adjust filters or click Clear to reset this results view.
@@ -870,42 +904,44 @@ export function DocLensOverlay({
                             </Select>
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-[10px] text-muted-foreground font-medium">
-                              Asset Types
-                            </label>
-                            <Select
-                              value={
-                                ctx.queryParams.asset_types === null
-                                  ? "all"
-                                  : ctx.queryParams.asset_types.join(",")
-                              }
-                              onValueChange={(v) =>
-                                ctx.setQueryParams((p) => ({
-                                  ...p,
-                                  asset_types:
-                                    v === "all"
-                                      ? null
-                                      : (v.split(",") as ("page" | "photo")[]),
-                                }))
-                              }
-                            >
-                              <SelectTrigger className="h-6 w-24 text-[11px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent className="z-150">
-                                <SelectItem value="all" className="text-[11px]">
-                                  All
-                                </SelectItem>
-                                <SelectItem value="photo" className="text-[11px]">
-                                  Photos only
-                                </SelectItem>
-                                <SelectItem value="page" className="text-[11px]">
-                                  Pages only
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
+                          {!isTextMode && (
+                            <div className="flex items-center gap-1.5">
+                              <label className="text-[10px] text-muted-foreground font-medium">
+                                Asset Types
+                              </label>
+                              <Select
+                                value={
+                                  ctx.queryParams.asset_types === null
+                                    ? "all"
+                                    : ctx.queryParams.asset_types.join(",")
+                                }
+                                onValueChange={(v) =>
+                                  ctx.setQueryParams((p) => ({
+                                    ...p,
+                                    asset_types:
+                                      v === "all"
+                                        ? null
+                                        : (v.split(",") as ("page" | "photo")[]),
+                                  }))
+                                }
+                              >
+                                <SelectTrigger className="h-6 w-24 text-[11px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="z-150">
+                                  <SelectItem value="all" className="text-[11px]">
+                                    All
+                                  </SelectItem>
+                                  <SelectItem value="photo" className="text-[11px]">
+                                    Photos only
+                                  </SelectItem>
+                                  <SelectItem value="page" className="text-[11px]">
+                                    Pages only
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
                         </div>
                       </motion.div>
                     )}
@@ -913,6 +949,25 @@ export function DocLensOverlay({
 
                   {/* Input row */}
                   <div className="flex items-center gap-2">
+                    <div className="flex items-center rounded-md border p-0.5 shrink-0">
+                      <Button
+                        variant={isTextMode ? "ghost" : "default"}
+                        size="sm"
+                        className="h-8 px-2.5 text-[11px]"
+                        onClick={() => handleSearchModeChange("image")}
+                      >
+                        Image
+                      </Button>
+                      <Button
+                        variant={isTextMode ? "default" : "ghost"}
+                        size="sm"
+                        className="h-8 px-2.5 text-[11px]"
+                        onClick={() => handleSearchModeChange("text")}
+                      >
+                        Text
+                      </Button>
+                    </div>
+
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -933,7 +988,11 @@ export function DocLensOverlay({
                       ref={inputRef}
                       value={queryText}
                       onChange={(e) => setQueryText(e.target.value)}
-                      placeholder='Describe an image, e.g. "source of water damage" or "roofing damage close-up"'
+                      placeholder={
+                        isTextMode
+                          ? 'Search document text, e.g. "repeated seepage" or "mold exclusion"'
+                          : 'Describe an image, e.g. "source of water damage" or "roofing damage close-up"'
+                      }
                       className="h-8 text-xs flex-1"
                       disabled={!isReady}
                       onKeyDown={(e) => {
@@ -1019,9 +1078,15 @@ export function DocLensOverlay({
         doc={previewDoc}
         open={!!previewDoc}
         onOpenChange={(isOpen) => {
-          if (!isOpen) setPreviewDoc(null);
+          if (!isOpen) {
+            setPreviewDoc(null);
+            setPreviewQuery("");
+          }
         }}
         initialPage={previewDoc?._initialPage}
+        textContent={previewDoc ? getTextContent?.(previewDoc.file_name) : undefined}
+        highlightQuery={previewQuery}
+        summaryData={previewDoc ? summaries?.get(previewDoc.file_name) : undefined}
         contentClassName="z-[150]"
         overlayClassName="z-[150]"
       />

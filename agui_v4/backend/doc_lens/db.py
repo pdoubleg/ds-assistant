@@ -69,6 +69,7 @@ _FATAL_PATTERNS = (
     "Invalid node type for ARTOperator",
     "database must be restarted",
 )
+_PAGE_TEXT_TABLE = "document_pages"
 
 
 def _is_fatal_duckdb_error(exc: Exception) -> bool:
@@ -105,6 +106,7 @@ class DuckDBStore:
         # Guard DB operations when ingest/query run concurrently in async/threaded
         # service paths.
         self._lock = RLock()
+        self._init_extensions()
         self._init_schema()
 
     # ── Connection recovery ────────────────────────────────────────────────
@@ -122,7 +124,24 @@ class DuckDBStore:
         except Exception:
             pass  # best-effort — the connection is already broken
         self.conn = duckdb.connect(self.db_path)
+        self._init_extensions()
         self._init_schema()
+
+    def _init_extensions(self) -> None:
+        """Load extensions required by Doc Lens.
+
+        The FTS extension is used for text-mode queries against persisted page
+        text. Installation is best-effort because the package may already be
+        bundled in the local DuckDB build.
+        """
+        with self._lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("INSTALL fts")
+            except Exception:
+                # Some environments already bundle the extension.
+                pass
+            cursor.execute("LOAD fts")
 
     def _execute(self, sql: str, params: list[Any] | None = None) -> duckdb.DuckDBPyConnection:
         """Execute a SQL statement with a thread-local cursor under lock.
@@ -239,6 +258,18 @@ class DuckDBStore:
             """
         )
 
+        self._execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_pages (
+                page_row_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                page_text TEXT NOT NULL
+            )
+            """
+        )
+
         self._execute("CREATE INDEX IF NOT EXISTS idx_documents_session ON documents(session_id)")
         self._execute(
             "CREATE INDEX IF NOT EXISTS idx_session_assets_session ON session_assets(session_id)"
@@ -251,6 +282,12 @@ class DuckDBStore:
         )
         self._execute(
             "CREATE INDEX IF NOT EXISTS idx_embeddings_model_key ON embeddings_cache(model_key)"
+        )
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_pages_session_doc ON document_pages(session_id, document_id)"
+        )
+        self._execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_pages_session_page ON document_pages(session_id, page_number)"
         )
 
     def upsert_document(
@@ -465,6 +502,49 @@ class DuckDBStore:
             [list(row) for row in rows],
         )
 
+    def bulk_upsert_document_pages(
+        self,
+        rows: list[tuple[str, str, str, int, str]],
+    ) -> None:
+        """Bulk upsert extracted page text and rebuild the FTS index.
+
+        Args:
+            rows: Tuples of `(page_row_id, session_id, document_id, page_number, page_text)`.
+        """
+        if not rows:
+            return
+        self._executemany(
+            """
+            INSERT OR REPLACE INTO document_pages
+            (page_row_id, session_id, document_id, page_number, page_text)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [list(row) for row in rows],
+        )
+        self.rebuild_document_page_fts_index()
+
+    def rebuild_document_page_fts_index(self) -> None:
+        """Rebuild the full-text index for `document_pages`.
+
+        DuckDB's FTS index does not automatically track subsequent inserts, so
+        Doc Lens refreshes it after page-text mutations.
+        """
+        try:
+            self._execute(f"PRAGMA drop_fts_index('{_PAGE_TEXT_TABLE}')")
+        except Exception:
+            # First-time initialization has nothing to drop.
+            pass
+
+        self._execute(
+            f"""
+            PRAGMA create_fts_index(
+                '{_PAGE_TEXT_TABLE}',
+                'page_row_id',
+                'page_text'
+            )
+            """
+        )
+
     def embedding_exists(self, asset_hash: str, model_key: str) -> bool:
         """Return whether an embedding is cached for an asset/model pair.
 
@@ -614,7 +694,7 @@ class DuckDBStore:
         }
 
     def clear_session(self, session_id: str) -> None:
-        """Delete document and session-asset rows for one session.
+        """Delete document, page-text, and session-asset rows for one session.
 
         Args:
             session_id: Active Doc Lens session identifier.
@@ -624,8 +704,10 @@ class DuckDBStore:
             `embeddings_cache` rows intact because those tables are deduplicated
             across sessions.
         """
+        self._execute("DELETE FROM document_pages WHERE session_id = ?", [session_id])
         self._execute("DELETE FROM session_assets WHERE session_id = ?", [session_id])
         self._execute("DELETE FROM documents WHERE session_id = ?", [session_id])
+        self.rebuild_document_page_fts_index()
 
     def list_document_assets(
         self,
@@ -653,6 +735,7 @@ class DuckDBStore:
                 sa.asset_type,
                 sa.extraction_method,
                 ia.image_path,
+                dp.page_text,
                 sa.bbox_x0,
                 sa.bbox_y0,
                 sa.bbox_x1,
@@ -670,6 +753,10 @@ class DuckDBStore:
             JOIN documents d
               ON d.session_id = sa.session_id
              AND d.document_id = sa.document_id
+            LEFT JOIN document_pages dp
+              ON dp.session_id = sa.session_id
+             AND dp.document_id = sa.document_id
+             AND dp.page_number = sa.page_number
             WHERE sa.session_id = ?
               AND sa.document_id = ?
         )
@@ -688,6 +775,7 @@ class DuckDBStore:
             asset_type,
             extraction_method,
             image_path,
+            page_text,
             bbox_x0,
             bbox_y0,
             bbox_x1,
@@ -710,10 +798,11 @@ class DuckDBStore:
                     "asset_type": row[6],
                     "extraction_method": row[7],
                     "image_path": row[8],
-                    "bbox_x0": row[9],
-                    "bbox_y0": row[10],
-                    "bbox_x1": row[11],
-                    "bbox_y1": row[12],
+                    "page_text": row[9],
+                    "bbox_x0": row[10],
+                    "bbox_y0": row[11],
+                    "bbox_x1": row[12],
+                    "bbox_y1": row[13],
                 }
             )
         return results
@@ -793,6 +882,7 @@ class DuckDBStore:
                 sa.asset_type,
                 sa.extraction_method,
                 ia.image_path,
+                dp.page_text,
                 sa.bbox_x0,
                 sa.bbox_y0,
                 sa.bbox_x1,
@@ -812,6 +902,10 @@ class DuckDBStore:
             JOIN documents d
               ON d.session_id = sa.session_id
              AND d.document_id = sa.document_id
+            LEFT JOIN document_pages dp
+              ON dp.session_id = sa.session_id
+             AND dp.document_id = sa.document_id
+             AND dp.page_number = sa.page_number
             WHERE sa.session_id = ?
         )
         SELECT
@@ -825,6 +919,7 @@ class DuckDBStore:
             asset_type,
             extraction_method,
             image_path,
+            page_text,
             bbox_x0,
             bbox_y0,
             bbox_x1,
@@ -852,10 +947,106 @@ class DuckDBStore:
                     "asset_type": row[7],
                     "extraction_method": row[8],
                     "image_path": row[9],
-                    "bbox_x0": row[10],
-                    "bbox_y0": row[11],
-                    "bbox_x1": row[12],
-                    "bbox_y1": row[13],
+                    "page_text": row[10],
+                    "bbox_x0": row[11],
+                    "bbox_y0": row[12],
+                    "bbox_x1": row[13],
+                    "bbox_y1": row[14],
+                }
+            )
+        return results
+
+    def query_text_session(
+        self,
+        session_id: str,
+        query_text: str,
+        top_k: int,
+        document_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run full-text search over one session's persisted page text.
+
+        Args:
+            session_id: Active Doc Lens session identifier.
+            query_text: Raw text query for the DuckDB FTS engine.
+            top_k: Maximum number of ranked results to return.
+            document_ids: Optional document-id filter.
+
+        Returns:
+            Ranked page-level hits joined to their page-render assets so the UI
+            can reuse the existing hit-card renderer.
+        """
+        filters = ["dp.session_id = ?"]
+        params: list[Any] = [session_id]
+
+        if document_ids:
+            placeholders = ",".join(["?"] * len(document_ids))
+            filters.append(f"dp.document_id IN ({placeholders})")
+            params.extend(document_ids)
+
+        where_clause = " AND ".join(filters)
+        sql = f"""
+        WITH text_matches AS (
+            SELECT
+                dp.page_row_id,
+                fts_main_{_PAGE_TEXT_TABLE}.match_bm25(dp.page_row_id, ?) AS score
+            FROM document_pages dp
+            WHERE {where_clause}
+        )
+        SELECT
+            ROW_NUMBER() OVER (ORDER BY tm.score DESC, dp.page_row_id) AS rank,
+            tm.score,
+            dp.session_id,
+            dp.document_id,
+            d.document_name,
+            dp.page_number,
+            sa.asset_hash,
+            sa.asset_type,
+            'text_page' AS extraction_method,
+            ia.image_path,
+            dp.page_text,
+            NULL AS bbox_x0,
+            NULL AS bbox_y0,
+            NULL AS bbox_x1,
+            NULL AS bbox_y1
+        FROM text_matches tm
+        JOIN document_pages dp
+          ON dp.page_row_id = tm.page_row_id
+        JOIN documents d
+          ON d.session_id = dp.session_id
+         AND d.document_id = dp.document_id
+        JOIN session_assets sa
+          ON sa.session_id = dp.session_id
+         AND sa.document_id = dp.document_id
+         AND sa.page_number = dp.page_number
+         AND sa.asset_type = 'page'
+         AND sa.extraction_method = 'full_page_render'
+        JOIN image_assets ia
+          ON ia.asset_hash = sa.asset_hash
+        WHERE tm.score IS NOT NULL
+        ORDER BY rank
+        LIMIT ?
+        """
+        rows = self._execute(sql, [query_text, *params, top_k]).fetchall()
+
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            results.append(
+                {
+                    "rank": int(row[0]),
+                    "score": float(row[1]),
+                    "session_id": row[2],
+                    "document_id": row[3],
+                    "document_name": row[4],
+                    "page_number": int(row[5]),
+                    "asset_hash": row[6],
+                    "asset_type": row[7],
+                    "extraction_method": row[8],
+                    "image_path": row[9],
+                    "page_text": row[10],
+                    "bbox_x0": row[11],
+                    "bbox_y0": row[12],
+                    "bbox_x1": row[13],
+                    "bbox_y1": row[14],
                 }
             )
         return results

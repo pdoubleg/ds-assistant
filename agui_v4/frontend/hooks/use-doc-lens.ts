@@ -56,11 +56,14 @@ export interface QueryHit {
   extraction_method: string;
   image_path: string;
   bbox_norm: { x0: number; y0: number; x1: number; y1: number } | null;
+  page_text: string | null;
+  text_snippet: string | null;
 }
 
 export interface QueryResponse {
   session_id: string;
   query: string;
+  search_mode: "image" | "text";
   model_key: string;
   top_k: number;
   hits: QueryHit[];
@@ -73,6 +76,7 @@ export interface DocumentAssetsResponse {
 }
 
 export interface DocLensQueryParams {
+  search_mode: "image" | "text";
   top_k: number;
   asset_types: ("page" | "photo")[] | null;
 }
@@ -95,6 +99,7 @@ export function useDocLens() {
   const [queryResults, setQueryResults] = useState<QueryHit[]>([]);
   const [lastQuery, setLastQuery] = useState<string>("");
   const [queryParams, setQueryParams] = useState<DocLensQueryParams>({
+    search_mode: "image",
     top_k: 10,
     asset_types: null,
   });
@@ -239,8 +244,12 @@ export function useDocLens() {
           body: JSON.stringify({
             session_id: sessionId,
             query: queryText,
+            search_mode: queryParams.search_mode,
             top_k: queryParams.top_k,
-            asset_types: queryParams.asset_types,
+            asset_types:
+              queryParams.search_mode === "image"
+                ? queryParams.asset_types
+                : null,
           }),
         });
 

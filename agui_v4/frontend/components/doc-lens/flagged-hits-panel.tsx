@@ -29,7 +29,7 @@ interface FlaggedHitsInlineProps {
   onRemove: (assetHash: string) => void;
   onClearAll: () => void;
   onDownloadImage: (imagePath: string, fileName?: string) => void;
-  onPreviewDoc: (fileName: string, page: number) => void;
+  onPreviewDoc: (fileName: string, page: number, query?: string) => void;
   isFlagged: (assetHash: string) => boolean;
   onToggleFlag: (hit: FlaggedHit["hit"], query: string) => void;
 }

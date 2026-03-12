@@ -22,11 +22,13 @@ from pathlib import Path
 
 from PIL import Image
 
+from services.text_extraction import TextExtractionService
+
 from .settings import Settings
 from .db import DuckDBStore
 from .embedder import BaseEmbedder
 from .extractor import PDFExtractor
-from .models import BBoxNorm, IngestResponse, QueryHit, QueryResponse, SessionSummary
+from .models import BBoxNorm, IngestResponse, QueryHit, QueryResponse, SearchMode, SessionSummary
 from .utils import (
     image_hash,
     make_document_id,
@@ -59,6 +61,75 @@ class DocLensService:
         self.db = db
         self.extractor = extractor
         self.embedder = embedder
+        self.text_extractor = TextExtractionService()
+
+    def _build_text_snippet(self, page_text: str | None, query_text: str) -> str | None:
+        """Return a compact snippet centered around the first query match.
+
+        Args:
+            page_text: Full extracted text for the hit page.
+            query_text: User query text.
+
+        Returns:
+            Short snippet when page text is available, otherwise `None`.
+        """
+        if not page_text:
+            return None
+
+        normalized_page_text = " ".join(page_text.split())
+        if not normalized_page_text:
+            return None
+
+        normalized_query = " ".join(query_text.lower().split())
+        match_index = normalized_page_text.lower().find(normalized_query) if normalized_query else -1
+        if match_index < 0:
+            return normalized_page_text[:280]
+
+        snippet_radius = 140
+        start = max(0, match_index - snippet_radius)
+        end = min(len(normalized_page_text), match_index + len(normalized_query) + snippet_radius)
+        prefix = "..." if start > 0 else ""
+        suffix = "..." if end < len(normalized_page_text) else ""
+        return f"{prefix}{normalized_page_text[start:end]}{suffix}"
+
+    def _row_to_query_hit(self, row: dict[str, object], query_text: str) -> QueryHit:
+        """Convert a database row into a `QueryHit` model.
+
+        Args:
+            row: Result row produced by the store layer.
+            query_text: Original query text, used for text snippets.
+
+        Returns:
+            Normalized query hit model.
+        """
+        bbox_norm = None
+        if all(row[k] is not None for k in ["bbox_x0", "bbox_y0", "bbox_x1", "bbox_y1"]):
+            bbox_norm = BBoxNorm(
+                x0=float(row["bbox_x0"]),
+                y0=float(row["bbox_y0"]),
+                x1=float(row["bbox_x1"]),
+                y1=float(row["bbox_y1"]),
+            )
+
+        page_text = row.get("page_text")
+        return QueryHit(
+            rank=int(row["rank"]),
+            score=float(row.get("score", 1.0)),
+            session_id=str(row["session_id"]),
+            document_id=str(row["document_id"]),
+            document_name=str(row["document_name"]),
+            page_number=int(row["page_number"]),
+            asset_hash=str(row["asset_hash"]),
+            asset_type=str(row["asset_type"]),
+            extraction_method=str(row["extraction_method"]),
+            image_path=str(row["image_path"]),
+            bbox_norm=bbox_norm,
+            page_text=str(page_text) if page_text is not None else None,
+            text_snippet=self._build_text_snippet(
+                str(page_text) if page_text is not None else None,
+                query_text,
+            ),
+        )
 
     def store_upload(self, filename: str, data: bytes) -> str:
         """Persist an uploaded file into the configured upload directory.
@@ -81,22 +152,20 @@ class DocLensService:
         session_id: str,
         document_name: str,
         pdf_path: str | Path,
-        always_include_page_assets: bool | None = None,
         enable_segmentation_fallback: bool | None = None,
     ) -> IngestResponse:
         """Ingest a PDF into document, asset, and embedding records.
 
         The workflow stores document metadata, extracts visual assets from each
-        page, optionally includes full-page renders, writes deduplicated image
-        files, records per-session asset links, and computes any embeddings not
-        already present in the cache for the active embedding model.
+        page, always stores a full-page render, writes deduplicated image files,
+        records per-session asset links, persists extracted page text, and
+        computes any embeddings not already present in the cache for the active
+        embedding model.
 
         Args:
             session_id: Active Doc Lens session identifier.
             document_name: Human-readable name for the uploaded PDF.
             pdf_path: Path to the PDF file on disk.
-            always_include_page_assets: Optional override for storing a full-page
-                rendered asset for every page.
             enable_segmentation_fallback: Optional override for enabling page
                 segmentation when direct embedded-image extraction yields no
                 assets on a page.
@@ -105,11 +174,6 @@ class DocLensService:
             IngestResponse summarizing document identity plus new and reused
             asset and embedding counts.
         """
-        always_include_page_assets = (
-            self.settings.always_include_page_assets
-            if always_include_page_assets is None
-            else always_include_page_assets
-        )
         enable_segmentation_fallback = (
             self.settings.enable_segmentation_fallback
             if enable_segmentation_fallback is None
@@ -117,11 +181,17 @@ class DocLensService:
         )
 
         pdf_path = Path(pdf_path)
+        pdf_bytes = pdf_path.read_bytes()
+        extracted_page_texts, _ = self.text_extractor.extract_segments(".pdf", pdf_bytes)
         document_hash = sha256_file(pdf_path)
         document_id = make_document_id(document_hash)
 
         doc = self.extractor.open_document(pdf_path)
         page_count = len(doc)
+        if len(extracted_page_texts) < page_count:
+            extracted_page_texts.extend([""] * (page_count - len(extracted_page_texts)))
+        elif len(extracted_page_texts) > page_count:
+            extracted_page_texts = extracted_page_texts[:page_count]
 
         self.db.upsert_document(
             session_id=session_id,
@@ -152,6 +222,7 @@ class DocLensService:
                 float | None,
             ]
         ] = []
+        pending_document_pages: list[tuple[str, str, str, int, str]] = []
 
         for page_index in range(page_count):
             page = doc.load_page(page_index)
@@ -162,51 +233,59 @@ class DocLensService:
             def get_rendered_page() -> Image.Image:
                 nonlocal rendered
                 if rendered is None:
-                    # Render lazily: only when page assets or fallback need it.
+                    # Render lazily so segmentation can reuse the page image.
                     rendered = self.extractor.render_page(page)
                 return rendered
 
-            if always_include_page_assets:
-                page_image = get_rendered_page()
-                page_asset_hash = image_hash(page_image)
-                page_asset_path = save_image_content_addressed(
-                    page_image,
-                    self.settings.asset_root,
-                    "pages",
-                    page_asset_hash,
+            page_image = get_rendered_page()
+            page_asset_hash = image_hash(page_image)
+            page_asset_path = save_image_content_addressed(
+                page_image,
+                self.settings.asset_root,
+                "pages",
+                page_asset_hash,
+            )
+            observed_asset_hashes.append(page_asset_hash)
+            pending_assets[page_asset_hash] = (
+                page_asset_hash,
+                "page",
+                page_image.width,
+                page_image.height,
+                page_asset_path,
+            )
+            pending_document_pages.append(
+                (
+                    f"{session_id}:{document_id}:{page_number}",
+                    session_id,
+                    document_id,
+                    page_number,
+                    extracted_page_texts[page_index],
                 )
-                observed_asset_hashes.append(page_asset_hash)
-                pending_assets[page_asset_hash] = (
+            )
+
+            pending_session_assets.append(
+                (
+                    make_session_asset_row_id(
+                        session_id=session_id,
+                        document_id=document_id,
+                        page_number=page_number,
+                        asset_hash=page_asset_hash,
+                        extraction_method="full_page_render",
+                        ordinal=0,
+                    ),
+                    session_id,
+                    document_id,
+                    page_number,
                     page_asset_hash,
                     "page",
-                    page_image.width,
-                    page_image.height,
-                    page_asset_path,
+                    "full_page_render",
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
                 )
-
-                pending_session_assets.append(
-                    (
-                        make_session_asset_row_id(
-                            session_id=session_id,
-                            document_id=document_id,
-                            page_number=page_number,
-                            asset_hash=page_asset_hash,
-                            extraction_method="full_page_render",
-                            ordinal=0,
-                        ),
-                        session_id,
-                        document_id,
-                        page_number,
-                        page_asset_hash,
-                        "page",
-                        "full_page_render",
-                        0,
-                        None,
-                        None,
-                        None,
-                        None,
-                    )
-                )
+            )
 
             extracted_assets = self.extractor.extract_embedded_images(page)
             if not extracted_assets and enable_segmentation_fallback:
@@ -271,6 +350,7 @@ class DocLensService:
 
         self.db.bulk_insert_assets(list(pending_assets.values()))
         self.db.bulk_insert_session_assets(pending_session_assets)
+        self.db.bulk_upsert_document_pages(pending_document_pages)
 
         missing_asset_hashes = self.db.get_missing_embedding_asset_hashes(
             session_id, self.embedder.model_key
@@ -421,15 +501,17 @@ class DocLensService:
         self,
         session_id: str,
         query_text: str,
+        search_mode: SearchMode,
         top_k: int,
         asset_types: list[str] | None = None,
         document_ids: list[str] | None = None,
     ) -> QueryResponse:
-        """Run semantic search over the assets stored for one session.
+        """Run image or text search over the assets stored for one session.
 
         Args:
             session_id: Active Doc Lens session identifier.
             query_text: Natural-language search text to embed.
+            search_mode: Query mode selecting vector or full-text search.
             top_k: Maximum number of results to return.
             asset_types: Optional asset-type filter such as `["photo"]`.
             document_ids: Optional document-id filter.
@@ -438,48 +520,33 @@ class DocLensService:
             QueryResponse containing ranked hits enriched with document and
             bounding-box metadata for UI rendering.
         """
-        query_vector = self.embedder.embed_text(query_text)
-
-        rows = self.db.query_session(
-            session_id=session_id,
-            model_key=self.embedder.model_key,
-            query_vector=query_vector,
-            top_k=top_k,
-            asset_types=asset_types,
-            document_ids=document_ids,
-        )
-
-        hits: list[QueryHit] = []
-        for row in rows:
-            bbox_norm = None
-            if all(row[k] is not None for k in ["bbox_x0", "bbox_y0", "bbox_x1", "bbox_y1"]):
-                bbox_norm = BBoxNorm(
-                    x0=float(row["bbox_x0"]),
-                    y0=float(row["bbox_y0"]),
-                    x1=float(row["bbox_x1"]),
-                    y1=float(row["bbox_y1"]),
-                )
-
-            hits.append(
-                QueryHit(
-                    rank=row["rank"],
-                    score=row["score"],
-                    session_id=row["session_id"],
-                    document_id=row["document_id"],
-                    document_name=row["document_name"],
-                    page_number=row["page_number"],
-                    asset_hash=row["asset_hash"],
-                    asset_type=row["asset_type"],
-                    extraction_method=row["extraction_method"],
-                    image_path=row["image_path"],
-                    bbox_norm=bbox_norm,
-                )
+        if search_mode == "text":
+            rows = self.db.query_text_session(
+                session_id=session_id,
+                query_text=query_text,
+                top_k=top_k,
+                document_ids=document_ids,
             )
+            model_key = "duckdb_fts"
+        else:
+            query_vector = self.embedder.embed_text(query_text)
+            rows = self.db.query_session(
+                session_id=session_id,
+                model_key=self.embedder.model_key,
+                query_vector=query_vector,
+                top_k=top_k,
+                asset_types=asset_types,
+                document_ids=document_ids,
+            )
+            model_key = self.embedder.model_key
+
+        hits = [self._row_to_query_hit(row, query_text) for row in rows]
 
         return QueryResponse(
             session_id=session_id,
             query=query_text,
-            model_key=self.embedder.model_key,
+            search_mode=search_mode,
+            model_key=model_key,
             top_k=top_k,
             hits=hits,
         )
@@ -508,33 +575,7 @@ class DocLensService:
             session_id=session_id,
             document_id=document_id,
         )
-        hits: list[QueryHit] = []
-        for row in rows:
-            bbox_norm = None
-            if all(row[k] is not None for k in ["bbox_x0", "bbox_y0", "bbox_x1", "bbox_y1"]):
-                bbox_norm = BBoxNorm(
-                    x0=float(row["bbox_x0"]),
-                    y0=float(row["bbox_y0"]),
-                    x1=float(row["bbox_x1"]),
-                    y1=float(row["bbox_y1"]),
-                )
-            # We keep QueryHit shape for UI reuse; score is synthetic in browse mode.
-            hits.append(
-                QueryHit(
-                    rank=row["rank"],
-                    score=1.0,
-                    session_id=row["session_id"],
-                    document_id=row["document_id"],
-                    document_name=row["document_name"],
-                    page_number=row["page_number"],
-                    asset_hash=row["asset_hash"],
-                    asset_type=row["asset_type"],
-                    extraction_method=row["extraction_method"],
-                    image_path=row["image_path"],
-                    bbox_norm=bbox_norm,
-                )
-            )
-        return hits
+        return [self._row_to_query_hit(row, "") for row in rows]
 
     def get_session_summary(self, session_id: str) -> SessionSummary:
         """Return aggregate counts for one Doc Lens session.

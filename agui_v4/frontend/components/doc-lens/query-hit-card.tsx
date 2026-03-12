@@ -39,7 +39,7 @@ interface QueryHitCardProps {
   imageUrl: string;
   isFlagged: boolean;
   onToggleFlag: () => void;
-  onPreviewDoc: (fileName: string, page: number) => void;
+  onPreviewDoc: (fileName: string, page: number, query?: string) => void;
   onDownload?: () => void;
   /** When true, renders a more compact layout for the flagged panel. */
   compact?: boolean;
@@ -57,6 +57,7 @@ function extractionLabel(method: string): string {
     pdf_embedded_image: "Embedded Image",
     page_segmentation: "Segmented",
     standalone_image: "Standalone",
+    text_page: "Text Match",
   };
   return labels[method] || method;
 }
@@ -72,6 +73,49 @@ function assetTypeBadgeClass(assetType: string): string {
   return "border-border/70 bg-muted/50 text-muted-foreground";
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getHighlightTerms(query: string): string[] {
+  const normalizedQuery = query.trim();
+  const wordTokens = normalizedQuery
+    .split(/\W+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set([normalizedQuery, ...wordTokens].filter(Boolean))).sort(
+    (left, right) => right.length - left.length
+  );
+}
+
+function renderHighlightedText(text: string, query: string): React.ReactNode {
+  const tokens = getHighlightTerms(query);
+
+  if (tokens.length === 0) {
+    return text;
+  }
+
+  const pattern = new RegExp(`(${tokens.map(escapeRegExp).join("|")})`, "gi");
+  const parts = text.split(pattern);
+
+  return parts.map((part, index) => {
+    const isMatch = tokens.some((token) => token.toLowerCase() === part.toLowerCase());
+    if (!isMatch) {
+      return <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
+    }
+
+    return (
+      <mark
+        key={`${part}-${index}`}
+        className="rounded bg-amber-400/40 px-0.5 text-foreground"
+      >
+        {part}
+      </mark>
+    );
+  });
+}
+
 // ── Component ──────────────────────────────────────────────────────────
 
 export function QueryHitCard({
@@ -85,6 +129,7 @@ export function QueryHitCard({
   compact = false,
 }: QueryHitCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const isTextHit = hit.extraction_method === "text_page";
 
   return (
     <>
@@ -192,6 +237,18 @@ export function QueryHitCard({
             </p>
           )}
 
+          {isTextHit && hit.text_snippet && (
+            <p
+              className={cn(
+                "text-muted-foreground leading-snug whitespace-normal",
+                compact ? "text-[10px] line-clamp-3" : "text-[11px] line-clamp-4"
+              )}
+              title={hit.text_snippet}
+            >
+              {renderHighlightedText(hit.text_snippet, query)}
+            </p>
+          )}
+
           {/* ── Compact card: query snippet ───────────────────────── */}
           {compact && query && (
             <p
@@ -290,7 +347,11 @@ export function QueryHitCard({
                   size="icon"
                   className="h-7 w-7"
                   onClick={() =>
-                    onPreviewDoc(hit.document_name, hit.page_number)
+                    onPreviewDoc(
+                      hit.document_name,
+                      hit.page_number,
+                      isTextHit ? query : undefined
+                    )
                   }
                 >
                   <Eye className="h-3.5 w-3.5" />

@@ -77,6 +77,51 @@ const FILE_ICONS: Record<string, React.ReactNode> = {
   tiff: <FileImage className="h-5 w-5 text-amber-500 dark:text-amber-400" />,
 };
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getHighlightTerms(query: string): string[] {
+  const normalizedQuery = query.trim();
+  const wordTokens = normalizedQuery
+    .split(/\W+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  return Array.from(new Set([normalizedQuery, ...wordTokens].filter(Boolean))).sort(
+    (left, right) => right.length - left.length
+  );
+}
+
+function renderHighlightedPreformattedText(
+  text: string,
+  query: string
+): React.ReactNode {
+  const tokens = getHighlightTerms(query);
+  if (tokens.length === 0) {
+    return text;
+  }
+
+  const pattern = new RegExp(`(${tokens.map(escapeRegExp).join("|")})`, "gi");
+  const parts = text.split(pattern);
+
+  return parts.map((part, index) => {
+    const isMatch = tokens.some((token) => token.toLowerCase() === part.toLowerCase());
+    if (!isMatch) {
+      return <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
+    }
+
+    return (
+      <mark
+        key={`${part}-${index}`}
+        className="rounded bg-amber-400/40 px-0.5 text-foreground"
+      >
+        {part}
+      </mark>
+    );
+  });
+}
+
 
 // ── Copy button ────────────────────────────────────────────────────────
 
@@ -120,6 +165,8 @@ export interface DocumentViewerSheetProps {
   textContent?: string;
   /** AI-generated summary data. */
   summaryData?: DocumentSummaryData;
+  /** Optional text query to highlight inside the extracted text view. */
+  highlightQuery?: string;
   /** Optional page number to auto-scroll the PDF preview to. */
   initialPage?: number;
   /** Extra className applied to SheetContent (e.g. z-index overrides). */
@@ -134,6 +181,7 @@ export function DocumentViewerSheet({
   onOpenChange,
   textContent,
   summaryData,
+  highlightQuery,
   initialPage,
   contentClassName,
   overlayClassName,
@@ -371,7 +419,7 @@ export function DocumentViewerSheet({
                 </div>
                 <ScrollArea className={contentHeight}>
                   <pre className="px-6 py-4 text-xs font-mono text-foreground/85 whitespace-pre-wrap leading-relaxed">
-                    {textContent}
+                    {renderHighlightedPreformattedText(textContent, highlightQuery || "")}
                   </pre>
                 </ScrollArea>
               </div>

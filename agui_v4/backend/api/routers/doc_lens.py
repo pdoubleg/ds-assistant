@@ -135,6 +135,7 @@ async def doc_lens_query_endpoint(body: DocLensQueryRequest) -> JSONResponse:
         response = service.query(
             session_id=body.session_id,
             query_text=body.query,
+            search_mode=body.search_mode,
             top_k=body.top_k,
             asset_types=body.asset_types,
             document_ids=body.document_ids,

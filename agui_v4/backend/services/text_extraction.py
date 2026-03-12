@@ -21,6 +21,34 @@ class TextExtractionService:
             ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }
 
+    def extract_segments(self, extension: str, file_bytes: bytes) -> tuple[list[str], int]:
+        """Extract ordered text segments for a supported file type.
+
+        This helper keeps page- or sheet-aware extraction centralized so other
+        services do not need file-type-specific parsing logic.
+
+        Args:
+            extension: Lowercase file extension including the leading dot.
+            file_bytes: Raw uploaded bytes.
+
+        Returns:
+            Tuple containing ordered text segments and the page or sheet count.
+
+        Raises:
+            ValueError: If the extension is unsupported.
+        """
+        extractor = self.extractors.get(extension)
+        if extractor is None:
+            raise ValueError(f"Unsupported file type: {extension}")
+
+        if extension == ".pdf":
+            return self.extract_pdf_segments(file_bytes)
+        if extension == ".xlsx":
+            return self.extract_xlsx_segments(file_bytes)
+
+        text, page_count = extractor(file_bytes)
+        return [text] if text else [""], page_count
+
     @property
     def allowed_extensions(self) -> set[str]:
         """Return all supported file extensions."""
@@ -43,6 +71,24 @@ class TextExtractionService:
             pages.append(page.get_text())
         doc.close()
         return "\n\n".join(pages), len(pages)
+
+    def extract_pdf_segments(self, file_bytes: bytes) -> tuple[list[str], int]:
+        """Extract one text segment per PDF page.
+
+        Args:
+            file_bytes: Raw PDF bytes.
+
+        Returns:
+            Tuple containing per-page extracted text and the page count.
+        """
+        import fitz
+
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        pages: list[str] = []
+        for page in doc:
+            pages.append(page.get_text())
+        doc.close()
+        return pages, len(pages)
 
     def extract_text_from_docx(self, file_bytes: bytes) -> tuple[str, int]:
         """Extract text and an approximate page count from a DOCX file.
@@ -86,6 +132,30 @@ class TextExtractionService:
         workbook.close()
         return "\n\n".join(parts), len(workbook.sheetnames)
 
+    def extract_xlsx_segments(self, file_bytes: bytes) -> tuple[list[str], int]:
+        """Extract one text segment per XLSX sheet.
+
+        Args:
+            file_bytes: Raw XLSX bytes.
+
+        Returns:
+            Tuple containing per-sheet text and the sheet count.
+        """
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        parts: list[str] = []
+        for sheet_name in workbook.sheetnames:
+            worksheet = workbook[sheet_name]
+            rows: list[str] = []
+            for row in worksheet.iter_rows(values_only=True):
+                cells = [str(cell) if cell is not None else "" for cell in row]
+                if any(cells):
+                    rows.append("\t".join(cells))
+            parts.append(f"--- Sheet: {sheet_name} ---\n" + "\n".join(rows) if rows else "")
+        workbook.close()
+        return parts, len(parts)
+
     def extract(self, extension: str, file_bytes: bytes) -> tuple[str, int]:
         """Extract text using the registered extractor for an extension.
 
@@ -99,10 +169,8 @@ class TextExtractionService:
         Raises:
             ValueError: If the extension is unsupported.
         """
-        extractor = self.extractors.get(extension)
-        if extractor is None:
-            raise ValueError(f"Unsupported file type: {extension}")
-        return extractor(file_bytes)
+        segments, page_count = self.extract_segments(extension, file_bytes)
+        return "\n\n".join(segment for segment in segments if segment), page_count
 
     def format_file_size(self, size_bytes: int) -> str:
         """Return a human-readable file size string.

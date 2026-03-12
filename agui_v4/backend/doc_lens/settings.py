@@ -63,11 +63,8 @@ class Settings(BaseModel):
     embedding_dim: int = Field(default=int(os.getenv("DOC_LENS_EMBEDDING_DIM", "512")))
 
     # ------------------------------------------------------------------
-    # Pipeline behaviour flags
+    # Pipeline behavior flags
     # ------------------------------------------------------------------
-    always_include_page_assets: bool = Field(
-        default=os.getenv("DOC_LENS_ALWAYS_INCLUDE_PAGE_ASSETS", "true").lower() == "true"
-    )
     enable_segmentation_fallback: bool = Field(
         default=os.getenv("DOC_LENS_ENABLE_SEGMENTATION_FALLBACK", "true").lower() == "true"
     )
