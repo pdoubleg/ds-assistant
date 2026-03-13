@@ -4,7 +4,6 @@ import React from "react";
 import {
   ArrowUpDown,
   Filter,
-  Info,
   Loader2,
   RotateCcw,
   ScanSearch,
@@ -22,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatTokenCount } from "@/components/a2ui/documents";
 import { FilterDropdown } from "./filter-dropdown";
 import type { Filters, FilterOptions, SortKey } from "./types";
 
@@ -34,6 +34,7 @@ export interface DocumentsPaneToolbarProps {
   isSearching: boolean;
   isTagging: boolean;
   filteredDocsCount: number;
+  filteredTokenCount: number;
   useNarrowToolbar: boolean;
   showFilters: boolean;
   filters: Filters;
@@ -77,6 +78,7 @@ export function DocumentsPaneToolbar({
   isSearching,
   isTagging,
   filteredDocsCount,
+  filteredTokenCount,
   useNarrowToolbar,
   showFilters,
   filters,
@@ -208,16 +210,21 @@ export function DocumentsPaneToolbar({
       <div className="flex flex-col items-end gap-1.5 ml-auto rounded-md border border-border/40 px-2 pt-1.5 pb-1.5">
         {filteredDocsCount > 0 && (
           <NativeTooltip
-            content={`All ${filteredDocsCount} visible doc${filteredDocsCount !== 1 ? "s" : ""} are sent to the model when you run any AI action. Hide or filter docs to narrow the scope.`}
+            content={
+              <>
+                <div>{filteredDocsCount} doc{filteredDocsCount !== 1 ? "s" : ""}{filteredTokenCount > 0 ? ` (${formatTokenCount(filteredTokenCount)} tokens)` : ""} will be sent</div>
+                <div>to the model when you run an AI action.</div>
+              </>
+            }
             side="top"
             align="end"
           >
-            <span className="flex items-center gap-1 text-[11px] text-muted-foreground/60 cursor-default select-none w-full justify-center">
-              <Info className="h-3 w-3 shrink-0" />
-              <span>
-                {filteredDocsCount} doc{filteredDocsCount !== 1 ? "s" : ""} in
-                scope
-              </span>
+            <span className="text-[11px] text-muted-foreground/60 cursor-default select-none w-full text-center leading-tight">
+              {filteredDocsCount} doc{filteredDocsCount !== 1 ? "s" : ""}
+              {filteredTokenCount > 0
+                ? ` · τ ${formatTokenCount(filteredTokenCount)}`
+                : ""}{" "}
+              in scope
             </span>
           </NativeTooltip>
         )}
@@ -363,7 +370,7 @@ export function DocumentsPaneToolbar({
             content={
               filteredDocsCount === 0
                 ? "Requires at least one document"
-                : "Document image search (Doc Lens)"
+                : "Doc Lens (image & text search)"
             }
             side="bottom"
             animation="blur"

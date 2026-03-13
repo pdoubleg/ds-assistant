@@ -5,6 +5,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from models.search import DocSearchScore
 from models.tagging import ALL_DOC_TAGS, CUSTOM_FALLBACK_TAG_LABEL, TagSelectionMode
 
 
@@ -47,6 +48,19 @@ class SearchSortRequest(BaseModel):
 
     query: str
     documents: list[SearchSortDocPayload]
+
+
+class SearchSortResponse(BaseModel):
+    """Response body for `POST /search-sort`."""
+
+    scores: list[DocSearchScore] = Field(
+        default_factory=list,
+        description="Subset of scored documents selected for display.",
+    )
+    content_id_to_file_name: dict[str, str] = Field(
+        default_factory=dict,
+        description="Lookup table for mapping returned content IDs back to file names.",
+    )
 
 
 class TagRequest(BaseModel):

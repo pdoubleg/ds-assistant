@@ -5,7 +5,12 @@ import os
 from fastapi import APIRouter, Depends
 from starlette.responses import JSONResponse, StreamingResponse
 
-from api.schemas.documents import SearchSortRequest, SummarizeRequest, TagRequest
+from api.schemas.documents import (
+    SearchSortRequest,
+    SearchSortResponse,
+    SummarizeRequest,
+    TagRequest,
+)
 from dependencies import get_document_mapper, get_text_extraction_service, get_upload_dir
 from services.document_mapper import DocumentMapper
 from services.ndjson import NDJSON_HEADERS, encode_ndjson_line
@@ -52,7 +57,7 @@ async def summarize_endpoint(body: SummarizeRequest) -> StreamingResponse:
     )
 
 
-@router.post("/search-sort")
+@router.post("/search-sort", response_model=SearchSortResponse)
 async def search_sort_endpoint(
     body: SearchSortRequest,
     mapper: DocumentMapper = Depends(get_document_mapper),
@@ -60,14 +65,14 @@ async def search_sort_endpoint(
     """Score documents against a user query using the search/sort workflow."""
     try:
         payload = await run_search_sort(body.query, body.documents, mapper=mapper)
-        return JSONResponse(payload)
+        return JSONResponse(payload.model_dump())
     except Exception as exc:
         print(f"[SEARCH-SORT ERROR] {exc}", flush=True)
         import traceback
 
         traceback.print_exc()
         return JSONResponse(
-            {"error": str(exc), "scores": [], "content_id_to_file_name": {}},
+            SearchSortResponse().model_dump(),
             status_code=500,
         )
 

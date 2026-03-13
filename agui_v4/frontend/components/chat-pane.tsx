@@ -15,7 +15,7 @@ import { motion } from "framer-motion";
 import { useAuditAgent, type StepActivity } from "@/hooks/use-audit-agent";
 import { useUploadedDocs } from "@/hooks/use-uploaded-docs";
 import { useChatDocs } from "@/hooks/use-chat-docs";
-import { deriveFileExt } from "@/components/a2ui/documents";
+import { deriveFileExt, formatTokenCount } from "@/components/a2ui/documents";
 import {
   Send,
   Loader2,
@@ -309,6 +309,25 @@ export function ChatPane() {
     return docs;
   }, [chatDocNames, uploadedDocs, state.documents]);
 
+  // Total token count across all docs currently in the chat agent context.
+  const chatTokenCount = useMemo(() => {
+    let total = 0;
+    for (const name of chatDocNames) {
+      const up = uploadedDocs.find((d) => d.file_name === name);
+      if (up?.token_count) {
+        total += up.token_count;
+        continue;
+      }
+      const sd = (state.documents || []).find(
+        (d) => (d.file_name as string) === name
+      );
+      if (sd && typeof sd.token_count === "number") {
+        total += sd.token_count;
+      }
+    }
+    return total;
+  }, [chatDocNames, uploadedDocs, state.documents]);
+
   // Auto-scroll when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -376,6 +395,7 @@ export function ChatPane() {
           create_date: nowIso,
           source_system: "UPLOAD",
           content: data.content ?? "",
+          token_count: data.token_count ?? undefined,
         });
 
         addDocument({
@@ -588,6 +608,32 @@ export function ChatPane() {
       <div className="flex items-center gap-2.5 px-4 pr-10 border-b border-border/50 h-12">
         <Send className="h-[18px] w-[18px] text-primary" />
         <h2 className="text-[15px] font-semibold tracking-tight text-foreground">Chat</h2>
+
+        {chatTokenCount > 0 && (
+          <div className="ml-auto flex items-center gap-1.5 font-mono select-none">
+            <div
+              className="relative flex items-center gap-1 px-2 py-0.5 rounded
+                bg-emerald-50 dark:bg-emerald-950
+                border border-emerald-300/50 dark:border-emerald-500/30
+                shadow-[0_0_6px_rgba(16,185,129,0.08)] dark:shadow-[0_0_8px_rgba(16,185,129,0.15)]"
+            >
+              <span className="text-[11px] text-emerald-500/70 dark:text-emerald-500/60">τ</span>
+              <motion.span
+                key={chatTokenCount}
+                initial={{ opacity: 0.4, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                className="text-[13px] font-bold tabular-nums tracking-wide
+                  text-emerald-600 dark:text-emerald-400"
+              >
+                {formatTokenCount(chatTokenCount)}
+              </motion.span>
+              <span className="text-[10px] font-medium text-emerald-500/60 dark:text-emerald-400/50 tracking-wide">
+                tokens
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Chat context doc bar (gold border) ────────────────────── */}

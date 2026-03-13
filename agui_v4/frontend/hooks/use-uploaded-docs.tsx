@@ -27,6 +27,8 @@ export interface UploadedDoc {
   /** Extracted text content, stored alongside metadata so it persists
    *  independently of the AG-UI ``state.documents`` array. */
   content?: string;
+  /** Approximate token count produced by the backend via tiktoken. */
+  token_count?: number;
 }
 
 export interface UploadedDocsContextValue {

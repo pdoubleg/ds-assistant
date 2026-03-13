@@ -18,19 +18,25 @@ class DocumentSummary(BaseModel):
 
 
 class DocSearchScore(BaseModel):
-    """Search/sort score for a single document."""
+    """Search/sort score for a returned document."""
 
-    content_id: str = Field(..., description="Content ID of the scored document.")
+    content_id: str = Field(..., description="Content ID of a returned document.")
     score: float = Field(
-        ..., ge=0.0, le=1.0, description="Relevance score (0.0 = irrelevant, 1.0 = most relevant)."
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Relevance score for a returned document (0.0 = weak match, 1.0 = strongest match).",
     )
     label: str = Field(
         ...,
-        description="Short (2 to 4 word) flavor-text label explaining the score.",
+        description="Short (2 to 4 word) flavor-text label explaining why the document was returned.",
     )
 
 
 class DocSearchResult(BaseModel):
     """Batch result from the search/sort agent."""
 
-    scores: list[DocSearchScore] = Field(..., description="Per-document search/sort scores.")
+    scores: list[DocSearchScore] = Field(
+        ...,
+        description="Subset of documents selected by the model for display, optionally ordered by relevance.",
+    )

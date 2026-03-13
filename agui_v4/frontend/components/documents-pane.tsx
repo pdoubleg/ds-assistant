@@ -85,6 +85,8 @@ const HIDDEN_DOC_NAMES_STORAGE_KEY = "agui_v3.hiddenDocNames.v1";
 const HIDDEN_DOC_TIMESTAMPS_STORAGE_KEY = "agui_v3.hiddenDocTimestamps.v1";
 const DOC_SUMMARIES_STORAGE_KEY = "agui_v3.docSummaries.v2";
 const DOC_SEARCH_STORAGE_KEY = "agui_v3.docSearch.v1";
+const DOC_SEARCH_HIDDEN_STORAGE_KEY = "agui_v4.docSearchHidden.v1";
+const DOC_SEARCH_HIDDEN_TIMESTAMPS_STORAGE_KEY = "agui_v4.docSearchHiddenTimestamps.v1";
 const DOC_TAGS_STORAGE_KEY = "agui_v3.docTags.v2";
 const DOC_CARD_UI_STORAGE_KEY = "agui_v3.docCardUiState.v2";
 const HIDDEN_DOCK_UI_STORAGE_KEY = "agui_v4.hiddenDockUi.v1";
@@ -265,6 +267,7 @@ export function DocumentsPane() {
             create_date: new Date().toISOString(),
             source_system: "EXAMPLE",
             content: (d.content as string) || "",
+            token_count: (d.token_count as number) || undefined,
           });
         }
       } catch (err) {
@@ -279,6 +282,12 @@ export function DocumentsPane() {
   const [hiddenAtByFileName, setHiddenAtByFileName] = useState<Map<string, string>>(
     new Map()
   );
+  const [searchHiddenFileNames, setSearchHiddenFileNames] = useState<Set<string>>(
+    new Set()
+  );
+  const [searchHiddenAtByFileName, setSearchHiddenAtByFileName] = useState<
+    Map<string, string>
+  >(new Map());
   const [hiddenStateHydrated, setHiddenStateHydrated] = useState(false);
   const [dockExpanded, setDockExpanded] = useState(false);
   const [dockMinimized, setDockMinimized] = useState(false);
@@ -449,7 +458,7 @@ export function DocumentsPane() {
   const openLensRef = useRef<(() => void) | null>(null);
   const [docLensWarning, setDocLensWarning] = useState<string | null>(null);
 
-  // Rehydrate summaries, search scores, tags, and card UI expansion state.
+  // Rehydrate summaries, search scores, search-hidden docs, tags, and card UI state.
   useEffect(() => {
     try {
       const rawSummaries = window.localStorage.getItem(DOC_SUMMARIES_STORAGE_KEY);
@@ -480,6 +489,30 @@ export function DocumentsPane() {
               typeof (v as Record<string, unknown>).score === "number"
           ) as [string, DocSearchData][];
           setSearchScores(new Map(entries));
+        }
+      }
+
+      const rawSearchHidden = window.localStorage.getItem(
+        DOC_SEARCH_HIDDEN_STORAGE_KEY
+      );
+      if (rawSearchHidden) {
+        const parsed = JSON.parse(rawSearchHidden) as unknown;
+        if (Array.isArray(parsed)) {
+          const names = parsed.filter((v): v is string => typeof v === "string");
+          setSearchHiddenFileNames(new Set(names));
+        }
+      }
+
+      const rawSearchHiddenTimes = window.localStorage.getItem(
+        DOC_SEARCH_HIDDEN_TIMESTAMPS_STORAGE_KEY
+      );
+      if (rawSearchHiddenTimes) {
+        const parsed = JSON.parse(rawSearchHiddenTimes) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const entries = Object.entries(parsed as Record<string, unknown>).filter(
+            ([k, v]) => typeof k === "string" && typeof v === "string"
+          ) as [string, string][];
+          setSearchHiddenAtByFileName(new Map(entries));
         }
       }
 
@@ -520,7 +553,7 @@ export function DocumentsPane() {
     }
   }, []);
 
-  // Persist summaries, search scores, tags, and card UI expansion state.
+  // Persist generated enrichments, including search-driven hidden docs.
   useEffect(() => {
     if (!docEnrichmentHydrated) return;
     try {
@@ -533,6 +566,14 @@ export function DocumentsPane() {
         JSON.stringify(Object.fromEntries(searchScores))
       );
       window.localStorage.setItem(
+        DOC_SEARCH_HIDDEN_STORAGE_KEY,
+        JSON.stringify([...searchHiddenFileNames])
+      );
+      window.localStorage.setItem(
+        DOC_SEARCH_HIDDEN_TIMESTAMPS_STORAGE_KEY,
+        JSON.stringify(Object.fromEntries(searchHiddenAtByFileName))
+      );
+      window.localStorage.setItem(
         DOC_TAGS_STORAGE_KEY,
         JSON.stringify(Object.fromEntries(agentTags))
       );
@@ -543,7 +584,15 @@ export function DocumentsPane() {
     } catch (error) {
       console.warn("[DocumentsPane] Failed to persist summary/tag state:", error);
     }
-  }, [agentTags, cardUiByFileName, docEnrichmentHydrated, searchScores, summaries]);
+  }, [
+    agentTags,
+    cardUiByFileName,
+    docEnrichmentHydrated,
+    searchHiddenAtByFileName,
+    searchHiddenFileNames,
+    searchScores,
+    summaries,
+  ]);
 
   // ── Viewer state ────────────────────────────────────────────────────
 
@@ -586,10 +635,20 @@ export function DocumentsPane() {
     return docs;
   }, [state.documents, uploadedDocs]);
 
+  const allHiddenFileNames = useMemo(
+    () => new Set([...hiddenFileNames, ...searchHiddenFileNames]),
+    [hiddenFileNames, searchHiddenFileNames]
+  );
+
+  const hiddenAtLookup = useMemo(
+    () => new Map([...hiddenAtByFileName, ...searchHiddenAtByFileName]),
+    [hiddenAtByFileName, searchHiddenAtByFileName]
+  );
+
   // Count only hidden docs that currently exist in the live document list.
   const hiddenCount = useMemo(
-    () => allDocs.filter((d) => hiddenFileNames.has(d.file_name)).length,
-    [allDocs, hiddenFileNames]
+    () => allDocs.filter((d) => allHiddenFileNames.has(d.file_name)).length,
+    [allDocs, allHiddenFileNames]
   );
 
   // ── Derive filter option sets from all docs ─────────────────────────
@@ -618,14 +677,14 @@ export function DocumentsPane() {
 
   // ── Split docs into visible vs hidden lists ─────────────────────────
 
-  const manuallyHiddenDocs = useMemo(
-    () => allDocs.filter((d) => hiddenFileNames.has(d.file_name)),
-    [allDocs, hiddenFileNames]
+  const hiddenDocs = useMemo(
+    () => allDocs.filter((d) => allHiddenFileNames.has(d.file_name)),
+    [allDocs, allHiddenFileNames]
   );
 
   const nonHiddenDocs = useMemo(
-    () => allDocs.filter((d) => !hiddenFileNames.has(d.file_name)),
-    [allDocs, hiddenFileNames]
+    () => allDocs.filter((d) => !allHiddenFileNames.has(d.file_name)),
+    [allDocs, allHiddenFileNames]
   );
 
   // ── Apply filters to non-hidden docs ───────────────────────────────
@@ -679,6 +738,12 @@ export function DocumentsPane() {
     return docs;
   }, [nonHiddenDocs, filters, agentTags, tagFilterMode]);
 
+  // Sum of token counts across all in-scope (filtered) documents.
+  const filteredTokenCount = useMemo(
+    () => filteredDocs.reduce((sum, d) => sum + (d.token_count ?? 0), 0),
+    [filteredDocs]
+  );
+
   // ── Doc Lens eligible docs (must be after filteredDocs) ──────────────
 
   const DOC_LENS_ELIGIBLE_MIMES = useMemo(
@@ -710,17 +775,18 @@ export function DocumentsPane() {
 
   /**
    * Build hidden-doc type stats and latest hidden timestamp for the collapsed
-   * dock state. Stats are based on manually hidden docs.
+   * dock state. Stats are based on all currently hidden docs, regardless of
+   * whether they were manually hidden or search-excluded.
    */
   const hiddenStats = useMemo(() => {
     const extensionCounts = new Map<string, number>();
     let latestHiddenAt: string | null = null;
 
-    for (const doc of manuallyHiddenDocs) {
+    for (const doc of hiddenDocs) {
       const ext = deriveFileExt(doc.mime_type, doc.file_name).toUpperCase();
       extensionCounts.set(ext, (extensionCounts.get(ext) || 0) + 1);
 
-      const hiddenAt = hiddenAtByFileName.get(doc.file_name);
+      const hiddenAt = hiddenAtLookup.get(doc.file_name);
       if (
         hiddenAt &&
         (!latestHiddenAt ||
@@ -742,11 +808,11 @@ export function DocumentsPane() {
       latestHiddenAt,
       hiddenPercent,
     };
-  }, [allDocs.length, hiddenAtByFileName, hiddenCount, manuallyHiddenDocs]);
+  }, [allDocs.length, hiddenAtLookup, hiddenCount, hiddenDocs]);
 
-  // Sort manually-hidden docs for table rendering.
-  const sortedManuallyHiddenDocs = useMemo(() => {
-    const docs = [...manuallyHiddenDocs];
+  // Sort hidden docs for table rendering.
+  const sortedHiddenDocs = useMemo(() => {
+    const docs = [...hiddenDocs];
 
     const comparableValue = (doc: DocWithId, key: HiddenSortKey): string | number => {
       switch (key) {
@@ -793,7 +859,7 @@ export function DocumentsPane() {
     });
 
     return docs;
-  }, [hiddenSortDir, hiddenSortKey, manuallyHiddenDocs]);
+  }, [hiddenDocs, hiddenSortDir, hiddenSortKey]);
 
   // ── Sort filtered docs ──────────────────────────────────────────────
 
@@ -909,11 +975,25 @@ export function DocumentsPane() {
       next.delete(fileName);
       return next;
     });
+
+    setSearchHiddenFileNames((prev) => {
+      const next = new Set(prev);
+      next.delete(fileName);
+      return next;
+    });
+
+    setSearchHiddenAtByFileName((prev) => {
+      const next = new Map(prev);
+      next.delete(fileName);
+      return next;
+    });
   }, []);
 
   const unhideAll = useCallback(() => {
     setHiddenFileNames(new Set());
     setHiddenAtByFileName(new Map());
+    setSearchHiddenFileNames(new Set());
+    setSearchHiddenAtByFileName(new Map());
   }, []);
 
   const refreshDocs = useCallback(() => {
@@ -934,6 +1014,8 @@ export function DocumentsPane() {
     // Clear generated enrichment state (summaries + search + tags), but keep docs/context.
     setSummaries(new Map());
     setSearchScores(new Map());
+    setSearchHiddenFileNames(new Set());
+    setSearchHiddenAtByFileName(new Map());
     setAgentTags(new Map());
     setSortKey("default");
 
@@ -961,6 +1043,8 @@ export function DocumentsPane() {
     try {
       window.localStorage.removeItem(DOC_SUMMARIES_STORAGE_KEY);
       window.localStorage.removeItem(DOC_SEARCH_STORAGE_KEY);
+      window.localStorage.removeItem(DOC_SEARCH_HIDDEN_STORAGE_KEY);
+      window.localStorage.removeItem(DOC_SEARCH_HIDDEN_TIMESTAMPS_STORAGE_KEY);
       window.localStorage.removeItem(DOC_TAGS_STORAGE_KEY);
     } catch (error) {
       console.warn("[DocumentsPane] Failed to clear generated doc state:", error);
@@ -1226,35 +1310,61 @@ export function DocumentsPane() {
       };
 
       if (data.scores) {
-        const zeroScoreFileNames: string[] = [];
+        const currentFileNames = new Set(docs.map((doc) => doc.file_name));
+        const scoredFileNames = new Set<string>();
+        const hiddenFromSearch = new Set<string>();
+        const scopedContentIdToFileName = new Map(
+          docs.map((doc) => [doc.content_id || doc.file_name, doc.file_name])
+        );
 
+        // Replace search scores for the current in-scope set so omitted docs do
+        // not keep stale data from a previous query.
         setSearchScores((prev) => {
           const next = new Map(prev);
+          for (const fileName of currentFileNames) {
+            next.delete(fileName);
+          }
           for (const s of data.scores) {
             const fileName =
-              data.content_id_to_file_name[s.content_id] || s.content_id;
+              scopedContentIdToFileName.get(s.content_id) ||
+              data.content_id_to_file_name[s.content_id] ||
+              s.content_id;
             next.set(fileName, { score: s.score, label: s.label });
-            if (s.score === 0) zeroScoreFileNames.push(fileName);
+            scoredFileNames.add(fileName);
+            if (s.score === 0) hiddenFromSearch.add(fileName);
           }
           return next;
         });
 
-        // Auto-hide docs that scored 0 (excluded by the agent)
-        if (zeroScoreFileNames.length > 0) {
-          const hiddenAt = new Date().toISOString();
-          setHiddenFileNames((prev) => {
-            const next = new Set(prev);
-            for (const name of zeroScoreFileNames) next.add(name);
-            return next;
-          });
-          setHiddenAtByFileName((prev) => {
-            const next = new Map(prev);
-            for (const name of zeroScoreFileNames) {
-              if (!next.has(name)) next.set(name, hiddenAt);
-            }
-            return next;
-          });
+        // Omission is the primary exclusion signal. For backward compatibility,
+        // an explicit zero score is still treated as hidden.
+        for (const fileName of currentFileNames) {
+          if (!scoredFileNames.has(fileName)) {
+            hiddenFromSearch.add(fileName);
+          }
         }
+
+        const hiddenAt = new Date().toISOString();
+        setSearchHiddenFileNames((prev) => {
+          const next = new Set(prev);
+          for (const fileName of currentFileNames) {
+            next.delete(fileName);
+          }
+          for (const fileName of hiddenFromSearch) {
+            next.add(fileName);
+          }
+          return next;
+        });
+        setSearchHiddenAtByFileName((prev) => {
+          const next = new Map(prev);
+          for (const fileName of currentFileNames) {
+            next.delete(fileName);
+          }
+          for (const fileName of hiddenFromSearch) {
+            next.set(fileName, hiddenAt);
+          }
+          return next;
+        });
       }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
@@ -1490,6 +1600,7 @@ export function DocumentsPane() {
           isSearching={isSearching}
           isTagging={isTagging}
           filteredDocsCount={filteredDocs.length}
+          filteredTokenCount={filteredTokenCount}
           useNarrowToolbar={useNarrowToolbar}
           showFilters={showFilters}
           filters={filters}
@@ -1604,6 +1715,7 @@ export function DocumentsPane() {
           summaries={summaries}
           searchScores={searchScores}
           agentTags={agentTags}
+          sortKey={sortKey}
           cardVariant={cardVariant}
           chatDocNames={chatDocNames}
           filters={filters}
@@ -1628,8 +1740,8 @@ export function DocumentsPane() {
           dockExpanded={dockExpanded}
           dockMinimized={dockMinimized}
           hiddenStats={hiddenStats}
-          manuallyHiddenDocs={manuallyHiddenDocs}
-          sortedManuallyHiddenDocs={sortedManuallyHiddenDocs}
+          hiddenDocs={hiddenDocs}
+          sortedHiddenDocs={sortedHiddenDocs}
           hiddenSortKey={hiddenSortKey}
           hiddenSortDir={hiddenSortDir}
           isCompactHiddenTable={isCompactHiddenTable}

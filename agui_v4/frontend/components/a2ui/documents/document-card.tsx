@@ -97,6 +97,8 @@ export interface DocumentCardProps {
   searchData?: DocSearchData;
   /** Agent-generated tags shown as small pills. */
   tags?: DocumentTagData[];
+  /** Approximate token count for this document (from backend tiktoken). */
+  token_count?: number;
 
   /** Responsive layout tier set by the parent pane. */
   variant?: CardVariant;
@@ -185,6 +187,26 @@ const DOMAIN_BADGE: Record<string, string> = {
     "bg-violet-500/20 text-violet-700 dark:text-violet-400 border-violet-500/30",
 };
 
+/**
+ * Format a raw token count into a compact, human-readable string.
+ *
+ * @example
+ *   formatTokenCount(830)     // "830"
+ *   formatTokenCount(2532)    // "2.5k"
+ *   formatTokenCount(1200000) // "1.2M"
+ */
+export function formatTokenCount(count: number): string {
+  if (count >= 1_000_000) {
+    const millions = count / 1_000_000;
+    return `${millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(1)}M`;
+  }
+  if (count >= 1_000) {
+    const thousands = count / 1_000;
+    return `${thousands % 1 === 0 ? thousands.toFixed(0) : thousands.toFixed(1)}k`;
+  }
+  return String(count);
+}
+
 function scoreColorClass(score: number): string {
   if (score >= 0.8)
     return "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/40";
@@ -208,6 +230,7 @@ export function DocumentCard({
   summaryData,
   searchData,
   tags,
+  token_count,
   variant = "narrow",
   isHidden = false,
   onToggleHidden,
@@ -364,20 +387,37 @@ export function DocumentCard({
               >
                 {domain}
               </Badge>
+              {token_count != null && token_count > 0 && (
+                <span
+                  className="inline-flex items-center gap-[3px] text-[9px] px-1.5 py-0 rounded-full font-mono font-semibold shrink-0
+                    bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300
+                    border border-emerald-200/60 dark:border-emerald-700/40"
+                  title={`~${token_count.toLocaleString()} tokens`}
+                >
+                  <span className="text-[8px] opacity-70">τ</span>
+                  {formatTokenCount(token_count)}
+                </span>
+              )}
             </div>
 
             {/* Second line: type, subtype, date (all variants) */}
             {(document_type || formattedDate) && (
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                 {document_type && (
-                  <span className="text-[11px] text-muted-foreground">
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] px-1.5 py-0"
+                  >
                     {document_type}
-                  </span>
+                  </Badge>
                 )}
                 {document_sub_type && (
-                  <span className="text-[11px] text-muted-foreground/70">
-                    / {document_sub_type}
-                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] px-1.5 py-0"
+                  >
+                    {document_sub_type}
+                  </Badge>
                 )}
                 {formattedDate && (
                   <span className="flex items-center gap-0.5 text-xs font-medium text-muted-foreground">

@@ -15,7 +15,6 @@ AUDIT_AGENT_INSTRUCTIONS = dedent(
     duplicating the information in the tools but rather concisely summarize what you did.
 
     # TOOLS:
-    Favor tools diversity over repetition.
 
     ## Document tools:
     Documents are part of a shared state with the frontend. The **current** documents

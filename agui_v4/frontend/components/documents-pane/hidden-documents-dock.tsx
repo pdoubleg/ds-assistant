@@ -34,8 +34,8 @@ export interface HiddenDocumentsDockProps {
   dockExpanded: boolean;
   dockMinimized: boolean;
   hiddenStats: HiddenStats;
-  manuallyHiddenDocs: DocWithId[];
-  sortedManuallyHiddenDocs: DocWithId[];
+  hiddenDocs: DocWithId[];
+  sortedHiddenDocs: DocWithId[];
   hiddenSortKey: HiddenSortKey;
   hiddenSortDir: "asc" | "desc";
   isCompactHiddenTable: boolean;
@@ -50,7 +50,7 @@ export interface HiddenDocumentsDockProps {
 }
 
 /**
- * Bottom dock for manually hidden documents and filtered-out stats.
+ * Bottom dock for hidden documents and filtered-out stats.
  */
 export function HiddenDocumentsDock({
   showHiddenDock,
@@ -59,8 +59,8 @@ export function HiddenDocumentsDock({
   dockExpanded,
   dockMinimized,
   hiddenStats,
-  manuallyHiddenDocs,
-  sortedManuallyHiddenDocs,
+  hiddenDocs,
+  sortedHiddenDocs,
   hiddenSortKey,
   hiddenSortDir,
   isCompactHiddenTable,
@@ -194,7 +194,7 @@ export function HiddenDocumentsDock({
               className="overflow-hidden border-t border-border/45"
             >
               <div className="px-3 py-2">
-                {manuallyHiddenDocs.length === 0 ? (
+                {hiddenDocs.length === 0 ? (
                   <div className="rounded-md border border-dashed border-border/50 bg-muted/25 px-3 py-3">
                     <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
                       <Badge variant="outline" className="text-[10px] px-1.5 py-0">
@@ -333,7 +333,7 @@ export function HiddenDocumentsDock({
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {sortedManuallyHiddenDocs.map((doc) => (
+                        {sortedHiddenDocs.map((doc) => (
                           <HiddenDocRow
                             key={doc._id}
                             doc={doc}

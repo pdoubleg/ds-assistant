@@ -14,13 +14,14 @@ import {
 } from "@/components/a2ui/documents";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import type { DocWithId, Filters } from "./types";
+import type { DocWithId, Filters, SortKey } from "./types";
 
 export interface DocumentsGridProps {
   sortedDocs: DocWithId[];
   summaries: Map<string, DocumentSummaryData>;
   searchScores: Map<string, DocSearchData>;
   agentTags: Map<string, DocumentTagData[]>;
+  sortKey: SortKey;
   cardVariant: CardVariant;
   chatDocNames: Set<string>;
   filters: Filters;
@@ -46,6 +47,7 @@ export function DocumentsGrid({
   summaries,
   searchScores,
   agentTags,
+  sortKey,
   cardVariant,
   chatDocNames,
   filters,
@@ -106,6 +108,7 @@ export function DocumentsGrid({
                 summaryData={summaries.get(doc.file_name)}
                 searchData={searchScores.get(doc.file_name)}
                 tags={agentTags.get(doc.file_name)}
+                token_count={doc.token_count}
                 variant={cardVariant}
                 isHidden={false}
                 onToggleHidden={() => onToggleHidden(doc.file_name)}
@@ -128,7 +131,9 @@ export function DocumentsGrid({
           <div className="col-span-full flex flex-col items-center justify-center py-12 text-muted-foreground/60 gap-2">
             <FileUp className="h-8 w-8" />
             <p className="text-sm">
-              {hasActiveFilters(filters)
+              {sortKey === "score"
+                ? "No documents were selected by the current search. Unhide documents or refresh docs to widen the scope."
+                : hasActiveFilters(filters)
                 ? "No documents match the current filters."
                 : "No documents in triage. Upload or load documents to begin."}
             </p>

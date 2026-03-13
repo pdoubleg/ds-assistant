@@ -8,6 +8,8 @@ from typing import Callable
 class TextExtractionService:
     """Extract text from supported document types and describe uploaded files."""
 
+    _tiktoken_encoding = None
+
     def __init__(self) -> None:
         """Initialize supported extractors and MIME mappings."""
         self.extractors: dict[str, Callable[[bytes], tuple[str, int]]] = {
@@ -172,6 +174,34 @@ class TextExtractionService:
         segments, page_count = self.extract_segments(extension, file_bytes)
         return "\n\n".join(segment for segment in segments if segment), page_count
 
+    def count_tokens(self, text: str) -> int:
+        """Count the number of tokens in a text string using tiktoken cl100k_base.
+
+        Uses a class-level cached encoder so the encoding is only loaded once
+        across all calls and instances.
+
+        Args:
+            text: The text to tokenize.
+
+        Returns:
+            Number of tokens in the text.
+
+        Example usage::
+
+            svc = TextExtractionService()
+            svc.count_tokens("Hello, world!")  # => 4
+        """
+        if not text:
+            return 0
+
+        # Lazy-load the encoding once and cache on the class
+        if TextExtractionService._tiktoken_encoding is None:
+            import tiktoken
+
+            TextExtractionService._tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+
+        return len(TextExtractionService._tiktoken_encoding.encode(text))
+
     def format_file_size(self, size_bytes: int) -> str:
         """Return a human-readable file size string.
 
@@ -207,6 +237,7 @@ class TextExtractionService:
             "page_count": pages,
             "file_size": self.format_file_size(size),
             "file_size_bytes": size,
+            "token_count": self.count_tokens(text),
             "path": f"/uploads/{file_name}",
         }
 
@@ -230,4 +261,5 @@ class TextExtractionService:
             "file_size_bytes": file_size,
             "page_count": page_count,
             "content": extracted_text,
+            "token_count": self.count_tokens(extracted_text),
         }

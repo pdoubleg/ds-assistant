@@ -40,6 +40,7 @@ class Document(DocBaseConfig):
     create_date: datetime.datetime = Field(alias="createDate", default=None)
     company_name: str | None = Field(alias="companyName", default=None)
     list_of_contents: list[dict[str, str]] | None = Field(alias="listOfContents", default=None)
+    token_count: Optional[int] = Field(alias="tokenCount", default=None)
 
     @field_serializer("create_date")
     def format_date(self, value: datetime.date) -> str:
