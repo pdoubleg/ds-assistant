@@ -42,6 +42,22 @@ import type { SavedForm, FormRowStats } from "@/lib/dashboard-types";
 
 // ── Helpers ──────────────────────────────────────────────────────
 
+function normalizeSubAnswer(answer: unknown): boolean {
+  if (typeof answer === "boolean") {
+    return answer;
+  }
+
+  if (answer === "Yes") {
+    return true;
+  }
+
+  if (answer === "No" || answer === "Insufficient information") {
+    return false;
+  }
+
+  return true;
+}
+
 /** Derive per-form stats from a full SavedForm record. */
 function computeRowStats(form: SavedForm): FormRowStats {
   const questions = form.questions ?? [];
@@ -59,7 +75,7 @@ function computeRowStats(form: SavedForm): FormRowStats {
     driverCount: questions.reduce(
       (sum, q) =>
         sum +
-        (q.sub_questions ?? []).filter((s) => (s.answer || "No") === "No")
+        (q.sub_questions ?? []).filter((s) => normalizeSubAnswer(s.answer))
           .length,
       0
     ),

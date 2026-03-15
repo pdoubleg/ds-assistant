@@ -1,8 +1,9 @@
 """Claim analysis model contracts."""
 
+import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from models.a2ui import A2UIComponent, A2UIConvertible
 
@@ -10,18 +11,51 @@ from models.a2ui import A2UIComponent, A2UIConvertible
 class TimelineEvent(BaseModel):
     """A single event in a claim's lifecycle."""
 
-    date: str = Field(..., description="Display date for the event (e.g. '2025-03-15').")
+    date: datetime.date = Field(
+        ...,
+        description="Event date in ISO format (YYYY-MM-DD), e.g. '2025-03-15'.",
+    )
     title: str = Field(..., description="Short headline for the event.")
     description: str = Field(..., description="One-to-two sentence detail about the event.")
-    category: Literal["inspection", "estimate", "payment", "correspondence", "other"] = Field(
+    category: Literal[
+        "fnol",
+        "inspection",
+        "estimate",
+        "payment",
+        "correspondence",
+        "coverage_update",
+        "settlement",
+        "denial",
+        "supplement",
+        "reopen",
+        "info_request",
+        "info_receipt",
+        "complaint",
+        "demand",
+        "attorney",
+        "other",
+    ] = Field(
         ...,
-        description="Event classification: inspection, estimate, payment, correspondence, or other.",
+        description=(
+            "Event classification. One of: fnol (First Notice of Loss — use for "
+            "the initial report/claim filing), inspection, estimate, payment, "
+            "correspondence, coverage_update, settlement, denial, supplement, "
+            "reopen, info_request, info_receipt, complaint, demand, attorney, "
+            "or other."
+        ),
     )
-    status: Literal["completed", "pending", "flagged"] = Field(
+    status: Literal["completed", "pending", "flagged", "closed"] = Field(
         ...,
-        description="Current state of the event: completed, pending, or flagged.",
+        description=(
+            "Current state of the event: completed, pending, flagged, or closed. "
+            "Use 'closed' to mark claim closure events (e.g., settlement paid out, "
+            "denial finalized). Can be paired with categories like settlement or denial."
+        ),
     )
-
+    @field_serializer("date")
+    def _serialize_date(self, value: datetime.date) -> str:
+        """Always emit an ISO-8601 string so downstream dicts and JSON are consistent."""
+        return value.isoformat()
 
 class TimelineEvents(A2UIConvertible):
     """A list of timeline events."""
@@ -75,19 +109,70 @@ class SummaryMetrics(A2UIConvertible):
         return summary_metrics_to_component([metric.model_dump() for metric in self.metrics])
 
 
+FindingCategory = Literal[
+    "coverage",
+    "liability",
+    "damages",
+    "time_sensitive",
+    "documentation",
+    "compliance",
+    "financial",
+    "fraud",
+    "medical",
+    "subrogation",
+    "vendor",
+    "litigation",
+    "customer_service",
+    "general",
+]
+
+FindingSeverity = Literal[
+    "tip",
+    "info",
+    "note",
+    "warning",
+    "critical",
+    "urgent",
+]
+
+
 class Finding(A2UIConvertible):
-    """An observation or flag surfaced by the analysis agent."""
+    """An observation or flag surfaced by the analysis agent.
+
+    Example usage::
+
+        finding = Finding(
+            title="Delayed Inspection",
+            content="Inspection was scheduled 45 days after FNOL...",
+            severity="warning",
+            category="timeline",
+        )
+    """
 
     title: str = Field(..., description="Short headline for the finding.")
     content: str = Field(
         ..., description="Detailed explanation of the finding (markdown supported)."
     )
-    severity: Literal["info", "warning", "critical"] = Field(
-        ..., description="Visual severity: info, warning, or critical."
+    severity: FindingSeverity = Field(
+        ...,
+        description=(
+            "Visual severity level. One of: tip (helpful best-practice suggestion), "
+            "info (neutral informational note), note (notable observation worth "
+            "highlighting), warning (potential issue requiring attention), "
+            "critical (significant problem), urgent (requires immediate action)."
+        ),
     )
-    category: str | None = Field(
+    category: FindingCategory | None = Field(
         None,
-        description="Optional grouping tag (e.g. 'timeline', 'coverage', 'estimate', 'resolution').",
+        description=(
+            "Optional finding classification. One of: coverage (policy/coverage), "
+            "liability (liability concerns), damages (damage assessment), time_sensitive "
+            "(deadline or time-critical matters), documentation (missing/incomplete docs), "
+            "compliance (regulatory/compliance), financial (monetary discrepancies), "
+            "fraud (fraud indicators), medical (medical-related), subrogation "
+            "(recovery opportunities), vendor (vendor/contractor issues), litigation "
+            "(legal/litigation matters), customer_service (service quality), or general."
+        ),
     )
 
     def to_a2ui_component(self) -> A2UIComponent:
@@ -130,9 +215,6 @@ class ChartSpec(A2UIConvertible):
     values: list[float | int] = Field(
         ..., description="Numeric values corresponding to each label."
     )
-    colors: list[str] | None = Field(
-        None, description="Optional list of hex color strings for each data point."
-    )
 
     def to_a2ui_component(self) -> A2UIComponent:
         """Convert the chart to an A2UI component."""
@@ -143,7 +225,6 @@ class ChartSpec(A2UIConvertible):
             title=self.title,
             labels=self.labels,
             values=self.values,
-            colors=self.colors,
         )
 
 

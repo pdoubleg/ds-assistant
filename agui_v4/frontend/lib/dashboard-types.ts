@@ -8,7 +8,7 @@
 // ── Primitive answer types ───────────────────────────────────────
 
 export type AnswerValue = "Yes" | "No" | "Insufficient information";
-export type SubAnswerValue = "Yes" | "No";
+export type SubAnswerValue = boolean;
 export type PerilType = "Interior" | "Exterior";
 export type OutcomeValue = "Meets" | "Does Not Meet Expectations";
 

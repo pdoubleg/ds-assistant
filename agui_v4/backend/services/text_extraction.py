@@ -241,6 +241,39 @@ class TextExtractionService:
             "path": f"/uploads/{file_name}",
         }
 
+    def build_example_documents_from_directory(
+        self, upload_dir: str
+    ) -> list[dict[str, object]]:
+        """Build example-document payloads for all supported files in a directory.
+
+        Args:
+            upload_dir: Directory containing the example source files.
+
+        Returns:
+            List of JSON-serializable payloads matching the frontend contract.
+        """
+        documents: list[dict[str, object]] = []
+        try:
+            for file_name in sorted(os.listdir(upload_dir)):
+                extension = os.path.splitext(file_name)[1].lower()
+                if extension not in self.allowed_extensions:
+                    continue
+
+                file_path = os.path.join(upload_dir, file_name)
+                if not os.path.isfile(file_path):
+                    continue
+
+                with open(file_path, "rb") as file_obj:
+                    file_bytes = file_obj.read()
+
+                documents.append(
+                    self.build_example_document_payload(file_name, file_bytes)
+                )
+        except Exception as exc:
+            print(f"[EXAMPLE-DOCS] Error scanning uploads dir: {exc}", flush=True)
+
+        return documents
+
     def build_upload_response(self, file_name: str, file_bytes: bytes) -> dict[str, object]:
         """Build the upload response payload after extraction.
 

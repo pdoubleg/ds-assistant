@@ -36,6 +36,22 @@ import type {
 
 // ── Aggregation logic ────────────────────────────────────────────
 
+function normalizeSubAnswer(answer: unknown): boolean {
+  if (typeof answer === "boolean") {
+    return answer;
+  }
+
+  if (answer === "Yes") {
+    return true;
+  }
+
+  if (answer === "No" || answer === "Insufficient information") {
+    return false;
+  }
+
+  return true;
+}
+
 function aggregateQuestions(forms: SavedForm[]): AggregatedQuestion[] {
   // Map: questionId -> aggregated data
   const qMap = new Map<
@@ -88,7 +104,7 @@ function aggregateQuestions(forms: SavedForm[]): AggregatedQuestion[] {
           entry.subMap.set(sq.id, sqEntry);
         }
         sqEntry.totalAppearances++;
-        if ((sq.answer || "No") === "No") {
+        if (normalizeSubAnswer(sq.answer)) {
           sqEntry.driverCount++;
         }
       }

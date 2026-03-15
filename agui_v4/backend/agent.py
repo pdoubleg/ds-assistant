@@ -198,8 +198,12 @@ async def generate_timeline_component(
         - date (str)
         - title (str)
         - description (str)
-        - category: "inspection" | "estimate" | "payment" | "correspondence" | "other"
-        - status: "completed" | "pending" | "flagged"
+        - category: "fnol" | "inspection" | "estimate" | "payment" | "correspondence" | "coverage_update" | "settlement" | "denial" | "supplement" | "reopen" | "info_request" | "info_receipt" | "complaint" | "demand" | "attorney" | "other"
+          Use "fnol" for the initial claim report (First Notice of Loss) — rendered as the timeline origin.
+        - status: "completed" | "pending" | "flagged" | "closed"
+          Use "closed" for claim closure events (settlement paid, denial finalized, etc.).
+        When an activity spans time (e.g., assignment sent → assignment complete), emit a
+        "pending" event at the start date and a "completed" event at the resolution date.
 
     Args:
         ctx: Pydantic AI run context carrying the shared ``AuditState``.
@@ -274,37 +278,45 @@ async def generate_summary_metrics_component(
 
 
 @agent.tool
-async def generate_findings_component(
+async def generate_finding_component(
     ctx: RunContext[StateDeps[AuditState]],
     input_spec: str,
 ) -> ToolReturn:
-    """Spawn a sub-agent to generate one or more findings component(s) based on an input specification and render it in the output pane. Useful for calling attention to important items or areas of concern.
+    """Spawn a sub-agent to generate a single finding card and render it in the output pane.
+    Useful for calling attention to an important item or area of concern. Call this tool once
+    per finding and as many times as needed.
 
     Notes:
-        Each finding should include:
+        The finding should include:
         - title (str): Short finding headline.
         - content (str): Detailed explanation (supports markdown).
-        - severity: "info" | "warning" | "critical"
-        - category (str | null): Optional grouping tag (e.g. "timeline", "coverage", "estimate", "resolution").
+        - severity: "tip" | "info" | "note" | "warning" | "critical" | "urgent"
+          Choose the level that best matches the tone: tip (suggestion), info (neutral),
+          note (notable), warning (potential issue), critical (significant problem),
+          urgent (immediate action).
+        - category: "coverage" | "liability" | "damages" | "time_sensitive" | "documentation" |
+          "compliance" | "financial" | "fraud" | "medical" | "subrogation" | "vendor" |
+          "litigation" | "customer_service" | "general" | null
+          Each category maps to a distinct icon and color badge.
 
     Args:
         ctx: Pydantic AI run context carrying the shared ``AuditState``.
-        input_spec: The input specification for the findings component, e.g., Finding bullets with: title, content, severity(optional), category(optional). This should be a string containing the finding details.
+        input_spec: The input specification for a single finding, e.g., a string describing
+            the title, content, severity, and category of the finding.
 
     Returns:
         ToolReturn with a summary string for the LLM and a
         StateSnapshotEvent to sync updated state with the frontend.
     """
     state = ctx.deps.state
-    state.current_step = f"Generating findings component: {input_spec[:100]}..."
-    log_tool_call(state, state.current_step, "in_progress", "generate_findings_component")
-    findings_result = await findings_agent.run(input_spec)
-    findings = findings_result.output
-    for finding in findings:
-        state.components.append(finding_to_component(finding.model_dump()).model_dump())
-    log_tool_call(state, state.current_step, "completed", "generate_findings_component")
+    state.current_step = f"Generating finding: {input_spec[:100]}..."
+    log_tool_call(state, state.current_step, "in_progress", "generate_finding_component")
+    finding_result = await findings_agent.run(input_spec)
+    finding = finding_result.output
+    state.components.append(finding_to_component(finding.model_dump()).model_dump())
+    log_tool_call(state, state.current_step, "completed", "generate_finding_component")
     return ToolReturn(
-        return_value=f"Findings component generated with {len(findings)} finding(s).",
+        return_value=f"Finding card generated: {finding.title}",
         metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
     )
 
@@ -314,7 +326,8 @@ async def generate_table_component(
     ctx: RunContext[StateDeps[AuditState]],
     input_spec: str,
 ) -> ToolReturn:
-    """Spawn a sub-agent to generate a table component based on an input specification and render it in the output pane. Useful for displaying structured data in a tabular format.
+    """Spawn a sub-agent to generate a table component based on an input specification and render it in the output pane. 
+    Useful for displaying structured data in a tabular format.
 
     Notes:
         Each table should include:
@@ -364,10 +377,9 @@ async def generate_chart_component(
         - title: short, auditor-friendly label
         - labels: list[str] (category names, periods, or segment names)
         - values: list[float | int] (raw numeric values only; no "$", "%", commas, or text)
-        - colors (optional): list[str] of valid CSS color strings (hex preferred, e.g. "#003B6F")
         - labels and values MUST align one-to-one and have identical length.
         - Chart type expectations:
-            - bar: compare magnitudes across discrete categories (e.g., costs by trade/category).
+            - bar: compare magnitudes across discrete categories (e.g., costs by category).
             - line: show ordered progression over time/sequences; labels should be chronologically or logically ordered.
             - pie: show parts of a whole at one point in time; values should be non-negative and represent a meaningful total breakdown.
             - Keep chart payloads compact and readable (typically 3-8 data points per chart).
@@ -375,7 +387,7 @@ async def generate_chart_component(
 
     Args:
         ctx: Pydantic AI run context carrying the shared ``AuditState``.
-        input_spec: The input specification for the chart component, e.g., String with: chart_type, title, labels, values, colors(optional). This should be a string containing the chart details.
+        input_spec: The input specification for the chart component, e.g., a string with chart_type, title, labels, and values.
 
     Returns:
         ToolReturn with a summary string for the LLM and a
@@ -392,7 +404,6 @@ async def generate_chart_component(
             title=chart.title,
             labels=chart.labels,
             values=chart.values,
-            colors=chart.colors,
         ).model_dump()
     )
     n_values = len(chart.values)
@@ -443,11 +454,12 @@ async def generate_audit_form(
 
     # Route the full TFR generation flow through the shared workflow layer so
     # routes and AG-UI use the same document mapping and prompt composition.
-    tfr_result_dict = await generate_audit_questions(
+    tfr_result = await generate_audit_questions(
         doc_payloads,
         additional_instructions=additional_instructions,
         reporter=nested_status_reporter,
     )
+    tfr_result_dict = tfr_result.model_dump()
     log_tool_call(state, state.current_step, "completed", "generate_audit_form")
 
     # ── Render form component ───────────────────────────────────────────
@@ -479,8 +491,7 @@ async def generate_audit_form(
     return ToolReturn(
         return_value=(
             f"TFR audit questionnaire generated with {num_questions} questions. "
-            f"Peril: {tfr_result_dict['peril']['peril']}. "
-            f"Outcome: {tfr_result_dict['overall_outcome']}. "
+            f"Audit Result:\n{str(tfr_result)}\n"
             f"The form has been rendered in the output pane."
         ),
         metadata=[

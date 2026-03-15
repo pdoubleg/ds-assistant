@@ -12,6 +12,7 @@ from api.routers.ag_ui import router as ag_ui_router
 from api.routers.doc_lens import router as doc_lens_router
 from api.routers.documents import router as documents_router
 from api.routers.forms import router as forms_router
+from api.routers.state import router as state_router
 from api.routers.uploads import router as uploads_router
 from dependencies import (
     get_backend_port,
@@ -30,6 +31,9 @@ async def lifespan(app: FastAPI):
     print(f"[*] AG-UI endpoint: POST http://localhost:{backend_port}/")
     print(f"[*] Upload endpoint: POST http://localhost:{backend_port}/upload")
     print(f"[*] Form state sync endpoint: GET/PUT http://localhost:{backend_port}/state/audit-form")
+    print(
+        f"[*] Claim session init endpoint: POST http://localhost:{backend_port}/state/claim-session/init"
+    )
     print(f"[*] Runtime state endpoint: GET http://localhost:{backend_port}/state/runtime")
     print(f"[*] Form persistence endpoints: POST/GET http://localhost:{backend_port}/forms")
     print(
@@ -64,6 +68,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(ag_ui_router)
+    app.include_router(state_router)
     app.include_router(forms_router)
     app.include_router(documents_router)
     app.include_router(uploads_router)

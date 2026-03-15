@@ -16,6 +16,7 @@ import {
   CalendarDays,
   FilePlus2,
   Hash,
+  Info,
   Loader2,
   RotateCcw,
   Save,
@@ -25,12 +26,16 @@ import { Input } from "@/components/ui/input";
 import {
   NativeDialog,
   NativeDialogContent,
-  NativeDialogDescription,
   NativeDialogFooter,
   NativeDialogHeader,
   NativeDialogTitle,
   NativeDialogTrigger,
 } from "@/components/ui/native-dialog-shadcnui";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -89,6 +94,10 @@ export function ClaimNumberDialog({
   const isOpen = isControlled ? open : internalOpen;
   const initialClaimNumber = initialData?.claimNumber ?? "";
   const initialEffectiveDate = initialData?.effectiveDate ?? "";
+  const hasPendingClaimNumber = Boolean(claimNumber.trim());
+  const submissionStatusMessage = hasPendingClaimNumber
+    ? "Initializing claim session. This may take a few seconds."
+    : "Loading local mode with the current example documents.";
 
   useEffect(() => {
     if (!isOpen) {
@@ -103,13 +112,17 @@ export function ClaimNumberDialog({
   /** Propagate open-state changes to the appropriate handler. */
   const handleOpenChange = useCallback(
     (next: boolean) => {
+      if (isSubmitting && !next) {
+        return;
+      }
+
       if (isControlled) {
         onOpenChange?.(next);
       } else {
         setInternalOpen(next);
       }
     },
-    [isControlled, onOpenChange]
+    [isControlled, isSubmitting, onOpenChange]
   );
 
   /**
@@ -137,12 +150,19 @@ export function ClaimNumberDialog({
         // Keep the latest submitted values visible if the dialog is reopened.
         setClaimNumber(normalizedClaimNumber);
         setEffectiveDate(normalizedEffectiveDate);
-        handleOpenChange(false);
+        if (isControlled) {
+          onOpenChange?.(false);
+        } else {
+          setInternalOpen(false);
+        }
+      } catch (error) {
+        // The parent surfaces the failure toast. Keep the dialog open here.
+        console.error("[ClaimNumberDialog] Session submission failed:", error);
       } finally {
         setIsSubmitting(false);
       }
     },
-    [onSubmit, handleOpenChange]
+    [isControlled, onOpenChange, onSubmit]
   );
 
   /** Save the current modal values. */
@@ -184,14 +204,34 @@ export function ClaimNumberDialog({
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-100 text-zinc-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 <Hash className="h-5 w-5" />
               </div>
-              <div className="space-y-1">
+              <div className="flex min-w-0 items-center gap-2">
                 <NativeDialogTitle className="text-xl font-semibold text-zinc-950 dark:text-zinc-50">
                   Claim Session Details
                 </NativeDialogTitle>
-                <NativeDialogDescription className="text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-                  Add a claim number to activate claim-aware mode, or leave it
-                  blank to keep working in local mode.
-                </NativeDialogDescription>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Claim session help"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 dark:focus-visible:ring-zinc-600"
+                    >
+                      <Info className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-left leading-5">
+                    <div>
+                      Add a claim number to switch into claim-aware mode.
+                    </div>
+                    <div className="mt-2">
+                      Leave the claim number blank to stay in local mode with
+                      sample docs or your own uploads.
+                    </div>
+                    <div className="mt-2">
+                      Effective date is optional and only needed when you want
+                      to pin guidance to a specific date.
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </NativeDialogHeader>
@@ -213,13 +253,9 @@ export function ClaimNumberDialog({
                 placeholder="e.g. 012345678"
                 value={claimNumber}
                 onChange={(e) => setClaimNumber(e.target.value)}
-                aria-describedby="claim-help"
                 className="h-12 rounded-lg border-zinc-300 bg-white text-base shadow-sm focus-visible:ring-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-600"
                 autoFocus
               />
-              <p id="claim-help" className="text-xs text-muted-foreground">
-                Leave blank for local mode with sample docs or uploaded files.
-              </p>
             </div>
 
             {/* Effective Date — optional ─────────────────────────────── */}
@@ -243,13 +279,18 @@ export function ClaimNumberDialog({
                 // dark mode so the field stays consistent with the design system.
                 className="h-12 rounded-lg border-zinc-300 bg-white shadow-sm focus-visible:ring-zinc-400 dark:scheme-dark dark:border-zinc-700 dark:bg-zinc-900 dark:focus-visible:ring-zinc-600"
               />
-              <p className="text-xs text-muted-foreground">
-                Leave blank unless you want to pin guidance to a specific date.
-              </p>
             </div>
           </div>
 
           <NativeDialogFooter className="dialog-zinc-section border-t border-zinc-200 px-6 py-4 dark:border-zinc-800">
+            {isSubmitting ? (
+              <div className="mr-auto flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>{submissionStatusMessage}</span>
+              </div>
+            ) : (
+              <div className="mr-auto hidden sm:block" />
+            )}
             <Button
               type="button"
               variant="outline"
@@ -281,7 +322,7 @@ export function ClaimNumberDialog({
               {isSubmitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving...
+                  {hasPendingClaimNumber ? "Initializing..." : "Loading Local Mode..."}
                 </>
               ) : (
                 <>

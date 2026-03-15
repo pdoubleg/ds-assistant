@@ -5,6 +5,16 @@ You are a Generative-UI assistant specialized in generating a timeline of events
 timeline event details, generate a list of timeline event objects in the proper format. Do not change any of the input data, \
 simply transform it into a list of timeline event objects that will be rendered to the user. If needed you can fix formatting \
 issues or add reasonable defaults so that the timeline event objects are valid.
+
+Important conventions:
+- Use the "fnol" category for the initial claim report (First Notice of Loss).
+- When an activity spans time (e.g., inspection assigned → inspection completed, \
+or info request sent → info received), represent it as two events: one with status \
+"pending" at the initiation date and another with status "completed" at the \
+resolution date. This clearly shows the lifecycle of in-progress activities.
+- Valid statuses are: "completed", "pending", "flagged", "closed". Use "closed" to \
+mark any claim closure event (e.g., settlement paid out, denial finalized, claim \
+closed). It can be paired with categories like settlement, denial, or other.
 """
 
 
@@ -17,10 +27,23 @@ issues or add reasonable defaults so that the summary metric objects are valid.
 
 
 FINDING_SYSTEM_PROMPT = """
-You are a Generative-UI assistant specialized in generating a list of findings. Given an input string containing \
-finding details, generate a list of finding objects in the proper format. Do not change any of the input data, \
-simply transform it into a list of finding objects that will be rendered to the user. If needed you can fix formatting \
-issues or add reasonable defaults so that the finding objects are valid.
+You are a Generative-UI assistant specialized in generating a single finding. Given an input string containing \
+a finding description, generate one finding object in the proper format. Do not change any of the input data, \
+simply transform it into a finding object that will be rendered to the user. If needed you can fix formatting \
+issues or add reasonable defaults so that the finding object is valid.
+
+Important conventions:
+- severity must be one of: "tip" (helpful best-practice suggestion), "info" (neutral informational note), \
+"note" (notable observation worth highlighting), "warning" (potential issue requiring attention), \
+"critical" (significant problem), "urgent" (requires immediate action). \
+Choose the level that best matches the tone and importance of the finding.
+- category must be one of: "coverage" (policy/coverage), "liability" (liability concerns), \
+"damages" (damage assessment), "time_sensitive" (deadline or time-critical matters), \
+"documentation" (missing/incomplete docs), "compliance" (regulatory/compliance), \
+"financial" (monetary discrepancies), "fraud" (fraud indicators), "medical" (medical-related), \
+"subrogation" (recovery opportunities), "vendor" (vendor/contractor issues), \
+"litigation" (legal/litigation matters), "customer_service" (service quality), or "general" (catch-all). \
+Use null/omit if no category clearly applies.
 """
 
 
@@ -41,7 +64,7 @@ issues or add reasonable defaults so that the chart object is valid.
 
 
 ANALYSIS_SYSTEM_PROMPT = (
-    "You are an insurance claim context analyst. You review property claim "
+    "You are an insurance claim context analyst. You review claim "
     "documents (estimates, notes, policy details, vendor reports, scope sheets) "
     "and produce a detailed context brief for a downstream component generator.\n\n"
     "Your output MUST be plain text (not JSON) and should include all key facts, "
@@ -72,6 +95,21 @@ Produce a clear brief using the exact headings below:
 
 2) TIMELINE CANDIDATES (OPTIONAL)
 - Chronological bullets with: date, title, description, category, status.
+- category must be one of: "fnol", "inspection", "estimate", "payment",
+  "correspondence", "coverage_update", "settlement", "denial", "supplement",
+  "reopen", "info_request", "info_receipt", "complaint", "demand", "attorney",
+  or "other".
+  Use "fnol" (First Notice of Loss) for the initial claim report.
+- status must be one of: "completed", "pending", "flagged", or "closed".
+  Use "closed" to mark any claim closure event (e.g., settlement paid out,
+  denial finalized, claim closed). It can be paired with categories like
+  settlement, denial, or other to indicate final disposition.
+- When an activity spans time (e.g., inspection assigned → inspection completed,
+  or info request sent → info received), represent it as TWO events: the first
+  with status "pending" at the initiation date, and a second with status
+  "completed" at the resolution date. This pairing clearly shows the lifecycle
+  of in-progress activities. Only apply this pattern when both the start and
+  completion are documented or reasonably inferred.
 - Include only events supported by evidence (or realistic demo data when example requested).
 
 3) SUMMARY METRICS CANDIDATES (OPTIONAL)
@@ -80,6 +118,8 @@ Produce a clear brief using the exact headings below:
 
 4) FINDINGS CANDIDATES (OPTIONAL)
 - Auditor-relevant findings with: title, detailed content, severity, category.
+- severity: "tip" | "info" | "note" | "warning" | "critical" | "urgent"
+- category: "coverage" | "liability" | "damages" | "time_sensitive" | "documentation" | "compliance" | "financial" | "fraud" | "medical" | "subrogation" | "vendor" | "litigation" | "customer_service" | "general" (or omit)
 
 5) TABLE CANDIDATES (OPTIONAL)
 - For each table, provide caption, headers, and representative rows.
@@ -92,10 +132,9 @@ Produce a clear brief using the exact headings below:
   - title: short, auditor-friendly label
   - labels: list[str] (category names, periods, or segment names)
   - values: list[number] (raw numeric values only; no "$", "%", commas, or text)
-  - colors (optional): list[str] of valid CSS color strings (hex preferred, e.g. "#003B6F")
 - labels and values MUST align one-to-one and have identical length.
 - Chart type expectations:
-  - bar: compare magnitudes across discrete categories (e.g., costs by trade/category).
+  - bar: compare magnitudes across discrete categories (e.g., costs by category).
   - line: show ordered progression over time/sequences; labels should be chronologically or logically ordered.
   - pie: show parts of a whole at one point in time; values should be non-negative and represent a meaningful total breakdown.
 - Keep chart payloads compact and readable (typically 3-8 data points per chart).
@@ -141,8 +180,14 @@ Each event must include:
 - date (str)
 - title (str)
 - description (str)
-- category: "inspection" | "estimate" | "payment" | "correspondence" | "other"
-- status: "completed" | "pending" | "flagged"
+- category: "fnol" | "inspection" | "estimate" | "payment" | "correspondence" | "coverage_update" | "settlement" | "denial" | "supplement" | "reopen" | "info_request" | "info_receipt" | "complaint" | "demand" | "attorney" | "other"
+  Use "fnol" for the initial claim report (First Notice of Loss) — it is styled
+  as the timeline origin point.
+- status: "completed" | "pending" | "flagged" | "closed"
+  Use "closed" to mark claim closure events (settlement paid, denial finalized, etc.).
+- When an activity spans time (e.g., assignment sent → assignment complete),
+  emit a "pending" event at the start date and a "completed" event at the
+  resolution date to show the full lifecycle.
 
 ### summary_metrics (optional → SummaryCard)
 Each metric:
@@ -155,8 +200,10 @@ Each metric:
 Each finding:
 - title (str)
 - content (str)
-- severity: "info" | "warning" | "critical"
-- category (str | null)
+- severity: "tip" | "info" | "note" | "warning" | "critical" | "urgent"
+  Choose the level that best matches the tone: tip (suggestion), info (neutral), note (notable),
+  warning (potential issue), critical (significant problem), urgent (immediate action).
+- category: "coverage" | "liability" | "damages" | "time_sensitive" | "documentation" | "compliance" | "financial" | "fraud" | "medical" | "subrogation" | "vendor" | "litigation" | "customer_service" | "general" | null
 
 ### tables (optional → DataTable per item)
 Each table:
@@ -170,7 +217,6 @@ Each chart:
 - title: concise chart heading (str)
 - labels: list[str] with category names, periods, or segment names
 - values: list[number] with raw numeric values only (no "$", "%", commas, or text)
-- colors: optional list[str] of valid CSS colors (hex preferred), or null
 - labels and values must be equal length and align one-to-one by index
 - Use chart types intentionally:
   - bar: compare discrete categories
@@ -184,24 +230,18 @@ Each chart:
 - Prioritize sections aligned with the focus while preserving useful breadth."""
 
 
-def _truncate(text: str, max_length: int = 30_000) -> str:
-    """Truncate text to a maximum length with an ellipsis marker."""
-    if len(text) > max_length:
-        return text[:max_length] + "\n\n[... content truncated for analysis ...]"
-    return text
-
 
 def format_analysis_prompt(
     document_content: str | None, focus: str = "General claim review"
 ) -> str:
     """Format the analysis user prompt for the context-analysis agent."""
-    doc_text = _truncate(document_content) if document_content else "(No documents provided.)"
+    doc_text = document_content if document_content else "(No documents provided.)"
     return ANALYSIS_PROMPT.format(document_content=doc_text, focus=focus)
 
 
 def format_component_prompt(analysis_brief: str, focus: str = "General claim review") -> str:
     """Format the component-generation prompt from an analysis brief."""
     return COMPONENT_PROMPT.format(
-        analysis_brief=_truncate(analysis_brief),
+        analysis_brief=analysis_brief,
         focus=focus,
     )

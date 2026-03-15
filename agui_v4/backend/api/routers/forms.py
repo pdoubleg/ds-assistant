@@ -1,4 +1,4 @@
-"""Audit-form state and persistence routes."""
+"""Persisted audit-form CRUD routes."""
 
 from uuid import uuid4
 
@@ -6,50 +6,12 @@ from fastapi import APIRouter, Body, Depends
 from starlette.responses import JSONResponse
 
 from api.schemas.forms import AuditFormRequestBody
+from dependencies import get_audit_state_service, get_form_store
 from services.audit_state_service import AuditStateService
 from services.form_store import FormStore
-from dependencies import get_audit_state_service, get_form_store
+
 
 router = APIRouter()
-
-
-@router.get("/state/audit-form")
-async def get_audit_form_state(
-    audit_state_service: AuditStateService = Depends(get_audit_state_service),
-) -> JSONResponse:
-    """Get the current audit form payload and form ID from shared state."""
-    return JSONResponse(audit_state_service.get_audit_form_state())
-
-
-@router.get("/state/runtime")
-async def get_runtime_state(
-    audit_state_service: AuditStateService = Depends(get_audit_state_service),
-) -> JSONResponse:
-    """Get live runtime status fields from shared state for polling clients."""
-    return JSONResponse(audit_state_service.get_runtime_state())
-
-
-@router.put("/state/audit-form")
-async def put_audit_form_state(
-    body: AuditFormRequestBody,
-    form_store: FormStore = Depends(get_form_store),
-    audit_state_service: AuditStateService = Depends(get_audit_state_service),
-) -> JSONResponse:
-    """Update the editable audit form payload in shared state."""
-    payload = body.extract_form_payload()
-    validation_error = form_store.validate_form_payload(payload)
-    if validation_error:
-        return JSONResponse({"error": validation_error}, status_code=400)
-
-    state_payload = audit_state_service.sync_audit_form(
-        payload, current_form_id=body.current_form_id
-    )
-    return JSONResponse(
-        {
-            "message": "Audit form state synchronized.",
-            **state_payload,
-        }
-    )
 
 
 @router.post("/forms")

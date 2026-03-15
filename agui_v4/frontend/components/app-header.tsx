@@ -32,9 +32,14 @@ import {
   type ClaimSessionData,
 } from "@/components/claim-number-dialog";
 import {
+  useAuditAgent,
   useClaimSessionState,
   type ClaimSessionState,
 } from "@/hooks/use-audit-agent";
+
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
+const CLAIM_SESSION_TOAST_STORAGE_KEY = "audit-agent-claim-session-toast";
 
 const headerFont = Sora({
   subsets: ["latin"],
@@ -87,6 +92,19 @@ function formatEffectiveDate(effectiveDate: string): string {
 
 interface NowViewingCardProps {
   claimSession: ClaimSessionState;
+}
+
+interface ClaimSessionInitResponse {
+  message: string;
+  mode: "claim" | "local";
+  claim_number: string;
+  effective_date: string;
+  documents: Array<Record<string, unknown>>;
+}
+
+interface ClaimSessionToastPayload {
+  variant: "success" | "error";
+  message: string;
 }
 
 /**
@@ -166,128 +184,234 @@ export function AppHeader() {
   const { theme, setTheme } = useTheme();
   const pathname = usePathname();
   const [mounted, setMounted] = React.useState(false);
+  const [toast, setToast] = React.useState<ClaimSessionToastPayload | null>(
+    null
+  );
+  const toastTimeoutRef = React.useRef<number | null>(null);
+  const { setDocuments } = useAuditAgent();
   const { claimSession, setClaimSession } = useClaimSessionState();
   const hasActiveClaim = Boolean(claimSession.claimNumber);
 
-  React.useEffect(() => setMounted(true), []);
+  const showToast = React.useCallback((nextToast: ClaimSessionToastPayload) => {
+    setToast(nextToast);
+    if (toastTimeoutRef.current !== null) {
+      window.clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 3600);
+  }, []);
+
+  React.useEffect(() => {
+    setMounted(true);
+    try {
+      const rawToast = window.sessionStorage.getItem(
+        CLAIM_SESSION_TOAST_STORAGE_KEY
+      );
+      if (!rawToast) {
+        return;
+      }
+
+      window.sessionStorage.removeItem(CLAIM_SESSION_TOAST_STORAGE_KEY);
+      const parsedToast = JSON.parse(rawToast) as ClaimSessionToastPayload;
+      if (
+        parsedToast &&
+        typeof parsedToast.message === "string" &&
+        (parsedToast.variant === "success" || parsedToast.variant === "error")
+      ) {
+        showToast(parsedToast);
+      }
+    } catch {
+      window.sessionStorage.removeItem(CLAIM_SESSION_TOAST_STORAGE_KEY);
+    }
+  }, [showToast]);
+
+  React.useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current !== null) {
+        window.clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleNewSession = React.useCallback(
     async (data: ClaimSessionData) => {
-      setClaimSession(data);
+      try {
+        const response = await fetch(`${BACKEND_URL}/state/claim-session/init`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            claim_number: data.claimNumber,
+            effective_date: data.effectiveDate,
+          }),
+        });
 
-      // Force a full reload so every pane re-initializes against the new claim.
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 120);
+        if (!response.ok) {
+          throw new Error(
+            `Session initialization failed: ${response.status} ${await response.text()}`
+          );
+        }
+
+        const payload = (await response.json()) as ClaimSessionInitResponse;
+        setDocuments(payload.documents || []);
+        setClaimSession(data);
+
+        window.sessionStorage.setItem(
+          CLAIM_SESSION_TOAST_STORAGE_KEY,
+          JSON.stringify({
+            variant: "success",
+            message: payload.message,
+          } satisfies ClaimSessionToastPayload)
+        );
+
+        // Force a full reload so every pane re-initializes against the new claim.
+        window.setTimeout(() => {
+          window.location.reload();
+        }, 120);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to initialize the requested claim session.";
+        showToast({
+          variant: "error",
+          message,
+        });
+        throw error;
+      }
     },
-    [setClaimSession]
+    [setClaimSession, setDocuments, showToast]
   );
 
   return (
-    <header className={HEADER_SHELL_CLASSES}>
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.42),transparent_18%,transparent_82%,rgba(214,211,209,0.24))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),transparent_20%,transparent_78%,rgba(148,163,184,0.035))]" />
-        <div className="absolute inset-0 bg-[repeating-linear-gradient(90deg,rgba(168,162,158,0.06)_0,rgba(168,162,158,0.06)_1px,transparent_1px,transparent_14px)] opacity-40 dark:bg-[repeating-linear-gradient(90deg,rgba(226,232,240,0.03)_0,rgba(226,232,240,0.03)_1px,transparent_1px,transparent_14px)] dark:opacity-35" />
-        <div className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/80 to-transparent dark:via-slate-200/20" />
-      </div>
-      <div className="relative flex items-center gap-4 px-5 py-4">
-        <div className="flex shrink-0 items-center gap-5">
-          {/* Logo doubles as the New Audit dialog trigger */}
-          <ClaimNumberDialog
-            onSubmit={handleNewSession}
-            initialData={claimSession}
-            trigger={
-              <button
-                type="button"
-                aria-label="Start a new audit session"
-                className="qbot-launch-btn relative rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70 dark:focus-visible:ring-cyan-500/70"
-              >
-                <Image
-                  src="/q-bot.png"
-                  alt="Q-Bot"
-                  width={76}
-                  height={76}
-                  className={cn(
-                    "relative cursor-pointer rounded-2xl",
-                    hasActiveClaim
-                      ? ACTIVE_SESSION_TILE_CLASSES
-                      : INACTIVE_SESSION_TILE_CLASSES
-                  )}
-                  priority
-                />
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white shadow-sm dark:border-slate-950",
-                    hasActiveClaim
-                      ? "bg-emerald-500 shadow-emerald-500/50"
-                      : "bg-slate-300 dark:bg-slate-700"
-                  )}
-                />
-              </button>
-            }
-          />
-          <div className="min-w-0 w-[360px] max-w-[360px]">
-            <NowViewingCard claimSession={claimSession} />
+    <>
+      <header className={HEADER_SHELL_CLASSES}>
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.42),transparent_18%,transparent_82%,rgba(214,211,209,0.24))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045),transparent_20%,transparent_78%,rgba(148,163,184,0.035))]" />
+          <div className="absolute inset-0 bg-[repeating-linear-gradient(90deg,rgba(168,162,158,0.06)_0,rgba(168,162,158,0.06)_1px,transparent_1px,transparent_14px)] opacity-40 dark:bg-[repeating-linear-gradient(90deg,rgba(226,232,240,0.03)_0,rgba(226,232,240,0.03)_1px,transparent_1px,transparent_14px)] dark:opacity-35" />
+          <div className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-white/80 to-transparent dark:via-slate-200/20" />
+        </div>
+        <div className="relative flex items-center gap-4 px-5 py-4">
+          <div className="flex shrink-0 items-center gap-5">
+            {/* Logo doubles as the New Audit dialog trigger */}
+            <ClaimNumberDialog
+              onSubmit={handleNewSession}
+              initialData={claimSession}
+              trigger={
+                <button
+                  type="button"
+                  aria-label="Start a new audit session"
+                  className="qbot-launch-btn relative rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70 dark:focus-visible:ring-cyan-500/70"
+                >
+                  <Image
+                    src="/q-bot.png"
+                    alt="Q-Bot"
+                    width={76}
+                    height={76}
+                    className={cn(
+                      "relative cursor-pointer rounded-2xl",
+                      hasActiveClaim
+                        ? ACTIVE_SESSION_TILE_CLASSES
+                        : INACTIVE_SESSION_TILE_CLASSES
+                    )}
+                    priority
+                  />
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white shadow-sm dark:border-slate-950",
+                      hasActiveClaim
+                        ? "bg-emerald-500 shadow-emerald-500/50"
+                        : "bg-slate-300 dark:bg-slate-700"
+                    )}
+                  />
+                </button>
+              }
+            />
+            <div className="min-w-0 w-[360px] max-w-[360px]">
+              <NowViewingCard claimSession={claimSession} />
+            </div>
           </div>
-        </div>
 
-        <div className="min-w-0 flex-1 flex items-center gap-4">
-          <p
-            className={`${headerFont.className} hidden min-w-0 flex-1 truncate text-center text-[2rem] font-medium tracking-[0.03em] text-stone-800 xl:block 2xl:text-[2.35rem] dark:text-slate-100`}
-          >
-            Quality Improvement Workbench
-          </p>
-        </div>
+          <div className="min-w-0 flex-1 flex items-center gap-4">
+            <p
+              className={`${headerFont.className} hidden min-w-0 flex-1 truncate text-center text-[2rem] font-medium tracking-[0.03em] text-stone-800 xl:block 2xl:text-[2.35rem] dark:text-slate-100`}
+            >
+              Quality Improvement Workbench
+            </p>
+          </div>
 
-        {/* Navigation links */}
-        <nav className="flex items-center gap-1 shrink-0">
-          {NAV_LINKS.map(({ href, label, icon: Icon }) => {
-            const isActive =
-              href === "/" ? pathname === "/" : pathname.startsWith(href);
+          {/* Navigation links */}
+          <nav className="flex items-center gap-1 shrink-0">
+            {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+              const isActive =
+                href === "/" ? pathname === "/" : pathname.startsWith(href);
 
-            return (
-              <Link key={href} href={href}>
+              return (
+                <Link key={href} href={href}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      `gap-1.5 text-sm font-medium ${HEADER_BUTTON_CLASSES}`,
+                      isActive
+                        ? "border-stone-300 bg-white text-stone-950 ring-1 ring-stone-300/80 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-50 dark:ring-slate-500/60"
+                        : ""
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="hidden sm:inline">{label}</span>
+                  </Button>
+                </Link>
+              );
+            })}
+          </nav>
+
+          {mounted && (
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className={cn(
-                    `gap-1.5 text-sm font-medium ${HEADER_BUTTON_CLASSES}`,
-                    isActive
-                      ? "border-stone-300 bg-white text-stone-950 ring-1 ring-stone-300/80 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-50 dark:ring-slate-500/60"
-                      : ""
-                  )}
+                  size="icon"
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className={`${HEADER_BUTTON_CLASSES} w-10 shrink-0`}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{label}</span>
+                  {theme === "dark" ? (
+                    <Sun className="h-[18px] w-[18px]" />
+                  ) : (
+                    <Moon className="h-[18px] w-[18px]" />
+                  )}
                 </Button>
-              </Link>
-            );
-          })}
-        </nav>
-
-        {mounted && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className={`${HEADER_BUTTON_CLASSES} w-10 shrink-0`}
-              >
-                {theme === "dark" ? (
-                  <Sun className="h-[18px] w-[18px]" />
-                ) : (
-                  <Moon className="h-[18px] w-[18px]" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              Switch to {theme === "dark" ? "light" : "dark"} mode
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-    </header>
+              </TooltipTrigger>
+              <TooltipContent>
+                Switch to {theme === "dark" ? "light" : "dark"} mode
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </header>
+      {toast ? (
+        <div className="fixed bottom-4 left-1/2 z-80 w-[min(92vw,28rem)] -translate-x-1/2 rounded-xl border border-black/10 bg-white/95 px-4 py-3 text-sm text-slate-900 shadow-2xl backdrop-blur dark:border-white/10 dark:bg-slate-950/95 dark:text-slate-50">
+          <p
+            className={cn(
+              "font-semibold",
+              toast.variant === "success"
+                ? "text-emerald-700 dark:text-emerald-300"
+                : "text-rose-700 dark:text-rose-300"
+            )}
+          >
+            {toast.variant === "success"
+              ? "Session updated"
+              : "Session update failed"}
+          </p>
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+            {toast.message}
+          </p>
+        </div>
+      ) : null}
+    </>
   );
 }

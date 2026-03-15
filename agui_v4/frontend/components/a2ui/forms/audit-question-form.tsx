@@ -43,19 +43,21 @@ import {
   XCircle,
   Pencil,
   Trash2,
+  Ban,
 } from "lucide-react";
 import type { AuditFormPayload } from "@/hooks/use-audit-agent";
 
 // ── Types ────────────────────────────────────────────────────────
 
 type AnswerValue = "Yes" | "No" | "Insufficient information";
+type SubAnswerValue = boolean;
 
 interface SubQuestion {
   id: string;
   text: string;
   reasoning: string;
   citations: string;
-  answer?: "Yes" | "No";
+  answer?: SubAnswerValue;
   comments?: string | null;
 }
 
@@ -85,6 +87,31 @@ export interface AuditQuestionFormProps {
   onDelete?: () => Promise<void>;
   isSaving?: boolean;
   currentFormId?: string | null;
+}
+
+/**
+ * Normalize legacy string-based sub-question answers into the new boolean form.
+ *
+ * Args:
+ *   answer: Persisted answer value from older or current payloads.
+ *
+ * Returns:
+ *   ``true`` when the driver is applicable, otherwise ``false``.
+ */
+function normalizeSubAnswer(answer: unknown): SubAnswerValue {
+  if (typeof answer === "boolean") {
+    return answer;
+  }
+
+  if (answer === "Yes") {
+    return true;
+  }
+
+  if (answer === "No" || answer === "Insufficient information") {
+    return false;
+  }
+
+  return true;
 }
 
 // ── Copy-to-clipboard button ─────────────────────────────────────
@@ -241,121 +268,148 @@ function AnswerPills({
   );
 }
 
+function SubQuestionApplicabilitySelector({
+  value,
+  onChange,
+}: {
+  value: SubAnswerValue;
+  onChange: (value: SubAnswerValue) => void;
+}) {
+  const nextValue = !value;
+
+  // Applies = flagged/checked (red), N/A = neutral/muted
+  const buttonClass = value
+    ? "border-red-500/40 bg-red-500/10 text-red-700 shadow-[0_0_6px_rgba(239,68,68,0.15)] dark:text-red-300 hover:bg-red-500/15"
+    : "border-border/60 bg-muted/40 text-muted-foreground hover:border-primary/25 hover:bg-muted/60";
+
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(nextValue)}
+      title={value ? "Marked as applicable — click to dismiss" : "Not applicable — click to flag"}
+      className={`mt-2 inline-flex items-center justify-center rounded-full border p-1.5
+        transition-all duration-200 ease-in-out active:scale-90 ${buttonClass}`}
+    >
+      <span className="relative flex h-4 w-4 items-center justify-center">
+        {/* Cross-fade between the two icons */}
+        <CheckCheck
+          className={`absolute inset-0 h-4 w-4 transition-all duration-200
+            ${value ? "scale-100 opacity-100" : "scale-75 opacity-0"}`}
+        />
+        <Ban
+          className={`absolute inset-0 h-4 w-4 transition-all duration-200
+            ${value ? "scale-75 opacity-0" : "scale-100 opacity-100"}`}
+        />
+      </span>
+    </button>
+  );
+}
+
 // ── Sub-question Row ─────────────────────────────────────────────
 
 function SubQuestionRow({
   sub,
+  expanded,
+  onToggleExpanded,
   onAnswerChange,
   onReasoningChange,
   onCitationsChange,
   onCommentsChange,
 }: {
   sub: SubQuestion;
-  onAnswerChange: (answer: "Yes" | "No") => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onAnswerChange: (answer: SubAnswerValue) => void;
   onReasoningChange: (reasoning: string) => void;
   onCitationsChange: (citations: string) => void;
   onCommentsChange: (comments: string) => void;
 }) {
-  const subAnswer = sub.answer || "No";
+  const subAnswer = normalizeSubAnswer(sub.answer);
   const borderColor =
-    subAnswer === "Yes"
-      ? "border-l-emerald-500/60 dark:border-l-emerald-500/40"
-      : "border-l-red-500/60 dark:border-l-red-500/40";
+    subAnswer
+      ? "border-l-red-500/60 dark:border-l-red-500/40"
+      : "border-l-emerald-500/60 dark:border-l-emerald-500/40";
 
   return (
-    <div className={`flex items-start gap-4 py-4 pl-10 pr-5 border-l-[3px] ${borderColor} transition-colors`}>
-      <span className="shrink-0 text-[10px] font-mono font-bold text-primary bg-primary/8 dark:bg-primary/12 border border-primary/10 dark:border-primary/8 rounded px-1.5 py-0.5 mt-0.5">
-        {sub.id}
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className="text-base text-foreground/90 leading-relaxed mb-2.5">
+    <div className={`border-l-[3px] ${borderColor} transition-colors`}>
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        className="flex w-full items-start gap-4 px-5 py-4 text-left"
+      >
+        {expanded ? (
+          <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+        <span className="shrink-0 text-[10px] font-mono font-bold text-primary bg-primary/8 dark:bg-primary/12 border border-primary/10 dark:border-primary/8 rounded px-1.5 py-0.5 mt-0.5">
+          {sub.id}
+        </span>
+        <p className="min-w-0 flex-1 text-base text-foreground/90 leading-relaxed">
           {sub.text}
         </p>
+      </button>
 
-        {/* Sub-question answer */}
-        <div className="mt-1">
-          <label className="text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-            Sub-Question Answer
-          </label>
-          <div className="flex items-center gap-1.5 mt-1">
-            <button
-              type="button"
-              onClick={() => onAnswerChange("No")}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all duration-150 hover:scale-[1.03] active:scale-[0.97] ${
-                subAnswer === "No"
-                  ? "bg-red-600 text-white border-transparent shadow-sm ring-2 ring-red-600/30 ring-offset-1 ring-offset-background"
-                  : "border-red-500/30 dark:border-red-500/25 text-red-700 dark:text-red-400 bg-transparent hover:bg-red-500/15 dark:hover:bg-red-500/20"
-              }`}
-            >
-              <XCircle className="h-3 w-3" />
-              No
-            </button>
-            <button
-              type="button"
-              onClick={() => onAnswerChange("Yes")}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all duration-150 hover:scale-[1.03] active:scale-[0.97] ${
-                subAnswer === "Yes"
-                  ? "bg-emerald-600 text-white border-transparent shadow-sm ring-2 ring-emerald-600/30 ring-offset-1 ring-offset-background"
-                  : "border-emerald-500/30 dark:border-emerald-500/25 text-emerald-700 dark:text-emerald-400 bg-transparent hover:bg-emerald-500/15 dark:hover:bg-emerald-500/20"
-              }`}
-            >
-              <CheckCircle2 className="h-3 w-3" />
-              Yes
-            </button>
-          </div>
-        </div>
-
-        {/* Reasoning (editable) */}
-        <div className="mt-2">
-          <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
-            Reasoning
-          </label>
-          <div className="flex items-start gap-1 mt-1">
-            <AutoResizeTextarea
-              value={sub.reasoning}
-              onChange={(e) => onReasoningChange(e.target.value)}
-              placeholder="Explain the reasoning..."
-              rows={2}
-              className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed shadow-2xs"
+      {expanded && (
+        <div className="px-10 pb-4 pr-5">
+          <div className="mt-1">
+            <label className="text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
+            </label>
+            <SubQuestionApplicabilitySelector
+              value={subAnswer}
+              onChange={onAnswerChange}
             />
-            <CopyButton text={sub.reasoning} />
           </div>
-        </div>
 
-        {/* Citations (editable) */}
-        <div className="mt-2">
-          <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
-            Citations
-          </label>
-          <div className="flex items-start gap-1 mt-1">
-            <AutoResizeTextarea
-              value={sub.citations}
-              onChange={(e) => onCitationsChange(e.target.value)}
-              placeholder="Reference specific evidence..."
-              rows={1}
-              className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[44px] leading-relaxed shadow-2xs"
-            />
-            <CopyButton text={sub.citations} />
+          <div className="mt-3">
+            <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
+              Reasoning
+            </label>
+            <div className="flex items-start gap-1 mt-1">
+              <AutoResizeTextarea
+                value={sub.reasoning}
+                onChange={(e) => onReasoningChange(e.target.value)}
+                placeholder="Explain the reasoning..."
+                rows={2}
+                className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed shadow-2xs"
+              />
+              <CopyButton text={sub.reasoning} />
+            </div>
           </div>
-        </div>
 
-        {/* Final comments (editable) */}
-        <div className="mt-2">
-          <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
-            Final Comments
-          </label>
-          <div className="flex items-start gap-1 mt-1">
-            <AutoResizeTextarea
-              value={sub.comments || ""}
-              onChange={(e) => onCommentsChange(e.target.value)}
-              placeholder="Optional final comments for this sub-question..."
-              rows={2}
-              className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed shadow-2xs"
-            />
-            <CopyButton text={sub.comments || ""} />
+          <div className="mt-2">
+            <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
+              Citations
+            </label>
+            <div className="flex items-start gap-1 mt-1">
+              <AutoResizeTextarea
+                value={sub.citations}
+                onChange={(e) => onCitationsChange(e.target.value)}
+                placeholder="Reference specific evidence..."
+                rows={1}
+                className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[44px] leading-relaxed shadow-2xs"
+              />
+              <CopyButton text={sub.citations} />
+            </div>
+          </div>
+
+          <div className="mt-2">
+            <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
+              Comments
+            </label>
+            <div className="flex items-start gap-1 mt-1">
+              <AutoResizeTextarea
+                value={sub.comments || ""}
+                onChange={(e) => onCommentsChange(e.target.value)}
+                placeholder="Optional final comments for this sub-question..."
+                rows={2}
+                className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed shadow-2xs"
+              />
+              <CopyButton text={sub.comments || ""} />
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -374,27 +428,30 @@ function QuestionRow({
   question: TFRQuestion;
   onAnswerChange: (answer: AnswerValue) => void;
   onMissingInfoChange: (info: string) => void;
-  onSubAnswerChange: (subId: string, answer: "Yes" | "No") => void;
+  onSubAnswerChange: (subId: string, answer: SubAnswerValue) => void;
   onSubReasoningChange: (subId: string, reasoning: string) => void;
   onSubCitationsChange: (subId: string, citations: string) => void;
   onSubCommentsChange: (subId: string, comments: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [expandedSubQuestionIds, setExpandedSubQuestionIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   const hasSubs =
     !!question.sub_questions && question.sub_questions.length > 0;
   const isNo = question.answer === "No";
   const isInsufficient = question.answer === "Insufficient information";
-  const allSubsYes = useMemo(() => {
+  const allSubsNotApplicable = useMemo(() => {
     if (!hasSubs) return true;
     return question.sub_questions!.every(
-      (sub) => (sub.answer || "No") === "Yes"
+      (sub) => !normalizeSubAnswer(sub.answer)
     );
   }, [hasSubs, question.sub_questions]);
-  const noDriverCount = useMemo(() => {
+  const applicableDriverCount = useMemo(() => {
     if (!hasSubs) return 0;
     return question.sub_questions!.filter(
-      (sub) => (sub.answer || "No") === "No"
+      (sub) => normalizeSubAnswer(sub.answer)
     ).length;
   }, [hasSubs, question.sub_questions]);
 
@@ -404,6 +461,21 @@ function QuestionRow({
     }
   }, [isNo, hasSubs]);
 
+  useEffect(() => {
+    if (!hasSubs) {
+      setExpandedSubQuestionIds(new Set());
+      return;
+    }
+
+    setExpandedSubQuestionIds((prev) => {
+      const validIds = new Set(question.sub_questions!.map((sub) => sub.id));
+      const next = new Set(
+        Array.from(prev).filter((subId) => validIds.has(subId))
+      );
+      return next.size === prev.size ? prev : next;
+    });
+  }, [hasSubs, question.sub_questions]);
+
   const subsToShow = useMemo(() => {
     if (!hasSubs || !expanded) return [];
     return question.sub_questions!;
@@ -412,6 +484,8 @@ function QuestionRow({
   const showSubSection = subsToShow.length > 0;
 
   const subCount = hasSubs ? question.sub_questions!.length : 0;
+  const allSubQuestionsExpanded =
+    subCount > 0 && expandedSubQuestionIds.size === subCount;
 
   const answerAccent =
     question.answer === "Yes"
@@ -456,25 +530,43 @@ function QuestionRow({
 
           {/* Sub-question toggle pill */}
           {hasSubs && (
-            <button
-              type="button"
-              onClick={() => setExpanded((prev) => !prev)}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-secondary/50 dark:bg-secondary/20 hover:bg-secondary/80 dark:hover:bg-secondary/35 border border-border/50 dark:border-border/20 transition-all shadow-2xs"
-            >
-              {expanded ? (
-                <ChevronDown className="h-3 w-3 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3 w-3 text-muted-foreground" />
-              )}
-              <span className="text-foreground/70 dark:text-foreground/60">
-                {subCount} sub-question{subCount !== 1 ? "s" : ""}
-              </span>
-              {noDriverCount > 0 && (
-                <span className="ml-0.5 inline-flex items-center rounded-full bg-red-500/15 dark:bg-red-500/25 border border-red-500/20 dark:border-red-500/15 px-1.5 py-px text-[10px] font-semibold text-red-700 dark:text-red-400">
-                  {noDriverCount} driver{noDriverCount !== 1 ? "s" : ""}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setExpanded((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold
+                  bg-secondary/60 dark:bg-secondary/25 hover:bg-secondary/90 dark:hover:bg-secondary/40
+                  border border-border dark:border-border/40 transition-all shadow-sm
+                  active:scale-[0.97]"
+              >
+                {expanded ? (
+                  <ChevronDown className="h-3.5 w-3.5 text-foreground/60" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 text-foreground/60" />
+                )}
+                <span className="text-foreground/80 dark:text-foreground/70">
+                  {subCount} sub-question{subCount !== 1 ? "s" : ""}
                 </span>
+              </button>
+              {expanded && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedSubQuestionIds(
+                      allSubQuestionsExpanded
+                        ? new Set()
+                        : new Set(question.sub_questions!.map((sub) => sub.id))
+                    )
+                  }
+                  className="inline-flex items-center rounded-md border border-border dark:border-border/40
+                    px-2.5 py-1.5 text-xs font-semibold text-foreground/70
+                    hover:bg-secondary/60 dark:hover:bg-secondary/25 transition-all shadow-sm
+                    active:scale-[0.97]"
+                >
+                  {allSubQuestionsExpanded ? "Hide all" : "Show all"}
+                </button>
               )}
-            </button>
+            </div>
           )}
         </div>
 
@@ -482,8 +574,8 @@ function QuestionRow({
           <AnswerPills
             value={question.answer}
             onChange={onAnswerChange}
-            disableYes={hasSubs && !allSubsYes}
-            yesDisabledTitle="Set all sub-questions to Yes before setting this question to Yes."
+            disableYes={hasSubs && !allSubsNotApplicable}
+            yesDisabledTitle="Mark all sub-questions as not applicable before setting this question to Yes."
           />
         </div>
       </div>
@@ -492,7 +584,8 @@ function QuestionRow({
       {isNo && hasSubs && (
         <div className="px-5 py-2 border-t border-red-500/25 dark:border-red-500/15 flex items-center gap-2 text-sm bg-red-500/10 dark:bg-red-500/12 text-red-700 dark:text-red-400">
           <AlertTriangle className="h-3.5 w-3.5" />
-          {noDriverCount} driver{noDriverCount !== 1 ? "s" : ""} identified
+          {applicableDriverCount} driver
+          {applicableDriverCount !== 1 ? "s" : ""} identified
         </div>
       )}
 
@@ -503,6 +596,18 @@ function QuestionRow({
             <SubQuestionRow
               key={sub.id}
               sub={sub}
+              expanded={expandedSubQuestionIds.has(sub.id)}
+              onToggleExpanded={() =>
+                setExpandedSubQuestionIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(sub.id)) {
+                    next.delete(sub.id);
+                  } else {
+                    next.add(sub.id);
+                  }
+                  return next;
+                })
+              }
               onAnswerChange={(a) => onSubAnswerChange(sub.id, a)}
               onReasoningChange={(r) => onSubReasoningChange(sub.id, r)}
               onCitationsChange={(c) => onSubCitationsChange(sub.id, c)}
@@ -544,8 +649,8 @@ export function AuditQuestionForm({
         ...question,
         sub_questions: question.sub_questions?.map((sub) => ({
           ...sub,
-          answer: sub.answer || "No",
-          comments: sub.comments || "",
+          answer: normalizeSubAnswer(sub.answer),
+          comments: sub.comments ?? "",
         })),
       })),
     [initialQuestions]
@@ -573,10 +678,10 @@ export function AuditQuestionForm({
             q.sub_questions &&
             q.sub_questions.length > 0
           ) {
-            const allSubsYes = q.sub_questions.every(
-              (s) => (s.answer || "No") === "Yes"
+            const allSubsNotApplicable = q.sub_questions.every(
+              (s) => !normalizeSubAnswer(s.answer)
             );
-            if (!allSubsYes) return q;
+            if (!allSubsNotApplicable) return q;
           }
           return { ...q, answer };
         })
@@ -597,7 +702,7 @@ export function AuditQuestionForm({
   // ── Sub-question handlers ────────────────────────────────────
 
   const handleSubAnswerChange = useCallback(
-    (qId: string, subId: string, answer: "Yes" | "No") => {
+    (qId: string, subId: string, answer: SubAnswerValue) => {
       setQuestions((prev) =>
         prev.map((q) =>
           q.id === qId
@@ -767,7 +872,7 @@ export function AuditQuestionForm({
   const driverCount = questions.reduce(
     (count, question) =>
       count +
-      (question.sub_questions?.filter((sub) => (sub.answer || "No") === "No")
+      (question.sub_questions?.filter((sub) => normalizeSubAnswer(sub.answer))
         .length || 0),
     0
   );

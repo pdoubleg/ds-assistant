@@ -49,7 +49,7 @@ Tag each document in this batch using only the active tag vocabulary.
 """
 
 
-def _truncate(text: str, max_length: int = 30_000) -> str:
+def _truncate(text: str, max_length: int = 10_000) -> str:
     """Truncate text to a maximum length with an ellipsis marker."""
     if len(text) > max_length:
         return text[:max_length] + "\n\n[... content truncated for analysis ...]"
@@ -99,7 +99,7 @@ def format_batch_tagger_prompt(documents: list[dict[str, str]], active_tags: Seq
     """Format the batch-tagger prompt for a chunk of documents."""
     doc_parts: list[str] = []
     for document in documents:
-        content = _truncate(document.get("content", ""), max_length=8_000)
+        content = _truncate(document.get("content", ""))
         doc_parts.append(
             f"### {document['file_name']} (type: {document.get('document_type', 'N/A')})\n{content}"
         )

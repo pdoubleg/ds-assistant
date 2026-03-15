@@ -38,7 +38,7 @@ import React, {
   useEffect,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAuditAgent } from "@/hooks/use-audit-agent";
+import { useAuditAgent, useClaimSessionState } from "@/hooks/use-audit-agent";
 import { useUploadedDocs } from "@/hooks/use-uploaded-docs";
 import { useChatDocs } from "@/hooks/use-chat-docs";
 import {
@@ -181,6 +181,8 @@ function matchesTagFilters(
 
 export function DocumentsPane() {
   const { state } = useAuditAgent();
+  const { claimSession, isHydrated: isClaimSessionHydrated } =
+    useClaimSessionState();
   const { uploadedDocs, addUploadedDoc } = useUploadedDocs();
   const { chatDocNames, toggleChatDoc } = useChatDocs();
 
@@ -240,11 +242,13 @@ export function DocumentsPane() {
   const showHiddenTagsColumn =
     cardVariant === "wide" && paneRatio >= 0.58;
 
-  // ── Fetch example docs from backend on mount ────────────────────────
+  // ── Fetch example docs only for hydrated local mode ────────────────
 
   const exampleDocsFetched = useRef(false);
 
   useEffect(() => {
+    if (!isClaimSessionHydrated) return;
+    if (claimSession.claimNumber) return;
     if (exampleDocsFetched.current) return;
     exampleDocsFetched.current = true;
 
@@ -274,7 +278,7 @@ export function DocumentsPane() {
         console.error("[ExampleDocs] Failed to load:", err);
       }
     })();
-  }, [addUploadedDoc]);
+  }, [addUploadedDoc, claimSession.claimNumber, isClaimSessionHydrated]);
 
   // ── Hidden state (docs explicitly hidden from doc-agent context) ────
 

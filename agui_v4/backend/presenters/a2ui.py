@@ -104,7 +104,6 @@ def generate_simple_chart(
     title: str,
     labels: list[str],
     values: list[float | int],
-    colors: list[str] | None = None,
 ) -> A2UIComponent:
     """Build a simple-chart component payload."""
     return A2UIComponent(
@@ -114,7 +113,6 @@ def generate_simple_chart(
             "title": title,
             "labels": labels,
             "values": values,
-            "colors": colors or [],
         },
         zone="output",
     )
@@ -209,7 +207,6 @@ def chart_spec_to_component(
     title: str,
     labels: list[str],
     values: list[float | int],
-    colors: list[str] | None = None,
 ) -> A2UIComponent:
     """Convert a chart specification into an A2UI component."""
     return generate_simple_chart(
@@ -217,5 +214,4 @@ def chart_spec_to_component(
         title=title,
         labels=labels,
         values=values,
-        colors=colors,
     )

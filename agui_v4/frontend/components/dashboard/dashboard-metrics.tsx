@@ -32,6 +32,22 @@ export interface DashboardMetricsProps {
   forms: SavedForm[];
 }
 
+function normalizeSubAnswer(answer: unknown): boolean {
+  if (typeof answer === "boolean") {
+    return answer;
+  }
+
+  if (answer === "Yes") {
+    return true;
+  }
+
+  if (answer === "No" || answer === "Insufficient information") {
+    return false;
+  }
+
+  return true;
+}
+
 export function DashboardMetrics({ forms }: DashboardMetricsProps) {
   const metrics: MetricTile[] = useMemo(() => {
     const total = forms.length;
@@ -70,7 +86,7 @@ export function DashboardMetrics({ forms }: DashboardMetricsProps) {
           return (
             qSum +
             (q.sub_questions ?? []).filter(
-              (sq) => (sq.answer || "No") === "No"
+              (sq) => normalizeSubAnswer(sq.answer)
             ).length
           );
         }, 0)

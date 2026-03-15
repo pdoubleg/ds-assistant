@@ -70,7 +70,7 @@ summary_metrics_agent = Agent(
 
 findings_agent = Agent(
     model=get_orchestrator_model(),
-    output_type=list[Finding],
+    output_type=Finding,
     instructions=FINDING_SYSTEM_PROMPT,
 )
 

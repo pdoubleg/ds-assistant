@@ -405,6 +405,7 @@ export function useClaimSessionState() {
     agentId: "audit_agent",
   });
   const initializationCompleteRef = useRef(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const state = (agent.state as AuditState) || initialState;
 
   const claimSession = useMemo(
@@ -415,6 +416,7 @@ export function useClaimSessionState() {
   useEffect(() => {
     if (typeof window === "undefined") {
       initializationCompleteRef.current = true;
+      setIsHydrated(true);
       return;
     }
 
@@ -441,6 +443,7 @@ export function useClaimSessionState() {
     }
 
     initializationCompleteRef.current = true;
+    setIsHydrated(true);
   }, [agent]);
 
   useEffect(() => {
@@ -471,6 +474,7 @@ export function useClaimSessionState() {
 
   return {
     claimSession,
+    isHydrated,
     setClaimSession,
   };
 }

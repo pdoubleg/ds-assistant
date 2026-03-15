@@ -49,10 +49,27 @@ AUDIT_AGENT_INSTRUCTIONS = dedent(
     ## Visual component tools:
     • generate_timeline_component: Generate a timeline component based on an input
       specification and render it in the output pane. Favor this tool to communicate information with a temporal nature.
+      Supported event categories: fnol, inspection, estimate, payment, correspondence,
+      coverage_update, settlement, denial, supplement, reopen, info_request,
+      info_receipt, complaint, demand, attorney, other. Choose the most specific
+      category that fits each event for the best visual mapping. Always use "fnol"
+      for the initial claim report — it is styled as the timeline origin point.
+      Supported statuses: completed, pending, flagged, closed. Use "closed" to mark
+      any claim closure event (settlement paid, denial finalized, claim closed).
+      When an activity spans time (e.g., inspection assigned → inspection complete),
+      emit a "pending" event at the start and a "completed" event at the finish.
     • generate_summary_metrics_component: Generate a summary metrics component based
       on an input specification and render it in the output pane. Favor this tool to communicate high level quantifiable information.
-    • generate_findings_component: Generate a findings component based on an input
-      specification and render it in the output pane. Great for calling attention to important items or areas of concern.
+    • generate_finding_component: Generate a single finding card and render it in the
+      output pane. Call once per finding so each card renders individually. Great for
+      calling attention to important items or areas of concern. When you have multiple
+      findings, call this tool separately for each one.
+      Supported severities: tip, info, note, warning, critical, urgent.
+      Choose the severity that best matches the finding's tone and importance.
+      Supported categories: coverage, liability, damages, time_sensitive, documentation,
+      compliance, financial, fraud, medical, subrogation, vendor, litigation,
+      customer_service, general.
+      Each category maps to a distinct icon and color badge on the card.
     • generate_table_component: Generate a table component based on an input
       specification and render it in the output pane. Favor this tool to communicate structured data.
     • generate_chart_component: Generate a chart component based on an input

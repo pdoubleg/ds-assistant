@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from models.audit import TFRAnalysisResult
 from prompts.audit_form import format_audit_form_prompt
 from services.agent_helpers import NullStatusReporter, StatusReporter
 from services.document_mapper import DocumentMapper
@@ -13,7 +14,7 @@ async def generate_audit_questions(
     additional_instructions: str = "",
     mapper: DocumentMapper | None = None,
     reporter: StatusReporter | None = None,
-) -> dict[str, Any]:
+) -> TFRAnalysisResult:
     """Generate a TFR analysis payload directly from document text.
 
     Args:
@@ -49,14 +50,13 @@ async def generate_audit_questions(
         active_step_message = "Transforming audit question result..."
         reporter.in_progress(active_step_message, progress=92)
         tfr = result.output
-        tfr_dict = tfr.model_dump()
         reporter.completed(active_step_message, progress=95)
         print(
             f"[ORCHESTRATOR] Generated {len(tfr.questions)} TFR questions, "
             f"peril={tfr.peril.peril}, outcome={tfr.overall_outcome}",
             flush=True,
         )
-        return tfr_dict
+        return tfr
     except Exception as exc:
         reporter.error(active_step_message, progress=90)
         print(f"[ORCHESTRATOR ERROR] TFR question generation failed: {exc}", flush=True)

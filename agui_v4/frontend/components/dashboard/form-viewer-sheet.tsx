@@ -31,6 +31,22 @@ import {
 } from "lucide-react";
 import type { SavedForm, TFRQuestion, SubQuestion } from "@/lib/dashboard-types";
 
+function normalizeSubAnswer(answer: unknown): boolean {
+  if (typeof answer === "boolean") {
+    return answer;
+  }
+
+  if (answer === "Yes") {
+    return true;
+  }
+
+  if (answer === "No" || answer === "Insufficient information") {
+    return false;
+  }
+
+  return true;
+}
+
 // ── Copy button ──────────────────────────────────────────────────
 
 function CopyBtn({ text }: { text: string }) {
@@ -87,6 +103,24 @@ function AnswerBadge({ answer }: { answer: string }) {
   );
 }
 
+function SubQuestionBadge({ answer }: { answer: unknown }) {
+  const isApplicable = normalizeSubAnswer(answer);
+
+  if (isApplicable) {
+    return (
+      <Badge className="bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30 text-xs">
+        Applicable
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-xs">
+      Not Applicable
+    </Badge>
+  );
+}
+
 // ── Sub-question viewer ──────────────────────────────────────────
 
 function SubQuestionViewer({ sub }: { sub: SubQuestion }) {
@@ -103,9 +137,9 @@ function SubQuestionViewer({ sub }: { sub: SubQuestion }) {
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">
-              Answer:
+              Applicability:
             </span>
-            <AnswerBadge answer={sub.answer || "No"} />
+            <SubQuestionBadge answer={sub.answer} />
           </div>
 
           {sub.reasoning && (
@@ -209,7 +243,7 @@ function QuestionViewer({ question }: { question: TFRQuestion }) {
       {isNo && hasSubs && (
         <div className="px-4 py-2 border-t flex items-center gap-2 text-sm bg-red-500/5 border-red-500/15 text-red-700 dark:text-red-400">
           <AlertTriangle className="h-3.5 w-3.5" />
-          {question.sub_questions!.filter((s) => (s.answer || "No") === "No")
+          {question.sub_questions!.filter((s) => normalizeSubAnswer(s.answer))
             .length}{" "}
           driver(s) identified
         </div>

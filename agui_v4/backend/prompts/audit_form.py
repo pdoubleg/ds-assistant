@@ -57,16 +57,9 @@ Each TFR question must have:
 6. Be thorough but concise in reasoning — reviewers will refine your analysis"""
 
 
-def _truncate(text: str, max_length: int = 30_000) -> str:
-    """Truncate text to a maximum length with an ellipsis marker."""
-    if len(text) > max_length:
-        return text[:max_length] + "\n\n[... content truncated for analysis ...]"
-    return text
-
-
 def format_audit_form_prompt(document_content: str, additional_instructions: str = "") -> str:
     """Format the audit-form generation prompt."""
     return AUDIT_FORM_PROMPT.format(
-        document_content=_truncate(document_content),
+        document_content=document_content,
         additional_instructions=additional_instructions,
     )

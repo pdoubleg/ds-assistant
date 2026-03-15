@@ -1,7 +1,5 @@
 """Document summary, search/sort, tagging, and example-doc routes."""
 
-import os
-
 from fastapi import APIRouter, Depends
 from starlette.responses import JSONResponse, StreamingResponse
 
@@ -130,23 +128,7 @@ async def example_docs_endpoint(
     upload_dir: str = Depends(get_upload_dir),
 ) -> JSONResponse:
     """List pre-loaded example documents from the uploads directory."""
-    documents: list[dict[str, object]] = []
-    try:
-        for file_name in sorted(os.listdir(upload_dir)):
-            extension = os.path.splitext(file_name)[1].lower()
-            if extension not in text_extraction_service.allowed_extensions:
-                continue
-
-            file_path = os.path.join(upload_dir, file_name)
-            if not os.path.isfile(file_path):
-                continue
-
-            with open(file_path, "rb") as file_obj:
-                file_bytes = file_obj.read()
-            documents.append(
-                text_extraction_service.build_example_document_payload(file_name, file_bytes)
-            )
-    except Exception as exc:
-        print(f"[EXAMPLE-DOCS] Error scanning uploads dir: {exc}", flush=True)
-
+    documents = text_extraction_service.build_example_documents_from_directory(
+        upload_dir
+    )
     return JSONResponse({"documents": documents})
