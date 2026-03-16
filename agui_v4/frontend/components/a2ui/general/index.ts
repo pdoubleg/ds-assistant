@@ -15,3 +15,6 @@ export type { SummaryCardProps } from "./summary-card";
 
 export { FindingCard } from "./finding-card";
 export type { FindingCardProps } from "./finding-card";
+
+export { CitationCard } from "./citation-card";
+export type { CitationCardProps } from "./citation-card";

@@ -63,6 +63,22 @@ class DocLensService:
         self.embedder = embedder
         self.text_extractor = TextExtractionService()
 
+    def close(self) -> None:
+        """Release closeable service resources."""
+        self.db.close()
+
+    def _build_asset_public_url(self, image_path: str | Path) -> str:
+        """Convert an asset filesystem path into a frontend URL.
+
+        Args:
+            image_path: Absolute filesystem path to an extracted asset image.
+
+        Returns:
+            Public URL served by the FastAPI static asset mount.
+        """
+        relative_path = Path(image_path).resolve().relative_to(self.settings.asset_root.resolve())
+        return f"/doc-lens-assets/{relative_path.as_posix()}"
+
     def _build_text_snippet(self, page_text: str | None, query_text: str) -> str | None:
         """Return a compact snippet centered around the first query match.
 
@@ -81,7 +97,9 @@ class DocLensService:
             return None
 
         normalized_query = " ".join(query_text.lower().split())
-        match_index = normalized_page_text.lower().find(normalized_query) if normalized_query else -1
+        match_index = (
+            normalized_page_text.lower().find(normalized_query) if normalized_query else -1
+        )
         if match_index < 0:
             return normalized_page_text[:280]
 
@@ -123,6 +141,7 @@ class DocLensService:
             asset_type=str(row["asset_type"]),
             extraction_method=str(row["extraction_method"]),
             image_path=str(row["image_path"]),
+            image_url=self._build_asset_public_url(str(row["image_path"])),
             bbox_norm=bbox_norm,
             page_text=str(page_text) if page_text is not None else None,
             text_snippet=self._build_text_snippet(

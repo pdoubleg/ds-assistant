@@ -1,11 +1,10 @@
 """File upload routes."""
 
-import os
-
 from fastapi import APIRouter, Depends, File, UploadFile
 from starlette.responses import JSONResponse
 
-from dependencies import get_text_extraction_service, get_upload_dir
+from dependencies import get_runtime_storage_service, get_text_extraction_service
+from services.runtime_storage import RuntimeStorageService
 from services.text_extraction import TextExtractionService
 
 router = APIRouter()
@@ -15,12 +14,12 @@ router = APIRouter()
 async def upload_endpoint(
     file: UploadFile = File(...),
     text_extraction_service: TextExtractionService = Depends(get_text_extraction_service),
-    upload_dir: str = Depends(get_upload_dir),
+    runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> JSONResponse:
     """Handle supported document uploads and extract text content."""
     try:
         filename = file.filename or "unknown"
-        extension = os.path.splitext(filename)[1].lower()
+        extension = filename.lower()[filename.rfind(".") :] if "." in filename else ""
 
         if extension not in text_extraction_service.allowed_extensions:
             allowed = ", ".join(sorted(text_extraction_service.allowed_extensions))
@@ -30,12 +29,14 @@ async def upload_endpoint(
             )
 
         file_bytes = await file.read()
-        file_path = os.path.join(upload_dir, filename)
-        with open(file_path, "wb") as file_obj:
-            file_obj.write(file_bytes)
+        staged_document = runtime_storage.stage_bytes(filename, file_bytes)
 
-        response_payload = text_extraction_service.build_upload_response(filename, file_bytes)
-        response_payload["path"] = file_path
+        response_payload = text_extraction_service.build_upload_response(
+            file_name=filename,
+            file_bytes=file_bytes,
+            content_id=staged_document.content_id,
+            content_url=staged_document.public_url,
+        )
 
         print(
             f"[UPLOAD] {filename}: {len(file_bytes)} bytes, "

@@ -93,6 +93,9 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
 
 function getImageUrl(imagePath: string): string {
+  if (imagePath.startsWith("/")) {
+    return `${BACKEND_URL}${imagePath}`;
+  }
   // Normalize Windows backslashes so the marker search works cross-platform.
   const normalized = imagePath.replace(/\\/g, "/");
   const marker = "assets/";
@@ -811,7 +814,7 @@ export function DocLensOverlay({
                                 <QueryHitCard
                                   hit={hit}
                                   query={ctx.lastQuery}
-                                  imageUrl={getImageUrl(hit.image_path)}
+                                  imageUrl={getImageUrl(hit.image_url || hit.image_path)}
                                   isFlagged={ctx.isFlagged(hit.asset_hash)}
                                   onToggleFlag={() =>
                                     ctx.toggleFlag(hit, ctx.lastQuery)

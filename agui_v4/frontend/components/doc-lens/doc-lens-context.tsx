@@ -140,7 +140,7 @@ export function DocLensProvider({ docs, children, openLensRef }: DocLensProvider
     () =>
       JSON.stringify(
         docs
-          .map((d) => ({ n: d.file_name, m: d.mime_type }))
+          .map((d) => ({ id: d.content_id, n: d.file_name, m: d.mime_type }))
           .sort((a, b) => a.n.localeCompare(b.n))
       ),
     [docs]
@@ -163,6 +163,7 @@ export function DocLensProvider({ docs, children, openLensRef }: DocLensProvider
       const files = docList.map((d) => ({
         file_name: d.file_name,
         mime_type: d.mime_type,
+        content_id: d.content_id,
       }));
       dl.startSession(files);
     },
@@ -184,6 +185,7 @@ export function DocLensProvider({ docs, children, openLensRef }: DocLensProvider
       const files = docs.map((d) => ({
         file_name: d.file_name,
         mime_type: d.mime_type,
+        content_id: d.content_id,
       }));
       dl.startSession(files);
       return;

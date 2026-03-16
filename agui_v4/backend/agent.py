@@ -7,7 +7,7 @@ tools that bridge AG-UI state, workflow modules, and A2UI presenters.
 import logging
 from typing import Literal
 
-from pydantic_ai import Agent, RunContext, ToolReturn
+from pydantic_ai import Agent, ModelRetry, RunContext, ToolReturn
 from pydantic_ai.models.openai import OpenAIChatModelSettings
 from pydantic_ai.ag_ui import StateDeps
 from ag_ui.core import EventType, StateSnapshotEvent
@@ -18,6 +18,7 @@ from model_config import get_agent_model
 from presenters.a2ui import (
     chart_spec_to_component,
     finding_to_component,
+    generate_citation_card,
     generate_text_box,
     summary_metrics_to_component,
     table_spec_to_component,
@@ -69,7 +70,7 @@ async def get_documents_listing(ctx: RunContext[StateDeps[AuditState]]) -> ToolR
     Returns:
         ToolReturn with a string containing the document listing and a state snapshot.
     """
-    
+
     state = ctx.deps.state
     state.current_step = "Retrieving documents..."
 
@@ -119,12 +120,77 @@ def get_documents_content(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
     else:
         combined_text = "No documents available."
     state.current_step = f"Retrieved {doc_count} document(s) content."
-    log_tool_call(
-        state, state.current_step, "completed", "get_documents_content"
-    )
+    log_tool_call(state, state.current_step, "completed", "get_documents_content")
 
     return ToolReturn(
         return_value=combined_text,
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
+    )
+
+
+@agent.tool
+async def generate_citation_component(
+    ctx: RunContext[StateDeps[AuditState]],
+    content_id: str,
+    page_number: int,
+    title: str,
+    description: str,
+) -> ToolReturn:
+    """Cite a specific document page by rendering a citation card in the output pane.
+
+    Use this tool after reading document content to anchor your analysis to a
+    concrete source location.  The card displays the document name, target page,
+    a short title, and a brief description, and gives the user a one-click
+    button to preview the document at that page.
+
+    Notes:
+        - ``content_id`` must match one of the currently selected documents.
+          Use the ``[DOC_META ...]`` tags in the document content to find the
+          correct ``content_id`` and ``page`` values.
+        - For page spans (e.g. pages 3-5), pass the **starting** page as
+          ``page_number`` and note the range in ``description``.
+
+    Args:
+        ctx: Pydantic AI run context carrying the shared ``AuditState``.
+        content_id: Stable document identifier from the ``[DOC_META]`` tag.
+        page_number: 1-based page number to cite (starting page for spans).
+        title: Short citation headline (e.g. "Coverage Exclusion Clause").
+        description: Brief flavour text describing what is found at this location.
+
+    Returns:
+        ToolReturn with a summary string for the LLM and a
+        StateSnapshotEvent to sync updated state with the frontend.
+    """
+    state = ctx.deps.state
+    state.current_step = f"Generating citation: {title}"
+    log_tool_call(state, state.current_step, "in_progress", "generate_citation_component")
+
+    # Resolve file_name and content_url from the typed Documents collection
+    file_name = content_id
+    content_url = ""
+    try:
+        doc = state.get_documents().get_doc_by_content_id(content_id)
+        if doc is not None:
+            file_name = doc.file_name
+            content_url = doc.content_url or ""
+    except ValueError as e:
+        logger.warning(f"Citation: content_id {content_id} not found in state documents")
+        raise ModelRetry(f"Error: {e}") from e
+
+    component = generate_citation_card(
+        content_id=content_id,
+        page_number=page_number,
+        title=title,
+        description=description,
+        file_name=file_name,
+        content_url=content_url,
+    )
+    state.components.append(component.model_dump())
+    state.current_step = f"Citation card generated: {title}"
+    log_tool_call(state, state.current_step, "completed", "generate_citation_component")
+
+    return ToolReturn(
+        return_value=f"Citation card generated: '{title}' — {file_name} p.{page_number}",
         metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
     )
 
@@ -254,18 +320,14 @@ async def generate_summary_metrics_component(
     """
     state = ctx.deps.state
     state.current_step = f"Generating summary metrics component: {input_spec[:100]}..."
-    log_tool_call(
-        state, state.current_step, "in_progress", "generate_summary_metrics_component"
-    )
+    log_tool_call(state, state.current_step, "in_progress", "generate_summary_metrics_component")
     summary_metrics_result = await summary_metrics_agent.run(input_spec)
     summary_metrics = summary_metrics_result.output
     component = summary_metrics_to_component(
         [metric.model_dump() for metric in summary_metrics.metrics]
     )
     state.components.append(component.model_dump())
-    log_tool_call(
-        state, state.current_step, "completed", "generate_summary_metrics_component"
-    )
+    log_tool_call(state, state.current_step, "completed", "generate_summary_metrics_component")
     metric_count = len(summary_metrics.metrics)
     if metric_count == 0:
         return_message = "Summary metrics component generated with 0 metric(s)."
@@ -326,7 +388,7 @@ async def generate_table_component(
     ctx: RunContext[StateDeps[AuditState]],
     input_spec: str,
 ) -> ToolReturn:
-    """Spawn a sub-agent to generate a table component based on an input specification and render it in the output pane. 
+    """Spawn a sub-agent to generate a table component based on an input specification and render it in the output pane.
     Useful for displaying structured data in a tabular format.
 
     Notes:

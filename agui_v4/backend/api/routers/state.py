@@ -8,12 +8,14 @@ from api.schemas.forms import AuditFormRequestBody
 from dependencies import (
     get_audit_state_service,
     get_form_store,
+    get_runtime_storage_service,
     get_text_extraction_service,
-    get_upload_dir,
 )
 from services.audit_state_service import AuditStateService
 from services.form_store import FormStore
+from services.runtime_storage import RuntimeStorageService
 from services.text_extraction import TextExtractionService
+from services.doc_lens_factory import reset_doc_lens_service
 
 router = APIRouter()
 
@@ -38,19 +40,36 @@ async def get_runtime_state(
 async def initialize_claim_session(
     body: ClaimSessionInitRequestBody,
     audit_state_service: AuditStateService = Depends(get_audit_state_service),
-    text_extraction_service: TextExtractionService = Depends(
-        get_text_extraction_service
-    ),
-    upload_dir: str = Depends(get_upload_dir),
+    text_extraction_service: TextExtractionService = Depends(get_text_extraction_service),
+    runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> JSONResponse:
     """Initialize the shared claim session and replace the active documents list."""
     claim_number = body.normalized_claim_number()
     effective_date = body.normalized_effective_date()
-    documents = (
-        []
-        if claim_number
-        else text_extraction_service.build_example_documents_from_directory(upload_dir)
-    )
+
+    # Start every new claim/local session from a clean temp workspace so
+    # session-scoped files never leak across claims.
+    runtime_storage.clear_tmp_root()
+    reset_doc_lens_service()
+
+    if claim_number:
+        # Claim-document fetch remains a WIP integration. For now we only clear
+        # the previous session's temp state and start with an empty document set.
+        documents: list[dict[str, object]] = []
+    else:
+        staged_documents = runtime_storage.stage_static_examples(
+            text_extraction_service.allowed_extensions
+        )
+        documents = [
+            text_extraction_service.build_document_payload(
+                file_name=staged_document.file_name,
+                file_bytes=staged_document.file_path.read_bytes(),
+                content_id=staged_document.content_id,
+                content_url=staged_document.public_url,
+            )
+            for staged_document in staged_documents
+        ]
+
     return JSONResponse(
         audit_state_service.initialize_claim_session(
             claim_number=claim_number,

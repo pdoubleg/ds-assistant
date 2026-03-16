@@ -262,9 +262,9 @@ export function DocumentsPane() {
           addUploadedDoc({
             file_name: d.file_name as string,
             claim_number: "",
-            content_id: crypto.randomUUID(),
+            content_id: (d.content_id as string) || crypto.randomUUID(),
             mime_type: (d.mime_type as string) || "application/octet-stream",
-            content_url: (d.path as string) || "",
+            content_url: (d.content_url as string) || (d.path as string) || "",
             domain: "claim",
             document_type: "Example",
             document_description: `${d.file_size || ""}, ${d.page_count ?? 0} pages`,

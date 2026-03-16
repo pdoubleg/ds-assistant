@@ -127,6 +127,15 @@ class DuckDBStore:
         self._init_extensions()
         self._init_schema()
 
+    def close(self) -> None:
+        """Close the underlying DuckDB connection."""
+        with self._lock:
+            try:
+                self.conn.close()
+            except Exception:
+                # Best effort only; shutdown cleanup should not crash the app.
+                pass
+
     def _init_extensions(self) -> None:
         """Load extensions required by Doc Lens.
 

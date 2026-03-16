@@ -47,6 +47,16 @@ import type { DocumentSummaryData } from "@/components/a2ui/documents";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
 
+function resolveDocumentUrl(contentUrl: string): string {
+  if (!contentUrl) {
+    return "";
+  }
+  if (contentUrl.startsWith("http://") || contentUrl.startsWith("https://")) {
+    return contentUrl;
+  }
+  return `${BACKEND_URL}${contentUrl}`;
+}
+
 function deriveFileExt(mime_type: string, file_name: string): string {
   const mimeMap: Record<string, string> = {
     "application/pdf": "pdf",
@@ -213,9 +223,7 @@ export function DocumentViewerSheet({
     : null;
 
   // Build the raw PDF URL for the iframe, optionally targeting a page.
-  const pdfUrl = isPdf
-    ? `${BACKEND_URL}/uploads/${encodeURIComponent(doc.file_name)}`
-    : null;
+  const pdfUrl = isPdf ? resolveDocumentUrl(doc.content_url) : null;
   const pageFragment =
     initialPage && initialPage > 1 ? `page=${initialPage}` : "";
   const fullscreenFragment = isFullscreen ? "zoom=100" : "";

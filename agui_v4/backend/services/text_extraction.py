@@ -202,6 +202,48 @@ class TextExtractionService:
 
         return len(TextExtractionService._tiktoken_encoding.encode(text))
 
+    def tag_segments(
+        self,
+        segments: list[str],
+        file_name: str,
+        content_id: str,
+    ) -> list[str]:
+        """Prepend a structured metadata tag to each text segment.
+
+        Inserts a ``[DOC_META ...]`` line at the top of every non-empty
+        segment so downstream LLMs can identify the source document and
+        page/sheet number without relying on positional heuristics.
+
+        Args:
+            segments: Ordered text segments (one per page or sheet).
+            file_name: Human-readable document file name.
+            content_id: Stable backend identifier for the document.
+
+        Returns:
+            New list of segments with metadata tags prepended.
+
+        Example usage::
+
+            svc = TextExtractionService()
+            tagged = svc.tag_segments(
+                ["Page one text", "Page two text"],
+                file_name="policy.pdf",
+                content_id="abc123",
+            )
+            # tagged[0] starts with '[DOC_META content_id="abc123" page=1 ...]'
+        """
+        tagged: list[str] = []
+        for idx, segment in enumerate(segments, start=1):
+            if not segment:
+                tagged.append(segment)
+                continue
+            tag = (
+                f'[DOC_META content_id="{content_id}" '
+                f'page={idx} doc_name="{file_name}"]'
+            )
+            tagged.append(f"{tag}\n{segment}")
+        return tagged
+
     def format_file_size(self, size_bytes: int) -> str:
         """Return a human-readable file size string.
 
@@ -215,35 +257,47 @@ class TextExtractionService:
             return f"{size_bytes / 1024 / 1024:.1f} MB"
         return f"{size_bytes / 1024:.1f} KB"
 
-    def build_example_document_payload(
-        self, file_name: str, file_bytes: bytes
+    def build_document_payload(
+        self,
+        file_name: str,
+        file_bytes: bytes,
+        content_id: str | None = None,
+        content_url: str | None = None,
     ) -> dict[str, object]:
-        """Build the example-doc payload for one uploaded file.
+        """Build a frontend-facing document payload for one file.
+
+        Each page/sheet segment is prefixed with a ``[DOC_META ...]`` tag so
+        downstream LLMs can identify the source document and page number.
 
         Args:
             file_name: File name on disk.
             file_bytes: File content bytes.
+            content_id: Optional stable backend document identifier.
+            content_url: Optional public URL for preview/download access.
 
         Returns:
             JSON-serializable payload matching the existing frontend contract.
         """
         extension = os.path.splitext(file_name)[1].lower()
-        text, pages = self.extract(extension, file_bytes)
+        safe_id = content_id or ""
+        segments, page_count = self.extract_segments(extension, file_bytes)
+        tagged = self.tag_segments(segments, file_name, safe_id)
+        text = "\n\n".join(s for s in tagged if s)
         size = len(file_bytes)
         return {
             "file_name": file_name,
             "mime_type": self.ext_to_mime.get(extension, "application/octet-stream"),
             "content": text,
-            "page_count": pages,
+            "page_count": page_count,
             "file_size": self.format_file_size(size),
             "file_size_bytes": size,
             "token_count": self.count_tokens(text),
-            "path": f"/uploads/{file_name}",
+            "content_id": safe_id,
+            "content_url": content_url or "",
+            "path": content_url or "",
         }
 
-    def build_example_documents_from_directory(
-        self, upload_dir: str
-    ) -> list[dict[str, object]]:
+    def build_example_documents_from_directory(self, upload_dir: str) -> list[dict[str, object]]:
         """Build example-document payloads for all supported files in a directory.
 
         Args:
@@ -266,26 +320,38 @@ class TextExtractionService:
                 with open(file_path, "rb") as file_obj:
                     file_bytes = file_obj.read()
 
-                documents.append(
-                    self.build_example_document_payload(file_name, file_bytes)
-                )
+                documents.append(self.build_document_payload(file_name, file_bytes))
         except Exception as exc:
             print(f"[EXAMPLE-DOCS] Error scanning uploads dir: {exc}", flush=True)
 
         return documents
 
-    def build_upload_response(self, file_name: str, file_bytes: bytes) -> dict[str, object]:
+    def build_upload_response(
+        self,
+        file_name: str,
+        file_bytes: bytes,
+        content_id: str | None = None,
+        content_url: str | None = None,
+    ) -> dict[str, object]:
         """Build the upload response payload after extraction.
+
+        Each page/sheet segment is prefixed with a ``[DOC_META ...]`` tag so
+        downstream LLMs can identify the source document and page number.
 
         Args:
             file_name: Uploaded file name.
             file_bytes: Raw uploaded bytes.
+            content_id: Optional stable backend document identifier.
+            content_url: Optional public URL for preview/download access.
 
         Returns:
-            JSON-serializable payload for `POST /upload`.
+            JSON-serializable payload for ``POST /upload``.
         """
         extension = os.path.splitext(file_name)[1].lower()
-        extracted_text, page_count = self.extract(extension, file_bytes)
+        safe_id = content_id or ""
+        segments, page_count = self.extract_segments(extension, file_bytes)
+        tagged = self.tag_segments(segments, file_name, safe_id)
+        extracted_text = "\n\n".join(s for s in tagged if s)
         file_size = len(file_bytes)
         return {
             "filename": file_name,
@@ -295,4 +361,7 @@ class TextExtractionService:
             "page_count": page_count,
             "content": extracted_text,
             "token_count": self.count_tokens(extracted_text),
+            "content_id": safe_id,
+            "content_url": content_url or "",
+            "path": content_url or "",
         }

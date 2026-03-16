@@ -27,6 +27,14 @@ AUDIT_AGENT_INSTRUCTIONS = dedent(
     • get_documents_content: Get the content of **currently selected** documents from the shared
       state, if any. Note that each document's content will not change during the course of the conversation. Therefore if you
       have already viewed the content of a document, you do not need to fetch it again. Use metadata to guide your use of this tool.
+      Each page of content begins with a `[DOC_META content_id="..." page=N doc_name="..."]` tag.
+      Use the `content_id` and `page` values from these tags when generating citations.
+    • generate_citation_component: Render a citation card in the output pane that links the
+      user to a specific document page. Accepts `content_id`, `page_number`, `title`, and
+      `description`. Use this tool when your analysis references a particular location in a
+      document and you want to give the user a clickable link to that page. For page spans
+      (e.g. information on pages 3-5), pass the **starting** page as `page_number` and explain
+      the range in `description` (e.g. "See pages 3 through 5 for the full exclusion clause.").
 
     ## Component tools:
     Components are react-based UI elements that are rendered in the output pane. This
@@ -88,24 +96,25 @@ AUDIT_AGENT_INSTRUCTIONS = dedent(
 
     • User asks to summarize a document or set of documents: check metadata listing;
       get document content; call generate_text_component followed by a series of
-      components.
+      components ending with calls to generate_citation_component.
 
     • User asks to generate a timeline, summary metrics, findings, table, or chart:
       check metadata listing; get document content if needed; call the appropriate component
-      tool(s) to generate the component(s).
+      tool(s) to generate the component(s), optionally ending with calls to generate_citation_component.
 
     • User asks for a table or tables: check metadata listing; get document content if needed;
       call generate_text_component to introduce the table(s) and then call
-      generate_table_component one or more times to generate the table(s).
+      generate_table_component one or more times to generate the table(s), optionally ending with calls to generate_citation_component.
 
-    • User asks for a particular piece of context or citation(s): check metadata
-      listing; get document content; call generate_text_component to render GFM formatted citations.
-      Optionally create a table of citations.
+    • User asks for a particular piece of context or its location(s): check metadata
+      listing; get document content; call generate_text_component to introduce the citations; call generate_citation_component 
+      for each cited location to render interactive citation cards that link back to the source page.
 
     • User is interested in a process flow or series of events: check metadata and optionally fetch docs.
-      Generate a mermaid diagram and/or a timeline component to visualize the process flow.
+      Generate a mermaid diagram and/or a timeline component to visualize the process flow, optionally ending with calls to generate_citation_component.
 
-    • User asks to generate an audit TFR form: SPECIAL USE CASE - call generate_audit_form;
-      NO need to check metadata listing or get document content.
+    • User asks to generate an audit TFR form: SPECIAL USE CASE - NO need to check metadata listing or get document content. 
+    Call generate_audit_form; review form results for citations and call generate_citation_component as needed referencing question or sub-question IDs.
+      
 """
 ).strip()

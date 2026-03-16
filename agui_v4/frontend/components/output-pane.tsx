@@ -328,6 +328,28 @@ export function OutputPane() {
   const [showSavedImages, setShowSavedImages] = useState(false);
   const flaggedHits = useFlaggedHits();
 
+  // Citation card → document preview state
+  const [citationPreviewDoc, setCitationPreviewDoc] = useState<
+    (Record<string, unknown> & { _initialPage?: number }) | null
+  >(null);
+
+  const handleCitationPreview = useCallback(
+    (contentId: string, page: number) => {
+      const doc = (state.documents || []).find(
+        (d) => d.content_id === contentId
+      );
+      if (doc) {
+        setCitationPreviewDoc({ ...doc, _initialPage: page });
+      } else {
+        setCitationPreviewDoc({
+          file_name: contentId,
+          _initialPage: page,
+        });
+      }
+    },
+    [state.documents]
+  );
+
   const handleFormSubmit = useCallback(
     async (formPayload: AuditFormPayload, title?: string) => {
       await saveForm(formPayload, title);
@@ -598,7 +620,9 @@ export function OutputPane() {
                           isSaving,
                           currentFormId: state.current_form_id,
                         }
-                      : undefined
+                      : component.type === "a2ui.CitationCard"
+                        ? { onPreviewDoc: handleCitationPreview }
+                        : undefined
                   }
                 />
               </motion.div>
@@ -606,6 +630,17 @@ export function OutputPane() {
           </div>
         </div>
       </ScrollArea>
+
+      {citationPreviewDoc && (
+        <DocumentViewerSheet
+          doc={citationPreviewDoc as any}
+          open={!!citationPreviewDoc}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) setCitationPreviewDoc(null);
+          }}
+          initialPage={citationPreviewDoc._initialPage}
+        />
+      )}
     </div>
   );
 }

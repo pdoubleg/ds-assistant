@@ -40,6 +40,19 @@ import {
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
 const CLAIM_SESSION_TOAST_STORAGE_KEY = "audit-agent-claim-session-toast";
+const SESSION_SCOPED_STORAGE_KEYS = [
+  "agui_v3.hiddenDocNames.v1",
+  "agui_v3.hiddenDocTimestamps.v1",
+  "agui_v3.docSummaries.v2",
+  "agui_v3.docSearch.v1",
+  "agui_v4.docSearchHidden.v1",
+  "agui_v4.docSearchHiddenTimestamps.v1",
+  "agui_v3.docTags.v2",
+  "agui_v3.docCardUiState.v2",
+  "agui_v4.hiddenDockUi.v1",
+  "agui_v3.chatDocNames.v1",
+  "agui_v3.flaggedHits.v1",
+] as const;
 
 const headerFont = Sora({
   subsets: ["latin"],
@@ -203,6 +216,12 @@ export function AppHeader() {
     }, 3600);
   }, []);
 
+  const clearSessionScopedBrowserState = React.useCallback(() => {
+    for (const storageKey of SESSION_SCOPED_STORAGE_KEYS) {
+      window.localStorage.removeItem(storageKey);
+    }
+  }, []);
+
   React.useEffect(() => {
     setMounted(true);
     try {
@@ -256,6 +275,7 @@ export function AppHeader() {
         }
 
         const payload = (await response.json()) as ClaimSessionInitResponse;
+        clearSessionScopedBrowserState();
         setDocuments(payload.documents || []);
         setClaimSession(data);
 
@@ -283,7 +303,7 @@ export function AppHeader() {
         throw error;
       }
     },
-    [setClaimSession, setDocuments, showToast]
+    [clearSessionScopedBrowserState, setClaimSession, setDocuments, showToast]
   );
 
   return (

@@ -9,9 +9,14 @@ from api.schemas.documents import (
     SummarizeRequest,
     TagRequest,
 )
-from dependencies import get_document_mapper, get_text_extraction_service, get_upload_dir
+from dependencies import (
+    get_document_mapper,
+    get_runtime_storage_service,
+    get_text_extraction_service,
+)
 from services.document_mapper import DocumentMapper
 from services.ndjson import NDJSON_HEADERS, encode_ndjson_line
+from services.runtime_storage import RuntimeStorageService
 from services.text_extraction import TextExtractionService
 from workflows.search_sort import run_search_sort
 from workflows.summary import summarize_document
@@ -125,10 +130,19 @@ async def document_tags_endpoint(
 @router.get("/example-docs")
 async def example_docs_endpoint(
     text_extraction_service: TextExtractionService = Depends(get_text_extraction_service),
-    upload_dir: str = Depends(get_upload_dir),
+    runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> JSONResponse:
-    """List pre-loaded example documents from the uploads directory."""
-    documents = text_extraction_service.build_example_documents_from_directory(
-        upload_dir
+    """List static example documents staged into the runtime temp directory."""
+    staged_documents = runtime_storage.stage_static_examples(
+        text_extraction_service.allowed_extensions
     )
+    documents = [
+        text_extraction_service.build_document_payload(
+            file_name=staged_document.file_name,
+            file_bytes=staged_document.file_path.read_bytes(),
+            content_id=staged_document.content_id,
+            content_url=staged_document.public_url,
+        )
+        for staged_document in staged_documents
+    ]
     return JSONResponse({"documents": documents})

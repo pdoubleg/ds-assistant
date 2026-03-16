@@ -163,6 +163,41 @@ def generate_finding_card(
     )
 
 
+def generate_citation_card(
+    content_id: str,
+    page_number: int,
+    title: str,
+    description: str,
+    file_name: str,
+    content_url: str = "",
+) -> A2UIComponent:
+    """Build a citation card component payload.
+
+    Args:
+        content_id: Stable backend document identifier.
+        page_number: Target page (1-based) within the document.
+        title: Short citation headline chosen by the agent.
+        description: Brief flavour-text description of what is cited.
+        file_name: Human-readable document file name.
+        content_url: Optional URL for preview/download access.
+
+    Returns:
+        An ``A2UIComponent`` of type ``a2ui.CitationCard`` in the output zone.
+    """
+    return A2UIComponent(
+        type="a2ui.CitationCard",
+        props={
+            "content_id": content_id,
+            "page_number": page_number,
+            "title": title,
+            "description": description,
+            "file_name": file_name,
+            "content_url": content_url,
+        },
+        zone="output",
+    )
+
+
 def tfr_analysis_to_component(payload: dict[str, Any]) -> A2UIComponent:
     """Convert canonical TFR payload data into an A2UI component."""
     return generate_audit_question_form(

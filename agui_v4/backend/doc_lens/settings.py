@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -20,19 +21,20 @@ class Settings(BaseModel):
     # ------------------------------------------------------------------
     # Storage paths
     # ------------------------------------------------------------------
-    cache_root: Path = Field(
-        default=Path(os.getenv("DOC_LENS_CACHE_ROOT", ".cache/doc_lens_cache"))
-    )
+    cache_root: Path = Field(default=Path(os.getenv("DOC_LENS_CACHE_ROOT", "tmp/doc_lens_cache")))
     duckdb_path: Path = Field(
-        default=Path(os.getenv("DOC_LENS_DUCKDB_PATH", ".cache/doc_lens_cache/doc_lens.duckdb"))
+        default=Path(os.getenv("DOC_LENS_DUCKDB_PATH", "tmp/doc_lens_cache/doc_lens.duckdb"))
     )
     asset_dir_name: str = Field(default="assets")
     upload_dir_name: str = Field(default="uploads")
 
-    # Subdirectory under cache_root where FastEmbed downloads ONNX model files.
-    # Keeps model weights separate from document assets.
-    fastembed_cache_dir_name: str = Field(
-        default=os.getenv("DOC_LENS_FASTEMBED_CACHE_DIR_NAME", "fastembed_models")
+    # FastEmbed uses a read-only seed path baked into the image plus a writable
+    # runtime cache. The runtime copy is what the embedder actually reads from.
+    fastembed_seed_dir: Path = Field(
+        default=Path(os.getenv("DOC_LENS_FASTEMBED_SEED_DIR", "model_artifacts/fastembed_models"))
+    )
+    fastembed_runtime_dir: Path = Field(
+        default=Path(os.getenv("DOC_LENS_FASTEMBED_RUNTIME_DIR", "tmp/fastembed_models"))
     )
 
     # ------------------------------------------------------------------
@@ -85,8 +87,31 @@ class Settings(BaseModel):
 
     @property
     def fastembed_cache_dir(self) -> Path:
-        """Directory where FastEmbed stores downloaded ONNX model files."""
-        return self.cache_root / self.fastembed_cache_dir_name
+        """Writable directory where FastEmbed reads model files at runtime."""
+        return self.fastembed_runtime_dir
+
+    def hydrate_fastembed_runtime(self) -> None:
+        """Populate the writable FastEmbed runtime dir from a seeded image path.
+
+        This supports deployment targets like Lambda where model artifacts are
+        baked into the container image at a read-only location, then copied into
+        a writable runtime directory before first use.
+
+        Example:
+            >>> settings = Settings()
+            >>> settings.ensure_dirs()
+            >>> settings.hydrate_fastembed_runtime()
+        """
+        self.fastembed_runtime_dir.mkdir(parents=True, exist_ok=True)
+        if any(self.fastembed_runtime_dir.iterdir()):
+            return
+        if not self.fastembed_seed_dir.exists():
+            return
+        shutil.copytree(
+            self.fastembed_seed_dir,
+            self.fastembed_runtime_dir,
+            dirs_exist_ok=True,
+        )
 
     @property
     def model_key(self) -> str:
@@ -116,7 +141,8 @@ class Settings(BaseModel):
         self.cache_root.mkdir(parents=True, exist_ok=True)
         self.asset_root.mkdir(parents=True, exist_ok=True)
         self.upload_root.mkdir(parents=True, exist_ok=True)
-        self.fastembed_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.fastembed_seed_dir.mkdir(parents=True, exist_ok=True)
+        self.fastembed_runtime_dir.mkdir(parents=True, exist_ok=True)
         self.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
 
 

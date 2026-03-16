@@ -17,8 +17,10 @@ from api.routers.uploads import router as uploads_router
 from dependencies import (
     get_backend_port,
     get_doc_lens_asset_mount_dir,
-    get_upload_dir,
+    get_runtime_documents_mount_dir,
+    get_runtime_storage_service,
 )
+from services.doc_lens_factory import close_doc_lens_service
 
 load_dotenv()
 
@@ -27,6 +29,9 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle handler."""
     backend_port = get_backend_port()
+    runtime_storage = get_runtime_storage_service()
+    runtime_storage.ensure_dirs()
+
     print(f"[*] Audit Assistant Agent (AG-UI) starting on port {backend_port}")
     print(f"[*] AG-UI endpoint: POST http://localhost:{backend_port}/")
     print(f"[*] Upload endpoint: POST http://localhost:{backend_port}/upload")
@@ -48,7 +53,11 @@ async def lifespan(app: FastAPI):
     else:
         print("[+] OpenAI API key configured")
 
-    yield
+    try:
+        yield
+    finally:
+        close_doc_lens_service()
+        runtime_storage.clear_tmp_root()
 
 
 def create_app() -> FastAPI:
@@ -74,7 +83,11 @@ def create_app() -> FastAPI:
     app.include_router(uploads_router)
     app.include_router(doc_lens_router)
 
-    app.mount("/uploads", StaticFiles(directory=get_upload_dir()), name="uploads")
+    app.mount(
+        "/document-files",
+        StaticFiles(directory=get_runtime_documents_mount_dir()),
+        name="document-files",
+    )
     app.mount(
         "/doc-lens-assets",
         StaticFiles(directory=get_doc_lens_asset_mount_dir()),

@@ -1,6 +1,5 @@
 """Doc Lens routes."""
 
-import os
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends
@@ -11,13 +10,14 @@ from api.schemas.doc_lens import (
     DocLensQueryRequest,
     DocLensSessionRequest,
 )
-from dependencies import get_doc_lens_service, get_upload_dir
+from dependencies import get_doc_lens_service, get_runtime_storage_service
 from services.doc_lens_factory import (
     DOC_LENS_IMAGE_MIMES,
     DOC_LENS_PDF_MIMES,
     reset_doc_lens_service_if_fatal,
 )
 from services.ndjson import NDJSON_HEADERS, encode_ndjson_line
+from services.runtime_storage import RuntimeStorageService
 
 router = APIRouter()
 
@@ -25,7 +25,7 @@ router = APIRouter()
 @router.post("/doc-lens/session")
 async def doc_lens_session_endpoint(
     body: DocLensSessionRequest,
-    upload_dir: str = Depends(get_upload_dir),
+    runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> StreamingResponse:
     """Create a Doc Lens session and ingest files, streaming NDJSON progress."""
     session_id = str(uuid4())
@@ -49,13 +49,18 @@ async def doc_lens_session_endpoint(
             )
 
             try:
-                file_path = os.path.join(upload_dir, file_desc.file_name)
-                if not os.path.isfile(file_path):
+                file_path = runtime_storage.resolve_staged_document_path(
+                    content_id=file_desc.content_id,
+                    file_name=file_desc.file_name,
+                )
+                if file_path is None:
                     yield encode_ndjson_line(
                         {
                             "type": "ingest_error",
                             "file_name": file_desc.file_name,
-                            "error": f"File not found: {file_desc.file_name}",
+                            "error": (
+                                f"Temp document not found. content_id={file_desc.content_id}"
+                            ),
                             "file_index": file_index,
                             "total_files": total,
                         }
@@ -66,13 +71,13 @@ async def doc_lens_session_endpoint(
                     result = service.ingest_pdf(
                         session_id=session_id,
                         document_name=file_desc.file_name,
-                        pdf_path=file_path,
+                        pdf_path=str(file_path),
                     )
                 elif file_desc.mime_type in DOC_LENS_IMAGE_MIMES:
                     result = service.ingest_image(
                         session_id=session_id,
                         document_name=file_desc.file_name,
-                        image_path=file_path,
+                        image_path=str(file_path),
                     )
                 else:
                     yield encode_ndjson_line(

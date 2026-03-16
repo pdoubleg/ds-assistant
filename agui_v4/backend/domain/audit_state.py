@@ -1,8 +1,15 @@
 """Domain models for shared audit session state."""
 
+from __future__ import annotations
+
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from models.documents import Document, Documents
+
+logger = logging.getLogger(__name__)
 
 
 class AuditState(BaseModel):
@@ -41,3 +48,33 @@ class AuditState(BaseModel):
     current_step: str = ""
     activity_log: list[dict[str, Any]] = Field(default_factory=list)
     error_message: str | None = None
+
+    def get_documents(self) -> Documents:
+        """Build a typed ``Documents`` collection from the raw state dicts.
+
+        Converts each entry in ``self.documents`` into a ``Document`` model
+        using ``model_validate``.  A default ``claim_number`` is injected
+        from the state-level field when the individual dict lacks one.
+        Malformed entries are silently skipped so a single bad payload
+        does not break the entire collection.
+
+        Returns:
+            A ``Documents`` instance backed by all successfully parsed docs.
+
+        Example usage::
+
+            state = AuditState(claim_number="012345678", documents=[...])
+            docs = state.get_documents()
+            doc = docs.get_doc_by_content_id("abc123")
+        """
+        parsed: list[Document] = []
+        for raw in self.documents:
+            merged = {"claim_number": self.claim_number or "", **raw}
+            try:
+                parsed.append(Document.model_validate(merged))
+            except Exception:
+                logger.debug(
+                    "Skipping unparseable document entry: %s",
+                    raw.get("file_name", raw.get("content_id", "<unknown>")),
+                )
+        return Documents(documents=parsed)

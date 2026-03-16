@@ -168,4 +168,3 @@ def log_tool_call(
             "tool_name": tool_name,
         }
     )
-

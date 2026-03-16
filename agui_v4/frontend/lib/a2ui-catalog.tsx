@@ -16,6 +16,7 @@
  *   - ClaimTimeline: Vertical timeline of claim lifecycle events
  *   - SummaryCard: Grid of key-value metric tiles
  *   - FindingCard: Observation card with severity level
+ *   - CitationCard: Document page citation with preview link
  */
 
 import React from "react";
@@ -28,6 +29,7 @@ import {
   ClaimTimeline,
   SummaryCard,
   FindingCard,
+  CitationCard,
 } from "@/components/a2ui/general";
 
 /**
@@ -78,6 +80,7 @@ export const a2uiCatalog: Record<string, ComponentRenderer> = {
   "a2ui.ClaimTimeline": (props) => <ClaimTimeline {...(props as any)} />,
   "a2ui.SummaryCard": (props) => <SummaryCard {...(props as any)} />,
   "a2ui.FindingCard": (props) => <FindingCard {...(props as any)} />,
+  "a2ui.CitationCard": (props) => <CitationCard {...(props as any)} />,
 };
 
 /** Get component renderer from catalog. */

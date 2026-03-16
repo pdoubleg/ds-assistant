@@ -52,6 +52,7 @@ class QueryHit(BaseModel):
     asset_type: AssetType
     extraction_method: ExtractionMethod
     image_path: str
+    image_url: str
     bbox_norm: BBoxNorm | None = None
     page_text: str | None = None
     text_snippet: str | None = None

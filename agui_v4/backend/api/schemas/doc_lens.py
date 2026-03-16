@@ -10,6 +10,7 @@ class DocLensFilePayload(BaseModel):
 
     file_name: str
     mime_type: str
+    content_id: str
 
 
 class DocLensSessionRequest(BaseModel):

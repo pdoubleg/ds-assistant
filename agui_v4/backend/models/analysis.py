@@ -52,10 +52,12 @@ class TimelineEvent(BaseModel):
             "denial finalized). Can be paired with categories like settlement or denial."
         ),
     )
+
     @field_serializer("date")
     def _serialize_date(self, value: datetime.date) -> str:
         """Always emit an ISO-8601 string so downstream dicts and JSON are consistent."""
         return value.isoformat()
+
 
 class TimelineEvents(A2UIConvertible):
     """A list of timeline events."""

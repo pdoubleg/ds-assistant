@@ -25,6 +25,7 @@ const TYPE_DEFAULT_WIDTHS: Record<string, string> = {
   "a2ui.ClaimTimeline": "full",
   "a2ui.SummaryCard": "full",
   "a2ui.FindingCard": "half",
+  "a2ui.CitationCard": "third",
 };
 
 /**

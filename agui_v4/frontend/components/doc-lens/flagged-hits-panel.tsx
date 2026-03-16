@@ -88,13 +88,13 @@ export function FlaggedHitsInline({
             key={fh.hit.asset_hash}
             hit={fh.hit}
             query={fh.query}
-            imageUrl={getImageUrl(fh.hit.image_path)}
+            imageUrl={getImageUrl(fh.hit.image_url || fh.hit.image_path)}
             isFlagged={isFlagged(fh.hit.asset_hash)}
             onToggleFlag={() => onToggleFlag(fh.hit, fh.query)}
             onPreviewDoc={onPreviewDoc}
             onDownload={() =>
               onDownloadImage(
-                fh.hit.image_path,
+                fh.hit.image_url || fh.hit.image_path,
                 `${fh.hit.document_name}_p${fh.hit.page_number}_${fh.hit.asset_hash.slice(0, 8)}.png`
               )
             }

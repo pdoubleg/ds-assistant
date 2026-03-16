@@ -230,7 +230,6 @@ Each chart:
 - Prioritize sections aligned with the focus while preserving useful breadth."""
 
 
-
 def format_analysis_prompt(
     document_content: str | None, focus: str = "General claim review"
 ) -> str:

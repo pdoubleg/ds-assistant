@@ -55,6 +55,7 @@ export interface QueryHit {
   asset_type: "page" | "photo";
   extraction_method: string;
   image_path: string;
+  image_url: string;
   bbox_norm: { x0: number; y0: number; x1: number; y1: number } | null;
   page_text: string | null;
   text_snippet: string | null;
@@ -84,6 +85,7 @@ export interface DocLensQueryParams {
 interface DocLensFile {
   file_name: string;
   mime_type: string;
+  content_id: string;
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────

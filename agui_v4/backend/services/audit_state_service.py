@@ -63,7 +63,13 @@ class AuditStateService:
         self.state.effective_date = effective_date
         self.state.documents = documents
 
-        # Reset transient runtime metadata so a new session starts cleanly.
+        # Reset all session-scoped UI and runtime state so a new claim starts
+        # from a truly clean slate.
+        self.state.components = []
+        self.state.audit_questions = []
+        self.state.analysis_result = {}
+        self.state.audit_form_result = {}
+        self.state.current_form_id = None
         self.state.status = "idle"
         self.state.progress = 0
         self.state.current_step = ""

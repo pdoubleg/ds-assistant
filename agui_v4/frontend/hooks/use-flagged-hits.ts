@@ -151,6 +151,9 @@ export function useFlaggedHits() {
    * ```
    */
   const getImageUrl = useCallback((imagePath: string) => {
+    if (imagePath.startsWith("/")) {
+      return `${BACKEND_URL}${imagePath}`;
+    }
     // Normalize Windows backslashes so the marker search works cross-platform.
     const normalized = imagePath.replace(/\\/g, "/");
     const marker = "assets/";
@@ -179,7 +182,7 @@ export function useFlaggedHits() {
   const exportAllImages = useCallback(() => {
     for (const flagged of flaggedHits) {
       const name = `${flagged.hit.document_name}_p${flagged.hit.page_number}_${flagged.hit.asset_hash.slice(0, 8)}.png`;
-      downloadImage(flagged.hit.image_path, name);
+      downloadImage(flagged.hit.image_url || flagged.hit.image_path, name);
     }
   }, [flaggedHits, downloadImage]);
 
