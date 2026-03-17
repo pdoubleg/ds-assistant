@@ -10,13 +10,27 @@ from services.text_extraction import TextExtractionService
 router = APIRouter()
 
 
-@router.post("/upload")
+@router.post(
+    "/upload",
+    summary="Upload a document",
+    response_description="Extracted text content, page count, and staging metadata.",
+    responses={
+        400: {"description": "Unsupported file type."},
+        500: {"description": "Text extraction or staging failed."},
+    },
+)
 async def upload_endpoint(
-    file: UploadFile = File(...),
+    file: UploadFile = File(..., description="The document file to upload."),
     text_extraction_service: TextExtractionService = Depends(get_text_extraction_service),
     runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> JSONResponse:
-    """Handle supported document uploads and extract text content."""
+    """Upload a document, stage it to the runtime temp directory, and extract text content.
+
+    Supported extensions are determined by the active `TextExtractionService`
+    configuration.  The response includes the extracted plain-text content,
+    total page count, a `content_id` for referencing the staged file, and a
+    `content_url` for direct browser access.
+    """
     try:
         filename = file.filename or "unknown"
         extension = filename.lower()[filename.rfind(".") :] if "." in filename else ""

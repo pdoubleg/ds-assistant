@@ -25,9 +25,24 @@ from workflows.tagging import batch_documents, run_tag_batch
 router = APIRouter()
 
 
-@router.post("/summarize")
+@router.post(
+    "/summarize",
+    summary="Summarize documents",
+    response_description="NDJSON stream — one summary object per document.",
+    responses={
+        500: {"description": "Summarization failed for one or more documents (reported inline)."},
+    },
+)
 async def summarize_endpoint(body: SummarizeRequest) -> StreamingResponse:
-    """Summarize documents one at a time, streaming NDJSON results."""
+    """Summarize one or more documents, streaming results as **NDJSON**.
+
+    Each line in the response is a JSON object keyed by `file_name` containing
+    either the generated summary payload or an `error` field.  Documents with
+    empty content are skipped with an inline error.
+
+    Optionally include `additional_instructions` to steer summarization style
+    or focus areas.
+    """
 
     async def generate() -> str:
         for document in body.documents:
@@ -60,12 +75,25 @@ async def summarize_endpoint(body: SummarizeRequest) -> StreamingResponse:
     )
 
 
-@router.post("/search-sort", response_model=SearchSortResponse)
+@router.post(
+    "/search-sort",
+    summary="Search and sort documents",
+    response_model=SearchSortResponse,
+    response_description="Scored document list with content-ID lookup table.",
+    responses={
+        500: {"description": "Search/sort workflow failed — returns an empty response shell."},
+    },
+)
 async def search_sort_endpoint(
     body: SearchSortRequest,
     mapper: DocumentMapper = Depends(get_document_mapper),
 ) -> JSONResponse:
-    """Score documents against a user query using the search/sort workflow."""
+    """Score and rank documents against a natural-language query using the AI-powered
+    search/sort workflow.
+
+    Returns a subset of highest-scoring documents along with a `content_id` →
+    `file_name` mapping for client-side resolution.
+    """
     try:
         payload = await run_search_sort(body.query, body.documents, mapper=mapper)
         return JSONResponse(payload.model_dump())
@@ -80,12 +108,28 @@ async def search_sort_endpoint(
         )
 
 
-@router.post("/document-tags")
+@router.post(
+    "/document-tags",
+    summary="Auto-tag documents",
+    response_description="NDJSON stream — one batch result per line, ending with a done sentinel.",
+    responses={
+        500: {"description": "Tagging failed for one or more batches (reported inline)."},
+    },
+)
 async def document_tags_endpoint(
     body: TagRequest,
     mapper: DocumentMapper = Depends(get_document_mapper),
 ) -> StreamingResponse:
-    """Tag documents in batches, streaming NDJSON progress."""
+    """Classify documents into tag categories using an AI tagging workflow,
+    streaming **NDJSON** progress per batch.
+
+    Documents are split into batches for parallel processing.  Each streamed
+    line contains the batch index, total batches, and per-document tag results.
+    The final line is a `done` sentinel with the canonical tag vocabulary used.
+
+    Use `tag_mode="custom"` with `selected_tags` to override the default
+    taxonomy.
+    """
     active_tags = body.get_active_tags()
 
     async def generate() -> str:
@@ -127,12 +171,20 @@ async def document_tags_endpoint(
     )
 
 
-@router.get("/example-docs")
+@router.get(
+    "/example-docs",
+    summary="List example documents",
+    response_description="Array of pre-staged example document payloads.",
+)
 async def example_docs_endpoint(
     text_extraction_service: TextExtractionService = Depends(get_text_extraction_service),
     runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> JSONResponse:
-    """List static example documents staged into the runtime temp directory."""
+    """Stage and return the built-in example documents from the static assets directory.
+
+    Each document is automatically text-extracted and served with a `content_url`
+    for direct browser access.  Useful for demos and local development.
+    """
     staged_documents = runtime_storage.stage_static_examples(
         text_extraction_service.allowed_extensions
     )

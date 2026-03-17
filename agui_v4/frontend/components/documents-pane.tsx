@@ -1172,10 +1172,15 @@ export function DocumentsPane() {
 
   // ── Summarize via NDJSON stream ─────────────────────────────────────
 
-  const runSummarize = useCallback(async () => {
+  const runSummarize = useCallback(async (overrideInstructions?: string) => {
     const payloads = buildVisiblePayloads();
     if (payloads.length === 0) return;
-    const trimmedAdditionalInstructions = summarizeInstructions.trim();
+    const trimmedAdditionalInstructions =
+      overrideInstructions?.trim() ?? summarizeInstructions.trim();
+
+    if (typeof overrideInstructions === "string") {
+      setSummarizeInstructions(overrideInstructions);
+    }
 
     setIsSummarizing(true);
     setSummarizeProgress({ done: 0, total: payloads.length });
@@ -1266,10 +1271,15 @@ export function DocumentsPane() {
 
   // ── Search & Sort via JSON response ─────────────────────────────────
 
-  const runSearchSort = useCallback(async () => {
-    if (!searchQuery.trim()) return;
+  const runSearchSort = useCallback(async (overrideQuery?: string) => {
+    const effectiveQuery = overrideQuery?.trim() ?? searchQuery.trim();
+    if (!effectiveQuery) return;
     const docs = filteredDocs;
     if (docs.length === 0) return;
+
+    if (typeof overrideQuery === "string") {
+      setSearchQuery(overrideQuery);
+    }
 
     setIsSearching(true);
     setSortKey("score");
@@ -1298,7 +1308,7 @@ export function DocumentsPane() {
       const resp = await fetch(`${BACKEND_URL}/search-sort`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: searchQuery, documents: payloads }),
+        body: JSON.stringify({ query: effectiveQuery, documents: payloads }),
         signal: controller.signal,
       });
 

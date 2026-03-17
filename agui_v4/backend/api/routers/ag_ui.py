@@ -13,9 +13,21 @@ from dependencies import get_shared_state_deps
 router = APIRouter()
 
 
-@router.post("/")
+@router.post(
+    "/",
+    summary="Run the AG-UI agent",
+    response_description="Streamed AG-UI protocol response.",
+    responses={
+        500: {"description": "Agent execution failed."},
+    },
+)
 async def ag_ui_endpoint(request: Request) -> JSONResponse:
-    """Dispatch AG-UI requests through the shared pydantic-ai adapter."""
+    """Dispatch an incoming AG-UI protocol request through the shared **pydantic-ai** adapter.
+
+    The raw request body is forwarded to `AGUIAdapter.dispatch_request` which
+    handles tool execution, streaming, and state management on behalf of the
+    connected frontend.
+    """
     try:
         body = await request.body()
         print(f"[AG-UI] Received request: {len(body)} bytes", flush=True)
@@ -32,9 +44,17 @@ async def ag_ui_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@router.get("/")
+@router.get(
+    "/",
+    summary="AG-UI service directory",
+    response_description="JSON map of available AG-UI endpoints.",
+)
 async def root_get() -> JSONResponse:
-    """Return AG-UI endpoint information for GET requests."""
+    """Return a machine-readable directory of every endpoint exposed by this service.
+
+    Useful for AG-UI clients that need to discover available capabilities at
+    runtime.
+    """
     return JSONResponse(
         {
             "protocol": "ag-ui",
@@ -57,9 +77,15 @@ async def root_get() -> JSONResponse:
     )
 
 
-@router.get("/info")
+@router.get(
+    "/info",
+    summary="Service metadata",
+    response_description="Backend name, version, and protocol identifier.",
+)
 async def info_endpoint() -> JSONResponse:
-    """Return backend metadata."""
+    """Return static backend metadata including the service name, version, and
+    AG-UI protocol identifier.
+    """
     return JSONResponse(
         {
             "name": "Audit Assistant Agent",
@@ -70,9 +96,17 @@ async def info_endpoint() -> JSONResponse:
     )
 
 
-@router.get("/health")
+@router.get(
+    "/health",
+    summary="Health check",
+    response_description="Current health status and readiness flags.",
+)
 async def health_endpoint() -> JSONResponse:
-    """Return a basic health status payload."""
+    """Return a lightweight health-check payload.
+
+    The `agent_ready` flag indicates whether the `OPENAI_API_KEY` environment
+    variable is set, which is a prerequisite for agent execution.
+    """
     return JSONResponse(
         {
             "status": "healthy",

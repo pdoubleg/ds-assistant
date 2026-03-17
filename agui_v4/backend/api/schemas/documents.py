@@ -12,65 +12,141 @@ from models.tagging import ALL_DOC_TAGS, CUSTOM_FALLBACK_TAG_LABEL, TagSelection
 class SummarizeDocPayload(BaseModel):
     """A single document payload sent by the frontend for summarization."""
 
-    file_name: str
-    content: str
-    mime_type: str = "unknown"
-    document_type: str = ""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "file_name": "policy-document.pdf",
+                "content": "INSURANCE POLICY … (truncated)",
+                "mime_type": "application/pdf",
+                "document_type": "Policy",
+            }
+        }
+    )
+
+    file_name: str = Field(..., description="Original file name including extension.")
+    content: str = Field(..., description="Extracted plain-text content of the document.")
+    mime_type: str = Field("unknown", description="MIME type of the source file.")
+    document_type: str = Field(
+        "", description="Optional document category label (e.g. `Policy`, `Invoice`)."
+    )
 
 
 class SummarizeRequest(BaseModel):
-    """Request body for `POST /summarize`."""
+    """Request body for ``POST /summarize``.
 
-    documents: list[SummarizeDocPayload]
-    additional_instructions: str = ""
+    Example:
+        ```json
+        {
+            "documents": [{"file_name": "report.pdf", "content": "…"}],
+            "additional_instructions": "Focus on financial figures."
+        }
+        ```
+    """
+
+    documents: list[SummarizeDocPayload] = Field(
+        ..., description="One or more documents to summarize."
+    )
+    additional_instructions: str = Field(
+        "",
+        description="Optional free-text instructions to steer the summarization style or focus areas.",
+    )
 
 
 class SearchSortDocPayload(BaseModel):
     """A document payload with full metadata for the search/sort agent."""
 
-    file_name: str
-    content_id: str
-    content: str = ""
-    mime_type: str = "unknown"
-    content_url: str = ""
-    claim_number: str = ""
-    domain: str = "claim"
-    document_type: str = ""
-    document_sub_type: str = ""
-    document_description: str = ""
-    create_date: str = ""
-    source_system: str = ""
-    company_name: str = ""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "file_name": "claim-report.pdf",
+                "content_id": "abc123",
+                "content": "Claim investigation findings …",
+                "mime_type": "application/pdf",
+                "domain": "claim",
+                "document_type": "Claim Report",
+            }
+        }
+    )
+
+    file_name: str = Field(..., description="Original file name including extension.")
+    content_id: str = Field(..., description="Unique staging identifier for the document.")
+    content: str = Field("", description="Extracted plain-text content.")
+    mime_type: str = Field("unknown", description="MIME type of the source file.")
+    content_url: str = Field("", description="Public URL for direct browser access to the staged file.")
+    claim_number: str = Field("", description="Associated claim identifier, if any.")
+    domain: str = Field("claim", description="Business domain context (default `claim`).")
+    document_type: str = Field("", description="Primary document category.")
+    document_sub_type: str = Field("", description="Secondary document category.")
+    document_description: str = Field("", description="Free-text description of the document.")
+    create_date: str = Field("", description="Document creation date (ISO-8601).")
+    source_system: str = Field("", description="System of record the document originated from.")
+    company_name: str = Field("", description="Company associated with the document.")
 
 
 class SearchSortRequest(BaseModel):
-    """Request body for `POST /search-sort`."""
+    """Request body for ``POST /search-sort``."""
 
-    query: str
-    documents: list[SearchSortDocPayload]
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "query": "Find documents about roof damage",
+                "documents": [
+                    {
+                        "file_name": "claim-report.pdf",
+                        "content_id": "abc123",
+                        "content": "Inspection revealed significant roof damage …",
+                    }
+                ],
+            }
+        }
+    )
+
+    query: str = Field(..., description="Natural-language search query to score documents against.")
+    documents: list[SearchSortDocPayload] = Field(
+        ..., description="Documents to rank against the query."
+    )
 
 
 class SearchSortResponse(BaseModel):
-    """Response body for `POST /search-sort`."""
+    """Response body for ``POST /search-sort``."""
 
     scores: list[DocSearchScore] = Field(
         default_factory=list,
-        description="Subset of scored documents selected for display.",
+        description="Subset of scored documents selected for display, ordered by relevance.",
     )
     content_id_to_file_name: dict[str, str] = Field(
         default_factory=dict,
-        description="Lookup table for mapping returned content IDs back to file names.",
+        description="Lookup table mapping returned `content_id` values back to original file names.",
     )
 
 
 class TagRequest(BaseModel):
-    """Request body for `POST /document-tags`."""
+    """Request body for ``POST /document-tags``.
+
+    Example — custom tagging:
+        ```json
+        {
+            "documents": [{"file_name": "report.pdf", "content": "…"}],
+            "tag_mode": "custom",
+            "selected_tags": ["Financial", "Legal"]
+        }
+        ```
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    documents: list[SummarizeDocPayload]
-    tag_mode: TagSelectionMode = "default"
-    selected_tags: list[str] = Field(default_factory=list, max_length=20)
+    documents: list[SummarizeDocPayload] = Field(
+        ..., description="Documents to classify into tags."
+    )
+    tag_mode: TagSelectionMode = Field(
+        "default",
+        description="Tagging strategy — `default` uses the built-in taxonomy, `custom` uses `selected_tags`.",
+    )
+    selected_tags: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Custom tag labels (required when `tag_mode` is `custom`, max 20).",
+    )
 
     @model_validator(mode="after")
     def validate_selected_tags(self) -> Self:
@@ -102,7 +178,12 @@ class TagRequest(BaseModel):
         return self
 
     def get_active_tags(self) -> list[str]:
-        """Return the runtime tag vocabulary for this request."""
+        """Return the runtime tag vocabulary for this request.
+
+        Returns:
+            list[str]: Either the custom tag list (with a fallback label appended)
+                or the full default taxonomy.
+        """
         if self.tag_mode == "custom":
             return [*self.selected_tags, CUSTOM_FALLBACK_TAG_LABEL]
         return list(ALL_DOC_TAGS)

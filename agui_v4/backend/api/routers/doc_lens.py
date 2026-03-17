@@ -22,12 +22,32 @@ from services.runtime_storage import RuntimeStorageService
 router = APIRouter()
 
 
-@router.post("/doc-lens/session")
+@router.post(
+    "/doc-lens/session",
+    summary="Create a Doc Lens session",
+    response_description="NDJSON stream — ingestion progress per file, ending with a session-ready summary.",
+    responses={
+        500: {"description": "Session creation or file ingestion failed (reported inline)."},
+    },
+)
 async def doc_lens_session_endpoint(
     body: DocLensSessionRequest,
     runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> StreamingResponse:
-    """Create a Doc Lens session and ingest files, streaming NDJSON progress."""
+    """Create a new Doc Lens session and ingest the specified files, streaming
+    **NDJSON** progress events.
+
+    Streamed event types:
+
+    | `type` | Meaning |
+    |---|---|
+    | `session_created` | Session ID assigned. |
+    | `ingest_start` | File ingestion beginning. |
+    | `ingest_complete` | File successfully ingested with extracted asset counts. |
+    | `ingest_error` | File-level error (processing continues). |
+    | `session_ready` | All files processed — includes session summary stats. |
+    | `session_error` | Fatal error retrieving the session summary. |
+    """
     session_id = str(uuid4())
 
     async def generate() -> str:
@@ -132,9 +152,21 @@ async def doc_lens_session_endpoint(
     )
 
 
-@router.post("/doc-lens/query")
+@router.post(
+    "/doc-lens/query",
+    summary="Query a Doc Lens session",
+    response_description="Ranked query results with matched asset metadata.",
+    responses={
+        500: {"description": "Query execution failed."},
+    },
+)
 async def doc_lens_query_endpoint(body: DocLensQueryRequest) -> JSONResponse:
-    """Run a natural-language image query against an active Doc Lens session."""
+    """Run a natural-language query against an active Doc Lens session.
+
+    Searches ingested document assets (images, tables, text blocks) using the
+    specified `search_mode` and returns the top-*k* most relevant hits.
+    Optionally filter by `asset_types` or `document_ids`.
+    """
     try:
         service = get_doc_lens_service()
         response = service.query(
@@ -151,9 +183,22 @@ async def doc_lens_query_endpoint(body: DocLensQueryRequest) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@router.post("/doc-lens/document-assets")
+@router.post(
+    "/doc-lens/document-assets",
+    summary="List assets for a document",
+    response_description="All extracted assets (images, tables, etc.) for the specified document.",
+    responses={
+        500: {"description": "Asset retrieval failed."},
+    },
+)
 async def doc_lens_document_assets_endpoint(body: DocLensDocumentAssetsRequest) -> JSONResponse:
-    """List all extracted assets for one document in an active session."""
+    """List every extracted asset for a single document within an active Doc Lens
+    session.
+
+    Returns the full set of ingested assets (images, tables, text blocks)
+    without any query-based ranking — useful for browsing or inventorying
+    document content.
+    """
     try:
         service = get_doc_lens_service()
         hits = service.list_document_assets(
@@ -172,9 +217,20 @@ async def doc_lens_document_assets_endpoint(body: DocLensDocumentAssetsRequest) 
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@router.get("/doc-lens/session/{session_id}")
+@router.get(
+    "/doc-lens/session/{session_id}",
+    summary="Get Doc Lens session summary",
+    response_description="Session statistics including document and asset counts.",
+    responses={
+        500: {"description": "Session not found or summary retrieval failed."},
+    },
+)
 async def doc_lens_session_summary(session_id: str) -> JSONResponse:
-    """Return summary stats for a Doc Lens session."""
+    """Return summary statistics for an existing Doc Lens session.
+
+    Includes total document count, per-document asset counts, and ingestion
+    status metadata.
+    """
     try:
         service = get_doc_lens_service()
         summary = service.get_session_summary(session_id)
@@ -183,9 +239,20 @@ async def doc_lens_session_summary(session_id: str) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@router.delete("/doc-lens/session/{session_id}")
+@router.delete(
+    "/doc-lens/session/{session_id}",
+    summary="Clear a Doc Lens session",
+    response_description="Confirmation that the session data was cleared.",
+    responses={
+        500: {"description": "Session not found or deletion failed."},
+    },
+)
 async def doc_lens_clear_session(session_id: str) -> JSONResponse:
-    """Clear all data for a Doc Lens session."""
+    """Permanently clear all ingested data for a Doc Lens session.
+
+    After this call the `session_id` is no longer valid for queries or asset
+    lookups.
+    """
     try:
         service = get_doc_lens_service()
         service.clear_session(session_id)

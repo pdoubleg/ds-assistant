@@ -11,7 +11,8 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { motion } from "framer-motion";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuditAgent, type StepActivity } from "@/hooks/use-audit-agent";
 import { useUploadedDocs } from "@/hooks/use-uploaded-docs";
 import { useChatDocs } from "@/hooks/use-chat-docs";
@@ -21,6 +22,8 @@ import {
   Loader2,
   FileText,
   Paperclip,
+  Lightbulb,
+  Plus,
   Check,
   AlertCircle,
   ChevronDown,
@@ -42,6 +45,19 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
 const TOOL_MESSAGE_MAX_CHARS = 110;
 const AI_SHINE_COLORS = ["var(--ring)", "var(--primary)", "var(--accent)"];
+const CHAT_SUGGESTIONS: ReadonlyArray<{
+  title: string;
+  message: string;
+}> = [
+  {
+    title: "Generate examples",
+    message: "Please generate some examples of the components you are able to create along with a fancy markdown showcasing various rendering capabilities.",
+  },
+  {
+    title: "Create a mock TFR form",
+    message: "Please create a mock TFR form for a fictitious hail claim.",
+  },
+];
 
 const EXT_TO_MIME: Record<string, string> = {
   pdf: "application/pdf",
@@ -214,8 +230,14 @@ export function ChatPane() {
   const [collapsedToolBubbleIds, setCollapsedToolBubbleIds] = useState<
     Set<string>
   >(new Set());
+  const [showPlusPanel, setShowPlusPanel] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const plusPanelRef = useRef<HTMLDivElement>(null);
+  const suggestionsAnchorRef = useRef<HTMLButtonElement>(null);
+  const suggestionsPopoverRef = useRef<HTMLDivElement>(null);
+  const [suggestionsPos, setSuggestionsPos] = useState<{ bottom: number; left: number } | null>(null);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -227,6 +249,10 @@ export function ChatPane() {
   ]);
 
   const lastShownRef = useRef<string | null>(null);
+  const hasStartedConversation = useMemo(
+    () => chatMessages.some((chatMessage) => chatMessage.role === "user"),
+    [chatMessages]
+  );
 
   useEffect(() => {
     if (!lastAssistantMessage) return;
@@ -463,11 +489,12 @@ export function ChatPane() {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const handleSend = useCallback(async () => {
-    if (!message.trim() && attachedFiles.length === 0) return;
+  const handleSend = useCallback(async (overrideMessage?: string) => {
+    const trimmedMessage = overrideMessage?.trim() ?? message.trim();
+    if (!trimmedMessage && attachedFiles.length === 0) return;
 
     const userContent =
-      message.trim() ||
+      trimmedMessage ||
       "Please analyze the uploaded documents and generate a TFR audit questionnaire.";
 
     const fileNames = attachedFiles.map((f) => f.name);
@@ -515,6 +542,13 @@ export function ChatPane() {
     }
   }, [message, attachedFiles, runAudit]);
 
+  const handleSuggestionClick = useCallback(
+    async (suggestionMessage: string) => {
+      await handleSend(suggestionMessage);
+    },
+    [handleSend]
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -554,6 +588,43 @@ export function ChatPane() {
     ),
     []
   );
+
+  // Position the suggestions popover above the lightbulb trigger
+  useEffect(() => {
+    if (!showSuggestions || !suggestionsAnchorRef.current) return;
+    const rect = suggestionsAnchorRef.current.getBoundingClientRect();
+    setSuggestionsPos({
+      bottom: window.innerHeight - rect.top + 4,
+      left: rect.left,
+    });
+  }, [showSuggestions]);
+
+  // Close plus-panel on outside click
+  useEffect(() => {
+    if (!showPlusPanel) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (plusPanelRef.current?.contains(target)) return;
+      setShowPlusPanel(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showPlusPanel]);
+
+  // Close suggestions popover on outside click
+  useEffect(() => {
+    if (!showSuggestions) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        suggestionsAnchorRef.current?.contains(target) ||
+        suggestionsPopoverRef.current?.contains(target)
+      ) return;
+      setShowSuggestions(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showSuggestions]);
 
   // Keep each run's latest tool-status message synced with live state.
   useEffect(() => {
@@ -826,19 +897,77 @@ export function ChatPane() {
             onChange={handleFileSelect}
             className="hidden"
           />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => fileInputRef.current?.click()}
-                className="shrink-0 h-9 w-9 text-muted-foreground hover:text-primary"
-              >
-                <Paperclip className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Attach documents (.pdf, .docx, .xlsx)</TooltipContent>
-          </Tooltip>
+
+          {/* Plus button with expandable action panel */}
+          <div ref={plusPanelRef} className="relative shrink-0 flex items-end">
+            <AnimatePresence>
+              {showPlusPanel && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 6 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute bottom-full left-0 mb-1 flex items-center gap-1 rounded-lg border border-border/40 bg-popover p-1 shadow-md"
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          fileInputRef.current?.click();
+                          setShowPlusPanel(false);
+                        }}
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Attach documents (.pdf, .docx, .xlsx)</TooltipContent>
+                  </Tooltip>
+
+                  {!hasStartedConversation && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          ref={suggestionsAnchorRef}
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 text-muted-foreground hover:text-primary"
+                          onClick={() => {
+                            setShowSuggestions((prev) => !prev);
+                            setShowPlusPanel(false);
+                          }}
+                        >
+                          <Lightbulb className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Suggestions</TooltipContent>
+                    </Tooltip>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-muted-foreground hover:text-primary transition-transform"
+                  onClick={() => {
+                    setShowPlusPanel((prev) => !prev);
+                    setShowSuggestions(false);
+                  }}
+                >
+                  <Plus
+                    className={`h-4 w-4 transition-transform duration-150 ${showPlusPanel ? "rotate-45" : ""}`}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>More actions</TooltipContent>
+            </Tooltip>
+          </div>
 
           <textarea
             value={message}
@@ -859,7 +988,9 @@ export function ChatPane() {
               <Button
                 variant="outline"
                 size="icon"
-                onClick={handleSend}
+                onClick={() => {
+                  void handleSend();
+                }}
                 disabled={
                   isGenerating ||
                   (!message.trim() && attachedFiles.length === 0)
@@ -886,6 +1017,39 @@ export function ChatPane() {
           </Tooltip>
         </div>
       </div>
+
+      {/* Portaled suggestions popover — rendered on document.body to escape layout constraints */}
+      {showSuggestions &&
+        suggestionsPos &&
+        createPortal(
+          <div
+            ref={suggestionsPopoverRef}
+            style={{
+              position: "fixed",
+              bottom: suggestionsPos.bottom,
+              left: suggestionsPos.left,
+            }}
+            className="z-[9999] flex flex-wrap gap-1.5 rounded-lg border border-border/40 bg-popover p-2 shadow-lg"
+          >
+            {CHAT_SUGGESTIONS.map((suggestion) => (
+              <Button
+                key={suggestion.title}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isGenerating}
+                onClick={() => {
+                  setShowSuggestions(false);
+                  void handleSuggestionClick(suggestion.message);
+                }}
+                className="h-auto whitespace-nowrap rounded-full border-primary/30 bg-primary/5 px-3 py-1 text-xs text-foreground hover:border-primary/50 hover:bg-primary/10"
+              >
+                {suggestion.title}
+              </Button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

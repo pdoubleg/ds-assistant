@@ -14,13 +14,26 @@ from services.form_store import FormStore
 router = APIRouter()
 
 
-@router.post("/forms")
+@router.post(
+    "/forms",
+    summary="Save an audit form",
+    response_description="Confirmation with the persisted form ID, title, and timestamp.",
+    responses={
+        400: {"description": "Form payload failed validation."},
+    },
+)
 async def save_form(
     body: AuditFormRequestBody | None = Body(default=None),
     form_store: FormStore = Depends(get_form_store),
     audit_state_service: AuditStateService = Depends(get_audit_state_service),
 ) -> JSONResponse:
-    """Persist an audit form to local JSON storage."""
+    """Persist an audit form to local JSON storage.
+
+    The form payload can be supplied directly in the request body **or** omitted
+    to snapshot the current in-memory `audit_form_result`.  If a `form_id` is
+    provided (via `body.id` or the current state) the existing record is
+    overwritten; otherwise a new UUID is generated.
+    """
     state = audit_state_service.state
     payload = body.extract_form_payload() if body else {}
     if not payload:
@@ -49,24 +62,48 @@ async def save_form(
     )
 
 
-@router.get("/forms")
+@router.get(
+    "/forms",
+    summary="List saved forms",
+    response_description="Array of form summary records (ID, title, timestamps).",
+)
 async def list_forms(form_store: FormStore = Depends(get_form_store)) -> JSONResponse:
-    """List all saved forms from local JSON storage."""
+    """Return lightweight summary records for every persisted audit form.
+
+    Each record contains the form `id`, `title`, and timestamp metadata —
+    full payloads are omitted for efficiency.
+    """
     return JSONResponse({"forms": form_store.list_forms()})
 
 
-@router.get("/forms/all")
+@router.get(
+    "/forms/all",
+    summary="List saved forms (full data)",
+    response_description="Array of complete form records including payloads.",
+)
 async def list_forms_full(form_store: FormStore = Depends(get_form_store)) -> JSONResponse:
-    """Return all saved forms with full data for dashboard aggregation."""
+    """Return every persisted audit form with its **full** payload included.
+
+    Intended for dashboard aggregation and bulk export use-cases where
+    downstream consumers need complete form data in a single request.
+    """
     return JSONResponse({"forms": form_store.list_forms_full()})
 
 
-@router.get("/forms/{form_id}")
+@router.get(
+    "/forms/{form_id}",
+    summary="Get a saved form",
+    response_description="The complete form record.",
+    responses={
+        404: {"description": "Form not found."},
+        500: {"description": "Failed to read the form record."},
+    },
+)
 async def get_form(
     form_id: str,
     form_store: FormStore = Depends(get_form_store),
 ) -> JSONResponse:
-    """Read one saved form record by ID."""
+    """Read a single persisted audit-form record by its unique `form_id`."""
     try:
         return JSONResponse(form_store.read_form(form_id))
     except FileNotFoundError:
@@ -75,13 +112,26 @@ async def get_form(
         return JSONResponse({"error": f"Failed to read form: {exc}"}, status_code=500)
 
 
-@router.post("/forms/{form_id}/restore")
+@router.post(
+    "/forms/{form_id}/restore",
+    summary="Restore a saved form into agent state",
+    response_description="Restored form state snapshot.",
+    responses={
+        400: {"description": "The saved form payload is invalid."},
+        404: {"description": "Form not found."},
+        500: {"description": "Failed to read or validate the form record."},
+    },
+)
 async def restore_form(
     form_id: str,
     form_store: FormStore = Depends(get_form_store),
     audit_state_service: AuditStateService = Depends(get_audit_state_service),
 ) -> JSONResponse:
-    """Load a saved form and restore it into shared agent state."""
+    """Load a previously saved audit form and restore it into shared agent state.
+
+    The saved record is re-validated before being applied so that corrupted or
+    schema-incompatible forms are rejected gracefully.
+    """
     try:
         record = form_store.read_form(form_id)
     except FileNotFoundError:
@@ -100,13 +150,25 @@ async def restore_form(
     return JSONResponse(audit_state_service.restore_form(resolved_form_id, payload))
 
 
-@router.delete("/forms/{form_id}")
+@router.delete(
+    "/forms/{form_id}",
+    summary="Delete a saved form",
+    response_description="Confirmation of deletion.",
+    responses={
+        404: {"description": "Form not found."},
+        500: {"description": "Failed to delete the form record."},
+    },
+)
 async def delete_form(
     form_id: str,
     form_store: FormStore = Depends(get_form_store),
     audit_state_service: AuditStateService = Depends(get_audit_state_service),
 ) -> JSONResponse:
-    """Delete a saved form from local JSON storage."""
+    """Permanently delete a saved audit form from local JSON storage.
+
+    If the deleted form is also the *current* form in shared state, the
+    reference is cleared so the agent no longer associates with it.
+    """
     try:
         form_store.delete_form(form_id)
     except FileNotFoundError:

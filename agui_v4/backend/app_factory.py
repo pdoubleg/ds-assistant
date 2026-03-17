@@ -60,13 +60,55 @@ async def lifespan(app: FastAPI):
         runtime_storage.clear_tmp_root()
 
 
+OPENAPI_TAGS: list[dict[str, str]] = [
+    {
+        "name": "AG-UI",
+        "description": "Core AG-UI protocol endpoint and service metadata.",
+    },
+    {
+        "name": "Uploads",
+        "description": "Document upload with automatic text extraction.",
+    },
+    {
+        "name": "State",
+        "description": "Shared in-memory audit state — form payload, runtime flags, and claim sessions.",
+    },
+    {
+        "name": "Forms",
+        "description": "CRUD operations for persisted audit forms in local JSON storage.",
+    },
+    {
+        "name": "Documents",
+        "description": "Document summarization, AI-powered search/sort, and auto-tagging workflows.",
+    },
+    {
+        "name": "Doc Lens",
+        "description": (
+            "Visual document intelligence — ingest PDFs/images, extract assets, "
+            "and run natural-language queries against document content."
+        ),
+    },
+]
+
+
 def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
+    """Create and configure the FastAPI application.
+
+    Returns:
+        FastAPI: Fully wired application instance ready for ``uvicorn``.
+    """
     app = FastAPI(
         title="Audit Assistant Agent",
-        description="Analyze documents and generate custom audit questionnaires",
+        summary="AG-UI backend for document analysis and audit questionnaire generation.",
+        description=(
+            "Provides an AG-UI–compatible agent endpoint backed by **pydantic-ai**, "
+            "along with supporting REST routes for document uploads, AI-powered "
+            "summarization, search/sort, tagging, visual Doc Lens queries, "
+            "and persisted audit-form management."
+        ),
         version="1.0.0",
         lifespan=lifespan,
+        openapi_tags=OPENAPI_TAGS,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -76,12 +118,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(ag_ui_router)
-    app.include_router(state_router)
-    app.include_router(forms_router)
-    app.include_router(documents_router)
-    app.include_router(uploads_router)
-    app.include_router(doc_lens_router)
+    app.include_router(ag_ui_router, tags=["AG-UI"])
+    app.include_router(state_router, tags=["State"])
+    app.include_router(forms_router, tags=["Forms"])
+    app.include_router(documents_router, tags=["Documents"])
+    app.include_router(uploads_router, tags=["Uploads"])
+    app.include_router(doc_lens_router, tags=["Doc Lens"])
 
     app.mount(
         "/document-files",
