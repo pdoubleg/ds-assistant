@@ -67,11 +67,13 @@ class DocLensQueryRequest(BaseModel):
     session_id: str = Field(..., description="Active Doc Lens session identifier.")
     query: str = Field(..., description="Natural-language search query.")
     search_mode: SearchMode = Field(
-        "image", description="Search strategy — `image` for visual similarity, `text` for semantic text search."
+        "image",
+        description="Search strategy — `image` for visual similarity, `text` for semantic text search.",
     )
     top_k: int = Field(10, description="Maximum number of results to return.", ge=1, le=100)
     asset_types: list[str] | None = Field(
-        None, description="Optional filter to restrict results to specific asset types (e.g. `table`, `figure`)."
+        None,
+        description="Optional filter to restrict results to specific asset types (e.g. `table`, `figure`).",
     )
     document_ids: list[str] | None = Field(
         None, description="Optional filter to restrict results to specific ingested documents."

@@ -72,7 +72,9 @@ class SearchSortDocPayload(BaseModel):
     content_id: str = Field(..., description="Unique staging identifier for the document.")
     content: str = Field("", description="Extracted plain-text content.")
     mime_type: str = Field("unknown", description="MIME type of the source file.")
-    content_url: str = Field("", description="Public URL for direct browser access to the staged file.")
+    content_url: str = Field(
+        "", description="Public URL for direct browser access to the staged file."
+    )
     claim_number: str = Field("", description="Associated claim identifier, if any.")
     domain: str = Field("claim", description="Business domain context (default `claim`).")
     document_type: str = Field("", description="Primary document category.")

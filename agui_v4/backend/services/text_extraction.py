@@ -237,10 +237,7 @@ class TextExtractionService:
             if not segment:
                 tagged.append(segment)
                 continue
-            tag = (
-                f'[DOC_META content_id="{content_id}" '
-                f'page={idx} doc_name="{file_name}"]'
-            )
+            tag = f'[DOC_META content_id="{content_id}" page={idx} doc_name="{file_name}"]'
             tagged.append(f"{tag}\n{segment}")
         return tagged
 
