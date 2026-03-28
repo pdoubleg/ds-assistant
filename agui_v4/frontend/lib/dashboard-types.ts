@@ -10,7 +10,7 @@
 export type AnswerValue = "Yes" | "No" | "Insufficient information";
 export type SubAnswerValue = boolean;
 export type PerilType = "Interior" | "Exterior";
-export type OutcomeValue = "Meets" | "Does Not Meet Expectations";
+export type OutcomeValue = "Meets" | "Does Not Meet";
 
 // ── Sub-question ─────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ export interface SubQuestion {
   reasoning: string;
   citations: string;
   answer?: SubAnswerValue;
-  comments?: string | null;
+  help_text?: string | null;
 }
 
 // ── TFR Question ─────────────────────────────────────────────────
@@ -31,6 +31,7 @@ export interface TFRQuestion {
   answer: AnswerValue;
   sub_questions?: SubQuestion[] | null;
   missing_info?: string | null;
+  help_text?: string | null;
 }
 
 // ── Peril determination ──────────────────────────────────────────
@@ -51,8 +52,6 @@ export interface SavedForm {
   questions: TFRQuestion[];
   overall_outcome: OutcomeValue;
   outcome_justification: string;
-  additional_analysis?: string | null;
-  follow_ups?: string | null;
 }
 
 // ── Computed per-form stats (used in FormsDataTable rows) ────────

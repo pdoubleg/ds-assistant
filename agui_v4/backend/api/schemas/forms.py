@@ -19,12 +19,28 @@ class AuditFormRequestBody(BaseModel):
         json_schema_extra={
             "example": {
                 "audit_form_result": {
-                    "sections": [
+                    "peril": {
+                        "peril": "Exterior",
+                        "notes": "Wind-driven exterior loss.",
+                    },
+                    "questions": [
                         {
-                            "title": "Coverage Verification",
-                            "questions": ["Is the policy effective?"],
+                            "id": "Q1",
+                            "text": "Was the estimate documented appropriately?",
+                            "answer": "No",
+                            "sub_questions": [
+                                {
+                                    "id": "Q1.1",
+                                    "text": "Line-item pricing support is missing.",
+                                    "reasoning": "The estimate lacks supporting detail for the proposed repair scope.",
+                                    "citations": "Estimate p. 4; field notes p. 2",
+                                }
+                            ],
+                            "missing_info": None,
                         }
-                    ]
+                    ],
+                    "overall_outcome": "Does Not Meet",
+                    "outcome_justification": "At least one required area lacks sufficient documented support.",
                 },
                 "title": "Q1 Audit Questionnaire",
             }
@@ -37,7 +53,7 @@ class AuditFormRequestBody(BaseModel):
     )
     form: dict[str, Any] | None = Field(
         None,
-        description="Alternate payload wrapper accepted for backward compatibility.",
+        description="Alternate payload wrapper accepted by the endpoint.",
     )
     current_form_id: str | None = Field(
         None,

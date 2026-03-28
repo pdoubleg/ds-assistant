@@ -168,8 +168,6 @@ export interface AuditFormPayload {
   questions: Array<Record<string, unknown>>;
   overall_outcome: string;
   outcome_justification: string;
-  additional_analysis?: string | null;
-  follow_ups?: string | null;
 }
 
 /** Canonical claim-session payload shared across the UI and backend state. */
@@ -274,8 +272,6 @@ function buildAuditFormComponent(payload: AuditFormPayload): A2UIComponent {
       questions: payload.questions,
       overall_outcome: payload.overall_outcome,
       outcome_justification: payload.outcome_justification,
-      additional_analysis: payload.additional_analysis ?? null,
-      follow_ups: payload.follow_ups ?? null,
     },
     layout: { width: "full" },
     zone: "output",

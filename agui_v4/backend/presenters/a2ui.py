@@ -47,8 +47,6 @@ def generate_audit_question_form(
     questions: list[dict[str, Any]],
     overall_outcome: str,
     outcome_justification: str,
-    additional_analysis: str | None = None,
-    follow_ups: str | None = None,
 ) -> A2UIComponent:
     """Build an audit question form component payload."""
     return A2UIComponent(
@@ -58,8 +56,6 @@ def generate_audit_question_form(
             "questions": questions,
             "overall_outcome": overall_outcome,
             "outcome_justification": outcome_justification,
-            "additional_analysis": additional_analysis,
-            "follow_ups": follow_ups,
         },
         layout={"width": "full"},
         zone="output",
@@ -205,8 +201,6 @@ def tfr_analysis_to_component(payload: dict[str, Any]) -> A2UIComponent:
         questions=payload["questions"],
         overall_outcome=payload["overall_outcome"],
         outcome_justification=payload["outcome_justification"],
-        additional_analysis=payload.get("additional_analysis"),
-        follow_ups=payload.get("follow_ups"),
     )
 
 

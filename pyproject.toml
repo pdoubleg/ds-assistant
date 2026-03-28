@@ -53,4 +53,5 @@ dependencies = [
     "cloudpickle>=3.0.0",
     "pydantic-evals>=1.0.10",
     "graphviz>=0.21",
+    "pydantic-monty>=0.0.9",
 ]

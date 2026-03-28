@@ -37,19 +37,7 @@ import type {
 // ── Aggregation logic ────────────────────────────────────────────
 
 function normalizeSubAnswer(answer: unknown): boolean {
-  if (typeof answer === "boolean") {
-    return answer;
-  }
-
-  if (answer === "Yes") {
-    return true;
-  }
-
-  if (answer === "No" || answer === "Insufficient information") {
-    return false;
-  }
-
-  return true;
+  return answer === true;
 }
 
 function aggregateQuestions(forms: SavedForm[]): AggregatedQuestion[] {

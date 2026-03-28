@@ -43,19 +43,7 @@ import type { SavedForm, FormRowStats } from "@/lib/dashboard-types";
 // ── Helpers ──────────────────────────────────────────────────────
 
 function normalizeSubAnswer(answer: unknown): boolean {
-  if (typeof answer === "boolean") {
-    return answer;
-  }
-
-  if (answer === "Yes") {
-    return true;
-  }
-
-  if (answer === "No" || answer === "Insufficient information") {
-    return false;
-  }
-
-  return true;
+  return answer === true;
 }
 
 /** Derive per-form stats from a full SavedForm record. */
@@ -295,9 +283,7 @@ export function FormsDataTable({
             <SelectContent>
               <SelectItem value="all">All Outcomes</SelectItem>
               <SelectItem value="Meets">Meets</SelectItem>
-              <SelectItem value="Does Not Meet Expectations">
-                Does Not Meet
-              </SelectItem>
+              <SelectItem value="Does Not Meet">Does Not Meet</SelectItem>
             </SelectContent>
           </Select>
 

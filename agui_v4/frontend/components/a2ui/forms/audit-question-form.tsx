@@ -9,9 +9,10 @@
  *   - Sub-questions with editable reasoning and citations
  *   - Missing info field for "Insufficient information" answers
  *   - Overall outcome with editable justification
- *   - Optional additional analysis and follow-up sections
+ *   - Optional read-only help text for questions and sub-questions
  *
- * The LLM pre-populates all fields; the reviewer can edit everything.
+ * The LLM pre-populates the form; reviewers can refine answers, reasoning,
+ * citations, and the overall outcome justification.
  */
 
 import React, {
@@ -58,7 +59,7 @@ interface SubQuestion {
   reasoning: string;
   citations: string;
   answer?: SubAnswerValue;
-  comments?: string | null;
+  help_text?: string | null;
 }
 
 interface TFRQuestion {
@@ -67,6 +68,7 @@ interface TFRQuestion {
   answer: AnswerValue;
   sub_questions?: SubQuestion[] | null;
   missing_info?: string | null;
+  help_text?: string | null;
 }
 
 interface PerilDetermination {
@@ -79,8 +81,6 @@ export interface AuditQuestionFormProps {
   questions: TFRQuestion[];
   overall_outcome: string;
   outcome_justification: string;
-  additional_analysis?: string | null;
-  follow_ups?: string | null;
   onSubmit?: (formData: AuditFormPayload, title?: string) => Promise<void>;
   onCancel?: () => void;
   onClose?: () => void;
@@ -90,28 +90,16 @@ export interface AuditQuestionFormProps {
 }
 
 /**
- * Normalize legacy string-based sub-question answers into the new boolean form.
+ * Normalize sub-question answers into the internal boolean form.
  *
  * Args:
- *   answer: Persisted answer value from older or current payloads.
+ *   answer: Persisted answer value.
  *
  * Returns:
- *   ``true`` when the driver is applicable, otherwise ``false``.
+ *   ``true`` when the sub-question is selected, otherwise ``false``.
  */
 function normalizeSubAnswer(answer: unknown): SubAnswerValue {
-  if (typeof answer === "boolean") {
-    return answer;
-  }
-
-  if (answer === "Yes") {
-    return true;
-  }
-
-  if (answer === "No" || answer === "Insufficient information") {
-    return false;
-  }
-
-  return true;
+  return answer === true;
 }
 
 // ── Copy-to-clipboard button ─────────────────────────────────────
@@ -314,7 +302,6 @@ function SubQuestionRow({
   onAnswerChange,
   onReasoningChange,
   onCitationsChange,
-  onCommentsChange,
 }: {
   sub: SubQuestion;
   expanded: boolean;
@@ -322,7 +309,6 @@ function SubQuestionRow({
   onAnswerChange: (answer: SubAnswerValue) => void;
   onReasoningChange: (reasoning: string) => void;
   onCitationsChange: (citations: string) => void;
-  onCommentsChange: (comments: string) => void;
 }) {
   const subAnswer = normalizeSubAnswer(sub.answer);
   const borderColor =
@@ -345,9 +331,16 @@ function SubQuestionRow({
         <span className="shrink-0 text-[10px] font-mono font-bold text-primary bg-primary/8 dark:bg-primary/12 border border-primary/10 dark:border-primary/8 rounded px-1.5 py-0.5 mt-0.5">
           {sub.id}
         </span>
-        <p className="min-w-0 flex-1 text-base text-foreground/90 leading-relaxed">
-          {sub.text}
-        </p>
+        <div className="min-w-0 flex-1">
+          <p className="text-base text-foreground/90 leading-relaxed">
+            {sub.text}
+          </p>
+          {sub.help_text && (
+            <p className="mt-1 text-sm italic text-muted-foreground">
+              {sub.help_text}
+            </p>
+          )}
+        </div>
       </button>
 
       {expanded && (
@@ -393,21 +386,6 @@ function SubQuestionRow({
             </div>
           </div>
 
-          <div className="mt-2">
-            <label className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
-              Comments
-            </label>
-            <div className="flex items-start gap-1 mt-1">
-              <AutoResizeTextarea
-                value={sub.comments || ""}
-                onChange={(e) => onCommentsChange(e.target.value)}
-                placeholder="Optional final comments for this sub-question..."
-                rows={2}
-                className="flex-1 text-sm bg-card dark:bg-background/60 border border-border/80 dark:border-border/25 rounded-lg px-3 py-2 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed shadow-2xs"
-              />
-              <CopyButton text={sub.comments || ""} />
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -423,7 +401,6 @@ function QuestionRow({
   onSubAnswerChange,
   onSubReasoningChange,
   onSubCitationsChange,
-  onSubCommentsChange,
 }: {
   question: TFRQuestion;
   onAnswerChange: (answer: AnswerValue) => void;
@@ -431,7 +408,6 @@ function QuestionRow({
   onSubAnswerChange: (subId: string, answer: SubAnswerValue) => void;
   onSubReasoningChange: (subId: string, reasoning: string) => void;
   onSubCitationsChange: (subId: string, citations: string) => void;
-  onSubCommentsChange: (subId: string, comments: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [expandedSubQuestionIds, setExpandedSubQuestionIds] = useState<Set<string>>(
@@ -508,6 +484,11 @@ function QuestionRow({
           <p className="text-base text-foreground leading-relaxed font-normal">
             {question.text}
           </p>
+          {question.help_text && (
+            <p className="mt-1 text-sm italic text-muted-foreground">
+              {question.help_text}
+            </p>
+          )}
 
           {isInsufficient && (
             <div className="mt-3">
@@ -611,9 +592,6 @@ function QuestionRow({
               onAnswerChange={(a) => onSubAnswerChange(sub.id, a)}
               onReasoningChange={(r) => onSubReasoningChange(sub.id, r)}
               onCitationsChange={(c) => onSubCitationsChange(sub.id, c)}
-              onCommentsChange={(comments) =>
-                onSubCommentsChange(sub.id, comments)
-              }
             />
           ))}
         </div>
@@ -629,8 +607,6 @@ export function AuditQuestionForm({
   questions: initialQuestions,
   overall_outcome: initialOutcome,
   outcome_justification: initialJustification,
-  additional_analysis: initialAnalysis,
-  follow_ups: initialFollowUps,
   onSubmit,
   onCancel,
   onClose,
@@ -650,7 +626,7 @@ export function AuditQuestionForm({
         sub_questions: question.sub_questions?.map((sub) => ({
           ...sub,
           answer: normalizeSubAnswer(sub.answer),
-          comments: sub.comments ?? "",
+          help_text: sub.help_text ?? "",
         })),
       })),
     [initialQuestions]
@@ -661,10 +637,6 @@ export function AuditQuestionForm({
   const [overallOutcome, setOverallOutcome] = useState(initialOutcome);
   const [outcomeJustification, setOutcomeJustification] =
     useState(initialJustification);
-  const [additionalAnalysis, setAdditionalAnalysis] = useState(
-    initialAnalysis || ""
-  );
-  const [followUps, setFollowUps] = useState(initialFollowUps || "");
 
   // ── Question-level handlers ──────────────────────────────────
 
@@ -755,24 +727,6 @@ export function AuditQuestionForm({
     []
   );
 
-  const handleSubCommentsChange = useCallback(
-    (qId: string, subId: string, comments: string) => {
-      setQuestions((prev) =>
-        prev.map((q) =>
-          q.id === qId
-            ? {
-                ...q,
-                sub_questions: q.sub_questions?.map((s) =>
-                  s.id === subId ? { ...s, comments } : s
-                ),
-              }
-            : q
-        )
-      );
-    },
-    []
-  );
-
   // ── Form submission ─────────────────────────────────────────
 
   const collectFormState = useCallback(
@@ -781,10 +735,8 @@ export function AuditQuestionForm({
       questions: questions as unknown as Array<Record<string, unknown>>,
       overall_outcome: overallOutcome,
       outcome_justification: outcomeJustification,
-      additional_analysis: additionalAnalysis || null,
-      follow_ups: followUps || null,
     }),
-    [peril, questions, overallOutcome, outcomeJustification, additionalAnalysis, followUps]
+    [peril, questions, overallOutcome, outcomeJustification]
   );
 
   const handleSubmit = useCallback(async () => {
@@ -803,8 +755,6 @@ export function AuditQuestionForm({
     setQuestions(normalizedInitialQuestions);
     setOverallOutcome(initialOutcome);
     setOutcomeJustification(initialJustification);
-    setAdditionalAnalysis(initialAnalysis || "");
-    setFollowUps(initialFollowUps || "");
     setFormTitle("");
     setSubmitStatus("idle");
     onCancel?.();
@@ -813,8 +763,6 @@ export function AuditQuestionForm({
     normalizedInitialQuestions,
     initialOutcome,
     initialJustification,
-    initialAnalysis,
-    initialFollowUps,
     onCancel,
   ]);
 
@@ -839,8 +787,6 @@ export function AuditQuestionForm({
       return true;
     if (overallOutcome !== initialOutcome) return true;
     if (outcomeJustification !== initialJustification) return true;
-    if ((additionalAnalysis || "") !== (initialAnalysis || "")) return true;
-    if ((followUps || "") !== (initialFollowUps || "")) return true;
     if (
       JSON.stringify(questions) !==
       JSON.stringify(normalizedInitialQuestions)
@@ -854,10 +800,6 @@ export function AuditQuestionForm({
     initialOutcome,
     outcomeJustification,
     initialJustification,
-    additionalAnalysis,
-    initialAnalysis,
-    followUps,
-    initialFollowUps,
     questions,
     normalizedInitialQuestions,
   ]);
@@ -918,7 +860,7 @@ export function AuditQuestionForm({
               type="button"
               onClick={() =>
                 setOverallOutcome((prev) =>
-                  prev === "Meets" ? "Does Not Meet Expectations" : "Meets"
+                  prev === "Meets" ? "Does Not Meet" : "Meets"
                 )
               }
               title="Click to toggle outcome"
@@ -1009,9 +951,6 @@ export function AuditQuestionForm({
             onSubCitationsChange={(subId, c) =>
               handleSubCitationsChange(q.id, subId, c)
             }
-            onSubCommentsChange={(subId, comments) =>
-              handleSubCommentsChange(q.id, subId, comments)
-            }
           />
         ))}
 
@@ -1031,45 +970,6 @@ export function AuditQuestionForm({
               className="flex-1 text-sm bg-secondary/20 dark:bg-background/50 border border-border/70 dark:border-border/20 rounded-lg px-3 py-2.5 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[80px] leading-relaxed"
             />
             <CopyButton text={outcomeJustification} />
-          </div>
-        </div>
-
-        {/* Additional analysis (editable) */}
-        <div className="border border-border/60 dark:border-border/25 rounded-xl p-5 bg-card dark:bg-card/80 shadow-2xs">
-          <label className="text-sm font-semibold text-foreground/85 uppercase tracking-wider">
-            Additional Analysis
-          </label>
-          <p className="text-xs text-muted-foreground mb-2">
-            {peril.peril === "Exterior"
-              ? "Wind/Hail Analysis"
-              : "Flooring & Cabinetry Analysis"}
-          </p>
-          <div className="flex items-start gap-1">
-            <AutoResizeTextarea
-              value={additionalAnalysis}
-              onChange={(e) => setAdditionalAnalysis(e.target.value)}
-              placeholder="Optional additional analysis..."
-              rows={2}
-              className="flex-1 text-sm bg-secondary/20 dark:bg-background/50 border border-border/70 dark:border-border/20 rounded-lg px-3 py-2.5 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed"
-            />
-            <CopyButton text={additionalAnalysis} />
-          </div>
-        </div>
-
-        {/* Follow-ups (editable) */}
-        <div className="border border-border/60 dark:border-border/25 rounded-xl p-5 bg-card dark:bg-card/80 shadow-2xs">
-          <label className="text-sm font-semibold text-foreground/85 uppercase tracking-wider">
-            Recommended Follow-Ups
-          </label>
-          <div className="flex items-start gap-1 mt-1.5">
-            <AutoResizeTextarea
-              value={followUps}
-              onChange={(e) => setFollowUps(e.target.value)}
-              placeholder="Optional follow-up actions..."
-              rows={2}
-              className="flex-1 text-sm bg-secondary/20 dark:bg-background/50 border border-border/70 dark:border-border/20 rounded-lg px-3 py-2.5 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/60 min-h-[52px] leading-relaxed"
-            />
-            <CopyButton text={followUps} />
           </div>
         </div>
 

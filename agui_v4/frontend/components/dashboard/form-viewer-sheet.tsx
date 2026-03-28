@@ -4,8 +4,7 @@
  * FormViewerSheet — read-only slide-in panel for viewing a single audit form.
  *
  * Renders peril, outcome, all questions with answer pills, sub-questions with
- * reasoning / citations / comments, and supplementary sections (justification,
- * additional analysis, follow-ups).  Everything is non-editable.
+ * reasoning / citations, and read-only help text. Everything is non-editable.
  */
 
 import React, { useState, useCallback } from "react";
@@ -32,19 +31,7 @@ import {
 import type { SavedForm, TFRQuestion, SubQuestion } from "@/lib/dashboard-types";
 
 function normalizeSubAnswer(answer: unknown): boolean {
-  if (typeof answer === "boolean") {
-    return answer;
-  }
-
-  if (answer === "Yes") {
-    return true;
-  }
-
-  if (answer === "No" || answer === "Insufficient information") {
-    return false;
-  }
-
-  return true;
+  return answer === true;
 }
 
 // ── Copy button ──────────────────────────────────────────────────
@@ -134,6 +121,11 @@ function SubQuestionViewer({ sub }: { sub: SubQuestion }) {
           <p className="text-sm text-foreground/90 leading-relaxed">
             {sub.text}
           </p>
+          {sub.help_text && (
+            <p className="text-sm italic text-muted-foreground">
+              {sub.help_text}
+            </p>
+          )}
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">
@@ -170,19 +162,6 @@ function SubQuestionViewer({ sub }: { sub: SubQuestion }) {
             </div>
           )}
 
-          {sub.comments && (
-            <div>
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
-                  Comments
-                </span>
-                <CopyBtn text={sub.comments} />
-              </div>
-              <p className="text-sm text-foreground/80 bg-background/60 border border-border/40 rounded-md px-3 py-2 mt-0.5 leading-relaxed">
-                {sub.comments}
-              </p>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -215,9 +194,16 @@ function QuestionViewer({ question }: { question: TFRQuestion }) {
         <span className="shrink-0 text-xs font-mono font-semibold text-primary mt-0.5 min-w-[52px]">
           {question.id}
         </span>
-        <p className="flex-1 text-sm text-foreground leading-relaxed">
-          {question.text}
-        </p>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-foreground leading-relaxed">
+            {question.text}
+          </p>
+          {question.help_text && (
+            <p className="mt-1 text-sm italic text-muted-foreground">
+              {question.help_text}
+            </p>
+          )}
+        </div>
         <div className="shrink-0 ml-2">
           <AnswerBadge answer={question.answer} />
         </div>
@@ -392,14 +378,6 @@ export function FormViewerSheet({
             <TextSection
               label="Outcome Justification"
               text={form.outcome_justification}
-            />
-            <TextSection
-              label="Additional Analysis"
-              text={form.additional_analysis}
-            />
-            <TextSection
-              label="Recommended Follow-Ups"
-              text={form.follow_ups}
             />
 
             {/* Peril notes */}

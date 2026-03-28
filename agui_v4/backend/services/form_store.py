@@ -125,8 +125,6 @@ class FormStore:
             "questions": payload["questions"],
             "overall_outcome": payload["overall_outcome"],
             "outcome_justification": payload["outcome_justification"],
-            "additional_analysis": payload.get("additional_analysis"),
-            "follow_ups": payload.get("follow_ups"),
         }
         self.atomic_write_json(path, record)
         return record
@@ -211,6 +209,4 @@ class FormStore:
             "questions": record.get("questions", []),
             "overall_outcome": record.get("overall_outcome", ""),
             "outcome_justification": record.get("outcome_justification", ""),
-            "additional_analysis": record.get("additional_analysis"),
-            "follow_ups": record.get("follow_ups"),
         }

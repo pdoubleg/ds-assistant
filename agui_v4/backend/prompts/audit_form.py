@@ -43,10 +43,8 @@ Each TFR question must have:
 - **missing_info**: Required when answer is "Insufficient information" — describe what information is needed
 
 ### Overall Assessment
-- **overall_outcome**: "Meets" or "Does Not Meet Expectations"
+- **overall_outcome**: "Meets" or "Does Not Meet"
 - **outcome_justification**: Concise justification synthesizing all question findings
-- **additional_analysis**: Optional Wind/Hail analysis (Exterior) or Flooring/Cabinetry analysis (Interior)
-- **follow_ups**: Optional recommended follow-up actions
 
 ### Generation Rules
 1. Generate 5-15 TFR questions depending on document complexity and peril type
@@ -54,7 +52,8 @@ Each TFR question must have:
 3. Pre-populate ALL answers based on your analysis of the documents
 4. Sub-question reasoning should cite specific evidence from the documents
 5. Citations should reference specific sections, pages, or content from the documents
-6. Be thorough but concise in reasoning — reviewers will refine your analysis"""
+6. Include `help_text` only when brief clarifying guidance would help a reviewer interpret the question or sub-question
+7. Be thorough but concise in reasoning — reviewers will refine your analysis"""
 
 
 def format_audit_form_prompt(document_content: str, additional_instructions: str = "") -> str:

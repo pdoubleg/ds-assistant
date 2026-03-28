@@ -33,19 +33,7 @@ export interface DashboardMetricsProps {
 }
 
 function normalizeSubAnswer(answer: unknown): boolean {
-  if (typeof answer === "boolean") {
-    return answer;
-  }
-
-  if (answer === "Yes") {
-    return true;
-  }
-
-  if (answer === "No" || answer === "Insufficient information") {
-    return false;
-  }
-
-  return true;
+  return answer === true;
 }
 
 export function DashboardMetrics({ forms }: DashboardMetricsProps) {

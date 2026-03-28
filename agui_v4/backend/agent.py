@@ -537,8 +537,6 @@ async def generate_audit_form(
         "questions": tfr_result_dict["questions"],
         "overall_outcome": tfr_result_dict["overall_outcome"],
         "outcome_justification": tfr_result_dict["outcome_justification"],
-        "additional_analysis": tfr_result_dict.get("additional_analysis"),
-        "follow_ups": tfr_result_dict.get("follow_ups"),
     }
     # New generation = new distinct form; clear any previous form ID so the
     # next save creates a fresh record instead of overwriting the old one.

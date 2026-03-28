@@ -24,7 +24,7 @@ async def generate_audit_questions(
         reporter: Optional nested progress reporter for UI-friendly status rows.
 
     Returns:
-        Canonical TFR payload dictionary.
+        Canonical TFR analysis result.
     """
     reporter = reporter or NullStatusReporter()
     mapper = mapper or DocumentMapper()
@@ -63,19 +63,21 @@ async def generate_audit_questions(
         import traceback
 
         traceback.print_exc()
-        return {
-            "peril": {"peril": "Exterior", "notes": "Fallback — generation failed."},
-            "questions": [
-                {
-                    "id": "Q1",
-                    "text": "Could not generate questions — please retry or refine your documents.",
-                    "answer": "Insufficient information",
-                    "sub_questions": None,
-                    "missing_info": "TFR question generation failed. Please retry.",
-                }
-            ],
-            "overall_outcome": "Does Not Meet Expectations",
-            "outcome_justification": "Analysis could not be completed due to an error.",
-            "additional_analysis": None,
-            "follow_ups": None,
-        }
+        # Return a validated fallback object so downstream callers always
+        # receive the same contract even when generation fails.
+        return TFRAnalysisResult.model_validate(
+            {
+                "peril": {"peril": "Exterior", "notes": "Fallback - generation failed."},
+                "questions": [
+                    {
+                        "id": "Q1",
+                        "text": "Could not generate questions. Please retry or refine your documents.",
+                        "answer": "Insufficient information",
+                        "sub_questions": [],
+                        "missing_info": "TFR question generation failed. Please retry.",
+                    }
+                ],
+                "overall_outcome": "Does Not Meet",
+                "outcome_justification": "Analysis could not be completed due to an error.",
+            }
+        )
