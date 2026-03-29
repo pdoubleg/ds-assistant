@@ -33,12 +33,17 @@ async def upload_endpoint(
     """
     try:
         filename = file.filename or "unknown"
-        extension = filename.lower()[filename.rfind(".") :] if "." in filename else ""
+        client_mime_type = file.content_type or None
 
-        if extension not in text_extraction_service.allowed_extensions:
+        if not text_extraction_service.is_supported_upload(filename, client_mime_type):
             allowed = ", ".join(sorted(text_extraction_service.allowed_extensions))
             return JSONResponse(
-                {"error": f"Unsupported file type: {extension}. Allowed: {allowed}"},
+                {
+                    "error": (
+                        f"Unsupported file type: {filename} ({client_mime_type or 'unknown MIME'}). "
+                        f"Allowed extensions: {allowed}"
+                    )
+                },
                 status_code=400,
             )
 
@@ -50,6 +55,7 @@ async def upload_endpoint(
             file_bytes=file_bytes,
             content_id=staged_document.content_id,
             content_url=staged_document.public_url,
+            mime_type=client_mime_type,
         )
 
         print(

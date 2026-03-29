@@ -123,6 +123,69 @@ def count_tokens_approximately(messages: Sequence[ModelMessage]) -> int:  # prag
     return total_chars // 4
 
 
+def count_tokens_tiktoken(messages: Sequence[ModelMessage], model: str = "gpt-5.4") -> int:
+    """Count tokens using tiktoken for accurate token counting.
+
+    This function uses the tiktoken library to provide accurate token counts
+    for OpenAI models, which is more precise than character-based approximation.
+
+    Args:
+        messages: Sequence of messages to count tokens for.
+        model: Model name to use for tokenization. Defaults to "gpt-5.4".
+
+    Returns:
+        Accurate token count.
+
+    Example:
+        ```python
+        from .processor import count_tokens_tiktoken
+
+        messages = [...]  # Your message history
+        token_count = count_tokens_tiktoken(messages)
+        print(f"Exactly {token_count} tokens")
+        ```
+    """
+    try:
+        import tiktoken
+    except ImportError:
+        raise ImportError(
+            "tiktoken is required for accurate token counting. "
+            "Install it with: uv add tiktoken"
+        )
+
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+    except KeyError:
+        # Fallback to cl100k_base encoding (used by gpt-4, gpt-3.5-turbo, etc.)
+        encoding = tiktoken.get_encoding("cl100k_base")
+
+    total_tokens = 0
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, UserPromptPart):
+                    if isinstance(part.content, str):
+                        total_tokens += len(encoding.encode(part.content))
+                    else:
+                        # List of content parts
+                        for item in part.content:
+                            if isinstance(item, dict) and "text" in item:
+                                total_tokens += len(encoding.encode(str(item.get("text", ""))))
+                elif isinstance(part, SystemPromptPart):
+                    total_tokens += len(encoding.encode(part.content))
+                elif isinstance(part, ToolReturnPart):
+                    total_tokens += len(encoding.encode(str(part.content)))
+        elif isinstance(msg, ModelResponse):
+            for response_part in msg.parts:
+                if isinstance(response_part, TextPart):
+                    total_tokens += len(encoding.encode(response_part.content))
+                elif isinstance(response_part, ToolCallPart):
+                    total_tokens += len(encoding.encode(response_part.tool_name))
+                    total_tokens += len(encoding.encode(str(response_part.args)))
+
+    return total_tokens
+                                
+
 def _format_request_parts(msg: ModelRequest) -> list[str]:  # pragma: no branch
     """Format request message parts."""
     lines: list[str] = []
@@ -452,6 +515,7 @@ __all__ = [
     "DEFAULT_SUMMARY_PROMPT",
     "SummarizationProcessor",
     "count_tokens_approximately",
+    "count_tokens_tiktoken",
     "create_summarization_processor",
     "format_messages_for_summary",
 ]

@@ -3,12 +3,26 @@
 from datetime import datetime, timezone
 from typing import Any
 
+from pydantic_ai import BinaryContent
+from pydantic_ai.messages import UserContent
+
 from domain.audit_state import AuditState
 from models.documents import Document, Documents
+from services.runtime_storage import RuntimeStorageService
 
 
 class DocumentMapper:
     """Normalize document payloads across AG-UI, REST routes, and workflows."""
+
+    IMAGE_MIME_TYPES: set[str] = {
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/gif",
+        "image/bmp",
+        "image/tiff",
+        "image/webp",
+    }
 
     def state_documents_to_prompt_payloads(self, state: AuditState) -> list[dict[str, Any]]:
         """Map shared-state documents into lightweight prompt payloads.
@@ -93,7 +107,7 @@ class DocumentMapper:
 
         return Documents(documents=doc_models), content_id_to_file_name
 
-    def tagging_prompt_documents(self, payloads: list[Any]) -> list[dict[str, str]]:
+    def tagging_prompt_documents(self, payloads: list[Any]) -> list[dict[str, Any]]:
         """Map tagging request documents into prompt payload dicts.
 
         Args:
@@ -107,9 +121,106 @@ class DocumentMapper:
                 "file_name": self._get_field(payload, "file_name"),
                 "content": self._get_field(payload, "content", ""),
                 "document_type": self._get_field(payload, "document_type", ""),
+                "metadata_string": self.build_document_metadata_string(payload),
+                "is_image": self.is_image_document(payload),
             }
             for payload in payloads
         ]
+
+    def is_image_document(self, payload: Any) -> bool:
+        """Return whether the payload represents an image document."""
+        mime_type = str(self._get_field(payload, "mime_type", "unknown")).lower()
+        return mime_type in self.IMAGE_MIME_TYPES
+
+    def build_document_metadata_string(self, payload: Any) -> str:
+        """Build a compact metadata block for prompt use.
+
+        Args:
+            payload: Document payload model or dictionary.
+
+        Returns:
+            Multi-line metadata string suitable for prompt injection.
+        """
+        lines = [
+            f"- File name: {self._get_field(payload, 'file_name', 'Untitled')}",
+            f"- Content ID: {self._get_field(payload, 'content_id', 'N/A') or 'N/A'}",
+            f"- MIME type: {self._get_field(payload, 'mime_type', 'unknown') or 'unknown'}",
+            f"- Document type: {self._get_field(payload, 'document_type', '') or 'N/A'}",
+        ]
+        document_description = self._get_field(payload, "document_description", "")
+        if document_description:
+            lines.append(f"- Description: {document_description}")
+        content_url = self._get_field(payload, "content_url", "")
+        if content_url:
+            lines.append(f"- Content URL: {content_url}")
+        return "\n".join(lines)
+
+    def build_image_prompt_parts(
+        self,
+        payloads: list[Any],
+        runtime_storage: RuntimeStorageService | None,
+    ) -> list[UserContent]:
+        """Build prompt parts for image documents using metadata + BinaryContent.
+
+        Args:
+            payloads: Document payload models or dictionaries.
+            runtime_storage: Service used to resolve staged image bytes.
+
+        Returns:
+            Ordered prompt parts suitable for `Agent.run(...)`.
+        """
+        if runtime_storage is None:
+            return []
+
+        prompt_parts: list[UserContent] = []
+        for payload in payloads:
+            binary_part = self.build_image_binary_content(payload, runtime_storage)
+            if binary_part is None:
+                continue
+            prompt_parts.append(
+                "\n".join(
+                    [
+                        "## Attached Image Document",
+                        self.build_document_metadata_string(payload),
+                    ]
+                )
+            )
+            prompt_parts.append(binary_part)
+        return prompt_parts
+
+    def build_image_binary_content(
+        self,
+        payload: Any,
+        runtime_storage: RuntimeStorageService,
+    ) -> BinaryContent | None:
+        """Resolve staged image bytes into a pydantic-ai `BinaryContent`.
+
+        Args:
+            payload: Document payload model or dictionary.
+            runtime_storage: Runtime storage resolver.
+
+        Returns:
+            `BinaryContent` when the document is an image with staged bytes,
+            otherwise `None`.
+        """
+        if not self.is_image_document(payload):
+            return None
+
+        content_id = self._get_field(payload, "content_id", "")
+        file_name = self._get_field(payload, "file_name", "")
+        mime_type = self._get_field(payload, "mime_type", "application/octet-stream")
+        if not content_id or not file_name:
+            return None
+
+        staged_path = runtime_storage.resolve_staged_document_path(content_id, file_name)
+        if staged_path is None:
+            return None
+
+        return BinaryContent(
+            data=staged_path.read_bytes(),
+            media_type=mime_type,
+            identifier=file_name,
+        )
 
     def _get_field(self, payload: Any, field_name: str, default: Any = None) -> Any:
         """Read a field from a pydantic model or dictionary."""

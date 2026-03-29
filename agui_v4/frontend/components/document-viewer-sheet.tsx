@@ -26,9 +26,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { GfmMarkdown } from "@/components/a2ui/general/gfm-markdown";
 import {
   FileText,
-  FileSpreadsheet,
-  FileImage,
-  File,
   Copy,
   ClipboardCheck,
   Calendar,
@@ -40,7 +37,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UploadedDoc } from "@/hooks/use-uploaded-docs";
-import type { DocumentSummaryData } from "@/components/a2ui/documents";
+import {
+  deriveFileExt,
+  getFileTypeBadgeClass,
+  getFileTypeIcon,
+  type DocumentSummaryData,
+} from "@/components/a2ui/documents";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -56,36 +58,6 @@ function resolveDocumentUrl(contentUrl: string): string {
   }
   return `${BACKEND_URL}${contentUrl}`;
 }
-
-function deriveFileExt(mime_type: string, file_name: string): string {
-  const mimeMap: Record<string, string> = {
-    "application/pdf": "pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-      "docx",
-    "application/msword": "docx",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-      "xlsx",
-    "application/vnd.ms-excel": "xlsx",
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/tiff": "tiff",
-  };
-  if (mimeMap[mime_type]) return mimeMap[mime_type];
-  const dotIdx = file_name.lastIndexOf(".");
-  if (dotIdx >= 0) return file_name.slice(dotIdx + 1).toLowerCase();
-  return "file";
-}
-
-const FILE_ICONS: Record<string, React.ReactNode> = {
-  pdf: <FileText className="h-5 w-5 text-red-500 dark:text-red-400" />,
-  docx: <FileText className="h-5 w-5 text-blue-500 dark:text-blue-400" />,
-  xlsx: (
-    <FileSpreadsheet className="h-5 w-5 text-emerald-500 dark:text-emerald-400" />
-  ),
-  jpg: <FileImage className="h-5 w-5 text-amber-500 dark:text-amber-400" />,
-  png: <FileImage className="h-5 w-5 text-amber-500 dark:text-amber-400" />,
-  tiff: <FileImage className="h-5 w-5 text-amber-500 dark:text-amber-400" />,
-};
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -209,10 +181,9 @@ export function DocumentViewerSheet({
   if (!doc) return null;
 
   const ext = deriveFileExt(doc.mime_type, doc.file_name);
-  const icon = FILE_ICONS[ext] || (
-    <File className="h-5 w-5 text-muted-foreground" />
-  );
+  const icon = getFileTypeIcon(ext, "lg");
   const isPdf = ext === "pdf";
+  const isImage = ["jpg", "png", "gif", "bmp", "tiff", "webp"].includes(ext);
 
   const formattedDate = doc.create_date
     ? new Date(doc.create_date).toLocaleDateString("en-US", {
@@ -223,7 +194,8 @@ export function DocumentViewerSheet({
     : null;
 
   // Build the raw PDF URL for the iframe, optionally targeting a page.
-  const pdfUrl = isPdf ? resolveDocumentUrl(doc.content_url) : null;
+  const resolvedDocumentUrl = resolveDocumentUrl(doc.content_url);
+  const pdfUrl = isPdf ? resolvedDocumentUrl : null;
   const pageFragment =
     initialPage && initialPage > 1 ? `page=${initialPage}` : "";
   const fullscreenFragment = isFullscreen ? "zoom=100" : "";
@@ -234,7 +206,9 @@ export function DocumentViewerSheet({
     pdfUrl && fragments ? `${pdfUrl}#${fragments}` : pdfUrl;
 
   // Pick the default tab based on what content is available
-  const defaultTab = isPdf ? "preview" : textContent ? "text" : "summary";
+  const hasPreview = isPdf || isImage;
+  const defaultTab = hasPreview ? "preview" : textContent ? "text" : "summary";
+  const typeBadgeClass = getFileTypeBadgeClass(ext);
 
   const contentHeight = isFullscreen
     ? "h-[calc(100vh-52px)]"
@@ -267,7 +241,7 @@ export function DocumentViewerSheet({
               </SheetDescription>
 
               <TabsList className="h-8 ml-2">
-                {isPdf && (
+                {hasPreview && (
                   <TabsTrigger value="preview" className="text-xs gap-1.5">
                     <Eye className="h-3 w-3" />
                     Preview
@@ -316,7 +290,10 @@ export function DocumentViewerSheet({
                 <div className="flex items-center gap-2 flex-wrap mt-1">
                   <Badge
                     variant="outline"
-                    className="text-[10px] px-1.5 py-0 font-mono font-bold"
+                    className={cn(
+                      "text-[10px] px-1.5 py-0 font-mono font-bold",
+                      typeBadgeClass
+                    )}
                   >
                     {ext.toUpperCase()}
                   </Badge>
@@ -368,7 +345,7 @@ export function DocumentViewerSheet({
               {/* Tab bar + Expand button */}
               <div className="flex items-center gap-2 px-6 pt-3 border-b border-border/30">
                 <TabsList className="h-8">
-                  {isPdf && (
+                  {hasPreview && (
                     <TabsTrigger value="preview" className="text-xs gap-1.5">
                       <Eye className="h-3 w-3" />
                       Preview
@@ -400,19 +377,32 @@ export function DocumentViewerSheet({
 
           {/* ── Tab content ──────────────────────────────────────── */}
 
-          {/* Preview tab — PDF iframe */}
-          {isPdf && (
+          {/* Preview tab — PDF iframe or image */}
+          {hasPreview && (
             <TabsContent value="preview" className="flex-1 min-h-0">
-              {pdfUrl ? (
+              {isPdf && pdfUrl ? (
                 <iframe
                   key={`pdf-preview-${isFullscreen ? "fullscreen" : "normal"}`}
                   src={previewPdfUrl || undefined}
                   className={cn("w-full border-0", contentHeight)}
                   title={`PDF preview: ${doc.file_name}`}
                 />
+              ) : isImage && resolvedDocumentUrl ? (
+                <div
+                  className={cn(
+                    "flex items-center justify-center bg-muted/20 px-4 py-4",
+                    contentHeight
+                  )}
+                >
+                  <img
+                    src={resolvedDocumentUrl}
+                    alt={doc.file_name}
+                    className="max-h-full max-w-full rounded-md border border-border/40 shadow-sm object-contain"
+                  />
+                </div>
               ) : (
                 <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
-                  PDF preview not available.
+                  Preview not available.
                 </div>
               )}
             </TabsContent>

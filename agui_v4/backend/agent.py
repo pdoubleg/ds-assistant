@@ -13,6 +13,7 @@ from pydantic_ai.ag_ui import StateDeps
 from ag_ui.core import EventType, StateSnapshotEvent
 
 from agent_instructions import AUDIT_AGENT_INSTRUCTIONS
+from dependencies import get_runtime_storage_service
 from domain.audit_state import AuditState
 from model_config import get_agent_model
 from presenters.a2ui import (
@@ -34,11 +35,14 @@ from services.document_mapper import DocumentMapper
 from workflows.agent_factory import (
     charts_agent,
     findings_agent,
+    image_analysis_agent,
     summary_metrics_agent,
     tables_agent,
     timeline_event_agent,
 )
 from workflows.audit_form import generate_audit_questions
+from prompts.documents import format_image_analysis_prompt
+from services.message_history import create_summarization_processor, count_tokens_tiktoken
 
 logger = logging.getLogger("audit_agent")
 
@@ -47,14 +51,20 @@ logger = logging.getLogger("audit_agent")
 # Agent definition
 # =========================================================================
 
+processor = create_summarization_processor(
+    model=get_agent_model(),
+    trigger=("fraction", 0.8),
+    keep=("messages", 10),
+    token_counter=count_tokens_tiktoken,
+    max_input_tokens=272000,
+)
+
 agent = Agent(
     model=get_agent_model(),
     name="audit_agent",
     deps_type=StateDeps[AuditState],
+    history_processors=[processor],
     instructions=AUDIT_AGENT_INSTRUCTIONS,
-    model_settings=OpenAIChatModelSettings(
-        parallel_tool_calls=False,
-    ),
 )
 
 
@@ -124,6 +134,66 @@ def get_documents_content(ctx: RunContext[StateDeps[AuditState]]) -> ToolReturn:
 
     return ToolReturn(
         return_value=combined_text,
+        metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
+    )
+
+
+@agent.tool
+async def get_image_analysis(
+    ctx: RunContext[StateDeps[AuditState]],
+    content_id: str,
+    additional_instructions: str = "",
+) -> ToolReturn:
+    """Analyze one image document from shared state and return a detailed text description.
+
+    Args:
+        ctx: Pydantic AI run context carrying the shared ``AuditState``.
+        content_id: Stable document identifier from shared state.
+        additional_instructions: Optional extra guidance for the image-analysis sub-agent.
+
+    Returns:
+        ToolReturn with the extracted image description and a synced state snapshot.
+    """
+    state = ctx.deps.state
+    truncated_instructions = (additional_instructions or "").strip()
+    if len(truncated_instructions) > 80:
+        truncated_instructions = truncated_instructions[:77].rstrip() + "..."
+    analysis_label = truncated_instructions or "default image review"
+
+    state.current_step = f"Analyzing image document: {analysis_label}"
+    log_tool_call(state, state.current_step, "in_progress", "get_image_analysis")
+
+    mapper = DocumentMapper()
+    runtime_storage = get_runtime_storage_service()
+    document = next(
+        (
+            doc
+            for doc in state.documents
+            if str(doc.get("content_id", "")) == content_id
+        ),
+        None,
+    )
+    if document is None:
+        raise ModelRetry(f"Document with content_id '{content_id}' not found in shared state.")
+
+    if not mapper.is_image_document(document):
+        raise ModelRetry(f"Document with content_id '{content_id}' is not an image document.")
+
+    binary_content = mapper.build_image_binary_content(document, runtime_storage)
+    if binary_content is None:
+        raise ModelRetry(
+            f"Image bytes for content_id '{content_id}' could not be resolved from staged storage."
+        )
+
+    prompt = format_image_analysis_prompt(
+        metadata_string=mapper.build_document_metadata_string(document),
+        additional_instructions=additional_instructions,
+    )
+    result = await image_analysis_agent.run([prompt, binary_content])
+    state.current_step = f"Completed image analysis: {analysis_label}"
+    log_tool_call(state, state.current_step, "completed", "get_image_analysis")
+    return ToolReturn(
+        return_value=result.output,
         metadata=[StateSnapshotEvent(type=EventType.STATE_SNAPSHOT, snapshot=state)],
     )
 

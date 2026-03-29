@@ -30,6 +30,7 @@ from .processor import (
     DEFAULT_SUMMARY_PROMPT,
     SummarizationProcessor,
     count_tokens_approximately,
+    count_tokens_tiktoken,
     create_summarization_processor,
     format_messages_for_summary,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "create_sliding_window_processor",
     # Utilities
     "count_tokens_approximately",
+    "count_tokens_tiktoken",
     "format_messages_for_summary",
     # Types
     "ContextSize",

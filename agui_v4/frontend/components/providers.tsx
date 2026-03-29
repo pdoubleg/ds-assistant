@@ -14,6 +14,7 @@ import { HttpAgent } from "@ag-ui/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UploadedDocsProvider } from "@/hooks/use-uploaded-docs";
 import { ChatDocsProvider } from "@/hooks/use-chat-docs";
+import { ChatHistoryProvider } from "@/hooks/use-chat-history";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8001";
@@ -39,7 +40,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       >
         <UploadedDocsProvider>
           <ChatDocsProvider>
-            <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+            <ChatHistoryProvider>
+              <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+            </ChatHistoryProvider>
           </ChatDocsProvider>
         </UploadedDocsProvider>
       </CopilotKitProvider>

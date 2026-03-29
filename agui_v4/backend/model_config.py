@@ -14,13 +14,16 @@ Example usage:
 import os
 from dotenv import load_dotenv
 
+from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
+
+
 load_dotenv()
 
 # Higher-capability model for the main AG-UI conversational agent
-AGENT_MODEL: str = os.getenv("AGENT_MODEL", "openai:gpt-5-mini")
+AGENT_MODEL: str = os.getenv("AGENT_MODEL", "openai:gpt-5.4")
 
 # Faster, cheaper model for orchestration sub-agents (analysis, component generation)
-ORCHESTRATOR_MODEL: str = os.getenv("ORCHESTRATOR_MODEL", "openai:gpt-4.1-mini")
+ORCHESTRATOR_MODEL: str = os.getenv("ORCHESTRATOR_MODEL", "openai:gpt-5.4-nano")
 
 
 def get_agent_model() -> str:
@@ -29,7 +32,16 @@ def get_agent_model() -> str:
     Returns:
         pydantic-ai model string (e.g., 'openai:gpt-5-mini')
     """
-    return AGENT_MODEL
+    settings = OpenAIResponsesModelSettings(
+        openai_reasoning_effort="medium",
+        openai_reasoning_summary="concise",
+        parallel_tool_calls=False,
+    )   
+    model = OpenAIResponsesModel(
+        model_name="gpt-5.4",
+        settings=settings,
+    )
+    return model
 
 
 def get_orchestrator_model() -> str:

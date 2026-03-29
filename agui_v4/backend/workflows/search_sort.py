@@ -6,6 +6,7 @@ from api.schemas.documents import SearchSortResponse
 from models.search import DocSearchScore
 from prompts.documents import format_doc_search_sort_prompt
 from services.document_mapper import DocumentMapper
+from services.runtime_storage import RuntimeStorageService
 from workflows.agent_factory import SearchSortDeps, search_sort_agent
 
 
@@ -41,6 +42,7 @@ async def run_search_sort(
     query: str,
     documents: list[Any],
     mapper: DocumentMapper | None = None,
+    runtime_storage: RuntimeStorageService | None = None,
 ) -> SearchSortResponse:
     """Score documents against a user query.
 
@@ -48,6 +50,7 @@ async def run_search_sort(
         query: User query to rank or filter documents.
         documents: Search/sort request payloads.
         mapper: Optional shared document mapper.
+        runtime_storage: Optional runtime storage for staged image bytes.
 
     Returns:
         Normalized subset response containing `scores` and `content_id_to_file_name`.
@@ -57,7 +60,11 @@ async def run_search_sort(
 
     mapper = mapper or DocumentMapper()
     document_models, content_id_to_file_name = mapper.build_search_sort_documents(documents)
-    deps = SearchSortDeps(documents=document_models)
+    deps = SearchSortDeps(
+        documents=document_models,
+        mapper=mapper,
+        runtime_storage=runtime_storage,
+    )
 
     prompt = format_doc_search_sort_prompt(query=query)
     result = await search_sort_agent.run(prompt, deps=deps)

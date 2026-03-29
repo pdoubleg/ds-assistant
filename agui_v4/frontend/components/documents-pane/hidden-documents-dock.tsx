@@ -22,7 +22,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { deriveFileExt, type DocumentTagData } from "@/components/a2ui/documents";
+import {
+  deriveFileExt,
+  getFileTypeBadgeClass,
+  type DocumentTagData,
+} from "@/components/a2ui/documents";
 import { getTagConfig } from "@/lib/tag-registry";
 import { cn } from "@/lib/utils";
 import type { DocWithId, HiddenSortKey, HiddenStats } from "./types";
@@ -391,7 +395,8 @@ function HiddenDocRow({
   onPreviewDoc,
   onUnhide,
 }: HiddenDocRowProps) {
-  const ext = deriveFileExt(doc.mime_type, doc.file_name).toUpperCase();
+  const normalizedExt = deriveFileExt(doc.mime_type, doc.file_name);
+  const ext = normalizedExt.toUpperCase();
   const createDate = doc.create_date
     ? new Date(doc.create_date).toLocaleDateString()
     : "—";
@@ -410,7 +415,10 @@ function HiddenDocRow({
       <TableCell>
         <Badge
           variant="outline"
-          className="font-mono text-[10px] px-1.5 py-0 bg-primary/10 text-primary border-primary/30"
+          className={cn(
+            "font-mono text-[10px] px-1.5 py-0",
+            getFileTypeBadgeClass(normalizedExt)
+          )}
         >
           {ext}
         </Badge>

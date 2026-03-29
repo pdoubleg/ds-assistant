@@ -385,7 +385,14 @@ export function DocumentsPane() {
 
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
-  const [tagFilterMode, setTagFilterMode] = useState<TagFilterMode>("or");
+  const [tagFilterMode, setTagFilterMode] = useState<TagFilterMode>("and");
+
+  useEffect(() => {
+    // Reset to the default multi-tag mode when no tag filters are active.
+    if (filters.tags.size === 0 && tagFilterMode !== "and") {
+      setTagFilterMode("and");
+    }
+  }, [filters.tags, tagFilterMode]);
 
   // ── Sort state ──────────────────────────────────────────────────────
 
@@ -1164,9 +1171,12 @@ export function DocumentsPane() {
   const buildVisiblePayloads = useCallback(() => {
     return filteredDocs.map((doc) => ({
       file_name: doc.file_name,
+      content_id: doc.content_id || doc.file_name,
       content: getTextContent(doc.file_name),
       mime_type: doc.mime_type,
+      content_url: doc.content_url || "",
       document_type: doc.document_type || "",
+      document_description: doc.document_description || "",
     }));
   }, [filteredDocs, getTextContent]);
 

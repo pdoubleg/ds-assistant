@@ -1,4 +1,10 @@
-export { DocumentCard, deriveFileExt, formatTokenCount } from "./document-card";
+export {
+  DocumentCard,
+  deriveFileExt,
+  formatTokenCount,
+  getFileTypeBadgeClass,
+  getFileTypeIcon,
+} from "./document-card";
 export type {
   BulkExpandedCommand,
   DocumentCardProps,

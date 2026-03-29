@@ -33,7 +33,11 @@ router = APIRouter()
         500: {"description": "Summarization failed for one or more documents (reported inline)."},
     },
 )
-async def summarize_endpoint(body: SummarizeRequest) -> StreamingResponse:
+async def summarize_endpoint(
+    body: SummarizeRequest,
+    mapper: DocumentMapper = Depends(get_document_mapper),
+    runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
+) -> StreamingResponse:
     """Summarize one or more documents, streaming results as **NDJSON**.
 
     Each line in the response is a JSON object keyed by `file_name` containing
@@ -46,7 +50,7 @@ async def summarize_endpoint(body: SummarizeRequest) -> StreamingResponse:
 
     async def generate() -> str:
         for document in body.documents:
-            if not document.content.strip():
+            if not document.content.strip() and not document.mime_type.startswith("image/"):
                 yield encode_ndjson_line(
                     {
                         "file_name": document.file_name,
@@ -59,9 +63,14 @@ async def summarize_endpoint(body: SummarizeRequest) -> StreamingResponse:
                 payload = await summarize_document(
                     file_name=document.file_name,
                     content=document.content,
+                    content_id=document.content_id,
                     mime_type=document.mime_type,
+                    content_url=document.content_url,
                     document_type=document.document_type,
+                    document_description=document.document_description,
                     additional_instructions=body.additional_instructions,
+                    mapper=mapper,
+                    runtime_storage=runtime_storage,
                 )
                 yield encode_ndjson_line(payload)
             except Exception as exc:
@@ -87,6 +96,7 @@ async def summarize_endpoint(body: SummarizeRequest) -> StreamingResponse:
 async def search_sort_endpoint(
     body: SearchSortRequest,
     mapper: DocumentMapper = Depends(get_document_mapper),
+    runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> JSONResponse:
     """Score and rank documents against a natural-language query using the AI-powered
     search/sort workflow.
@@ -95,7 +105,12 @@ async def search_sort_endpoint(
     `file_name` mapping for client-side resolution.
     """
     try:
-        payload = await run_search_sort(body.query, body.documents, mapper=mapper)
+        payload = await run_search_sort(
+            body.query,
+            body.documents,
+            mapper=mapper,
+            runtime_storage=runtime_storage,
+        )
         return JSONResponse(payload.model_dump())
     except Exception as exc:
         print(f"[SEARCH-SORT ERROR] {exc}", flush=True)
@@ -119,6 +134,7 @@ async def search_sort_endpoint(
 async def document_tags_endpoint(
     body: TagRequest,
     mapper: DocumentMapper = Depends(get_document_mapper),
+    runtime_storage: RuntimeStorageService = Depends(get_runtime_storage_service),
 ) -> StreamingResponse:
     """Classify documents into tag categories using an AI tagging workflow,
     streaming **NDJSON** progress per batch.
@@ -138,7 +154,12 @@ async def document_tags_endpoint(
 
         for batch_idx, batch in enumerate(batches):
             try:
-                results = await run_tag_batch(batch, active_tags=active_tags, mapper=mapper)
+                results = await run_tag_batch(
+                    batch,
+                    active_tags=active_tags,
+                    mapper=mapper,
+                    runtime_storage=runtime_storage,
+                )
                 yield encode_ndjson_line(
                     {
                         "batch": batch_idx + 1,

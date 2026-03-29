@@ -10,7 +10,14 @@
 import React, { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, Copy, Download } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  Copy,
+  Download,
+} from "lucide-react";
 
 export interface DataTableProps {
   headers: string[];
@@ -25,13 +32,12 @@ export function DataTable({
   headers,
   rows,
   caption,
-  sortable = false,
+  sortable = true,
   copyable = true,
   downloadable = true,
 }: DataTableProps): React.ReactElement {
   const [sortColumn, setSortColumn] = useState<number | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [sortedRows, setSortedRows] = useState(rows);
   const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "error">(
     "idle"
   );
@@ -42,28 +48,32 @@ export function DataTable({
     const newDirection =
       sortColumn === columnIndex && sortDirection === "asc" ? "desc" : "asc";
 
-    const sorted = [...rows].sort((a, b) => {
-      const aVal = a[columnIndex];
-      const bVal = b[columnIndex];
-
-      if (typeof aVal === "number" && typeof bVal === "number") {
-        return newDirection === "asc" ? aVal - bVal : bVal - aVal;
-      }
-
-      const aStr = String(aVal).toLowerCase();
-      const bStr = String(bVal).toLowerCase();
-
-      if (aStr < bStr) return newDirection === "asc" ? -1 : 1;
-      if (aStr > bStr) return newDirection === "asc" ? 1 : -1;
-      return 0;
-    });
-
     setSortColumn(columnIndex);
     setSortDirection(newDirection);
-    setSortedRows(sorted);
   };
 
-  const displayRows = sortable ? sortedRows : rows;
+  const displayRows = useMemo(() => {
+    if (!sortable || sortColumn === null) {
+      return rows;
+    }
+
+    return [...rows].sort((a, b) => {
+      const aVal = a[sortColumn];
+      const bVal = b[sortColumn];
+
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        return sortDirection === "asc" ? aVal - bVal : bVal - aVal;
+      }
+
+      const aStr = String(aVal ?? "").toLowerCase();
+      const bStr = String(bVal ?? "").toLowerCase();
+
+      if (aStr < bStr) return sortDirection === "asc" ? -1 : 1;
+      if (aStr > bStr) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [rows, sortColumn, sortDirection, sortable]);
+
   /**
    * Builds a stable, filesystem-safe filename seed from table metadata.
    */
@@ -228,17 +238,23 @@ export function DataTable({
                   <th
                     key={idx}
                     className={`px-4 py-3 text-left text-base font-extrabold text-foreground ${
-                      sortable ? "cursor-pointer hover:bg-secondary" : ""
+                      sortable ? "cursor-pointer select-none hover:bg-secondary" : ""
                     }`}
                     onClick={() => handleSort(idx)}
                   >
                     <div className="flex items-center gap-2">
                       {header}
-                      {sortable && sortColumn === idx && (
-                        <span className="text-xs text-foreground/80">
-                          {sortDirection === "asc" ? "\u2191" : "\u2193"}
-                        </span>
-                      )}
+                      {sortable ? (
+                        sortColumn === idx ? (
+                          sortDirection === "asc" ? (
+                            <ArrowUp className="h-3 w-3 text-foreground/80" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 text-foreground/80" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 text-foreground/40" />
+                        )
+                      ) : null}
                     </div>
                   </th>
                 ))}

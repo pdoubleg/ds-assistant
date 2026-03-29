@@ -16,7 +16,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuditAgent, type StepActivity } from "@/hooks/use-audit-agent";
 import { useUploadedDocs } from "@/hooks/use-uploaded-docs";
 import { useChatDocs } from "@/hooks/use-chat-docs";
+import {
+  DEFAULT_WELCOME_MESSAGE,
+  useChatHistory,
+  type ChatMessage,
+  type UserAssistantChatMessage,
+} from "@/hooks/use-chat-history";
 import { deriveFileExt, formatTokenCount } from "@/components/a2ui/documents";
+import { GfmMarkdown } from "@/components/a2ui/general/gfm-markdown";
 import {
   Send,
   Loader2,
@@ -60,14 +67,51 @@ const CHAT_SUGGESTIONS: ReadonlyArray<{
 ];
 
 const EXT_TO_MIME: Record<string, string> = {
+  txt: "text/plain",
+  html: "text/html",
+  htm: "text/html",
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  msg: "application/vnd.ms-outlook",
+  eml: "message/rfc822",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
+  gif: "image/gif",
+  bmp: "image/bmp",
+  tif: "image/tiff",
   tiff: "image/tiff",
+  webp: "image/webp",
 };
+
+const SUPPORTED_UPLOAD_EXTENSIONS = [
+  "txt",
+  "html",
+  "htm",
+  "pdf",
+  "docx",
+  "xls",
+  "xlsx",
+  "msg",
+  "eml",
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "bmp",
+  "tif",
+  "tiff",
+  "webp",
+];
+
+const SUPPORTED_UPLOAD_ACCEPT = SUPPORTED_UPLOAD_EXTENSIONS.map(
+  (ext) => `.${ext}`
+).join(",");
+
+const SUPPORTED_UPLOAD_LABEL =
+  ".txt, .html, .pdf, .docx, .xls, .xlsx, .msg, .eml, .jpg, .png, .gif, .bmp, .tiff, .webp";
 
 function mimeFromExt(ext: string): string {
   return EXT_TO_MIME[ext.toLowerCase()] || "application/octet-stream";
@@ -125,20 +169,25 @@ function areStepListsEqual(
   return true;
 }
 
-type UserAssistantChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-};
+/**
+ * Find the latest assistant message in a chat transcript.
+ *
+ * Args:
+ *   messages: Timeline messages to scan from newest to oldest.
+ *
+ * Returns:
+ *   The latest assistant message text, or null when absent.
+ */
+function getLastAssistantContent(messages: ChatMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === "assistant") {
+      return message.content;
+    }
+  }
 
-type ToolStatusChatMessage = {
-  id: string;
-  role: "tool_status";
-  steps: StepActivity[];
-  isLive: boolean;
-};
-
-type ChatMessage = UserAssistantChatMessage | ToolStatusChatMessage;
+  return null;
+}
 
 function QBotAvatarIcon({
   className,
@@ -225,11 +274,14 @@ export function ChatPane() {
   } = useAuditAgent();
   const { uploadedDocs, addUploadedDoc, updateUploadedDoc } = useUploadedDocs();
   const { chatDocNames, removeChatDoc, addChatDoc } = useChatDocs();
+  const {
+    chatMessages,
+    setChatMessages,
+    collapsedToolBubbleIds,
+    setCollapsedToolBubbleIds,
+  } = useChatHistory();
   const [message, setMessage] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [collapsedToolBubbleIds, setCollapsedToolBubbleIds] = useState<
-    Set<string>
-  >(new Set());
   const [showPlusPanel, setShowPlusPanel] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -239,20 +291,15 @@ export function ChatPane() {
   const suggestionsPopoverRef = useRef<HTMLDivElement>(null);
   const [suggestionsPos, setSuggestionsPos] = useState<{ bottom: number; left: number } | null>(null);
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content:
-        "Welcome to Q-Bot, your AI-powered TFR audit assistant. Upload documents and I'll generate a custom audit questionnaire with insights. You can upload .pdf, .docx, or .xlsx files.",
-    },
-  ]);
-
   const lastShownRef = useRef<string | null>(null);
   const hasStartedConversation = useMemo(
     () => chatMessages.some((chatMessage) => chatMessage.role === "user"),
     [chatMessages]
   );
+
+  useEffect(() => {
+    lastShownRef.current = getLastAssistantContent(chatMessages) ?? DEFAULT_WELCOME_MESSAGE.content;
+  }, []);
 
   useEffect(() => {
     if (!lastAssistantMessage) return;
@@ -413,7 +460,7 @@ export function ChatPane() {
           file_name: data.filename || file.name,
           claim_number: "CLM-UPLOAD-000",
           content_id: data.content_id || dummyContentId,
-          mime_type: mimeFromExt(data.file_type || ext),
+          mime_type: data.mime_type || mimeFromExt(data.file_type || ext),
           content_url: data.content_url || data.path || "",
           domain: "claim",
           document_type: "Upload",
@@ -428,7 +475,7 @@ export function ChatPane() {
           file_name: data.filename || file.name,
           claim_number: "CLM-UPLOAD-000",
           content_id: data.content_id || dummyContentId,
-          mime_type: mimeFromExt(data.file_type || ext),
+          mime_type: data.mime_type || mimeFromExt(data.file_type || ext),
           content_url: data.content_url || data.path || "",
           domain: "claim",
           document_type: "Upload",
@@ -477,7 +524,7 @@ export function ChatPane() {
       const files = Array.from(e.target.files || []);
       const validFiles = files.filter((f) => {
         const ext = f.name.split(".").pop()?.toLowerCase();
-        return ["pdf", "docx", "xlsx"].includes(ext || "");
+        return SUPPORTED_UPLOAD_EXTENSIONS.includes(ext || "");
       });
       setAttachedFiles((prev) => [...prev, ...validFiles]);
       validFiles.forEach((f) => uploadFile(f));
@@ -577,7 +624,15 @@ export function ChatPane() {
               : "bg-secondary/60 text-foreground/90 border border-border/30"
           }`}
         >
-          <p className="whitespace-pre-wrap">{msg.content}</p>
+          {msg.role === "assistant" ? (
+            <GfmMarkdown
+              content={msg.content}
+              compact
+              className="text-sm text-foreground/90 leading-relaxed"
+            />
+          ) : (
+            <p className="whitespace-pre-wrap">{msg.content}</p>
+          )}
         </div>
         {msg.role === "user" && (
           <div className="shrink-0 mt-0.5 h-8 w-8 rounded-full bg-primary/15 flex items-center justify-center">
@@ -893,7 +948,7 @@ export function ChatPane() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.docx,.xlsx"
+            accept={SUPPORTED_UPLOAD_ACCEPT}
             onChange={handleFileSelect}
             className="hidden"
           />
@@ -923,7 +978,9 @@ export function ChatPane() {
                         <Paperclip className="h-4 w-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Attach documents (.pdf, .docx, .xlsx)</TooltipContent>
+                    <TooltipContent>
+                      {`Attach documents (${SUPPORTED_UPLOAD_LABEL})`}
+                    </TooltipContent>
                   </Tooltip>
 
                   {!hasStartedConversation && (
@@ -1029,7 +1086,7 @@ export function ChatPane() {
               bottom: suggestionsPos.bottom,
               left: suggestionsPos.left,
             }}
-            className="z-[9999] flex flex-wrap gap-1.5 rounded-lg border border-border/40 bg-popover p-2 shadow-lg"
+            className="z-9999 flex flex-wrap gap-1.5 rounded-lg border border-border/40 bg-popover p-2 shadow-lg"
           >
             {CHAT_SUGGESTIONS.map((suggestion) => (
               <Button

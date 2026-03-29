@@ -319,6 +319,42 @@ function MermaidBlock({
   );
 }
 
+/**
+ * Escapes dollar signs that look like currency rather than LaTeX math delimiters.
+ *
+ * Splits content on code fences and inline code so those regions remain
+ * untouched, then escapes any ``$`` immediately followed by a digit.  This
+ * prevents ``$100``, ``$1,234.56``, ``$5M``, etc. from being swallowed by
+ * remark-math while preserving legitimate math like ``$x^2 + y$`` and
+ * ``$$\sum$$``.
+ *
+ * Args:
+ *   content: Raw markdown string that may contain currency dollar signs.
+ *
+ * Returns:
+ *   The content string with currency-style dollar signs escaped.
+ *
+ * Example:
+ *   escapeNonMathDollars("Revenue grew from $1M to $5M")
+ *   // => "Revenue grew from \\$1M to \\$5M"
+ *
+ *   escapeNonMathDollars("Equation: $x^2 + y^2 = z^2$")
+ *   // => "Equation: $x^2 + y^2 = z^2$"  (unchanged)
+ */
+function escapeNonMathDollars(content: string): string {
+  // Split on code fences (```...```) and inline code (`...`) so we only
+  // touch prose segments. Odd-indexed parts are code — leave them alone.
+  const segments = content.split(/(```[\s\S]*?```|`[^`]*`)/);
+
+  return segments
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment;
+      // Escape $ immediately before a digit (currency pattern)
+      return segment.replace(/\$(?=\d)/g, "\\$");
+    })
+    .join("");
+}
+
 export function TextBox({
   title,
   content,
@@ -328,6 +364,12 @@ export function TextBox({
   const [copied, setCopied] = useState(false);
   const { resolvedTheme } = useTheme();
   const isDarkTheme = resolvedTheme === "dark";
+
+  // Pre-process content to escape currency dollar signs before markdown parsing
+  const sanitizedContent = useMemo(
+    () => escapeNonMathDollars(content),
+    [content],
+  );
 
   const handleCopy = useCallback(async () => {
     try {
@@ -497,7 +539,7 @@ export function TextBox({
             rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeKatex]}
             components={markdownComponents}
           >
-            {content}
+            {sanitizedContent}
           </ReactMarkdown>
         </div>
       </CardContent>

@@ -16,19 +16,26 @@ class SummarizeDocPayload(BaseModel):
         json_schema_extra={
             "example": {
                 "file_name": "policy-document.pdf",
+                "content_id": "abc123",
                 "content": "INSURANCE POLICY … (truncated)",
                 "mime_type": "application/pdf",
+                "content_url": "/document-files/abc123.pdf",
                 "document_type": "Policy",
             }
         }
     )
 
     file_name: str = Field(..., description="Original file name including extension.")
+    content_id: str = Field("", description="Optional staging identifier for the document.")
     content: str = Field(..., description="Extracted plain-text content of the document.")
     mime_type: str = Field("unknown", description="MIME type of the source file.")
+    content_url: str = Field(
+        "", description="Public URL for direct browser access to the staged file."
+    )
     document_type: str = Field(
         "", description="Optional document category label (e.g. `Policy`, `Invoice`)."
     )
+    document_description: str = Field("", description="Optional free-text document description.")
 
 
 class SummarizeRequest(BaseModel):

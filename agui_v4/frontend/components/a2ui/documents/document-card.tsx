@@ -32,6 +32,7 @@ import {
   FileSpreadsheet,
   FileImage,
   File,
+  FileCode,
   Calendar,
   ChevronDown,
   ChevronRight,
@@ -43,6 +44,7 @@ import {
   Shield,
   ShieldOff,
   Tag,
+  Mail,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -142,44 +144,119 @@ export interface DocumentCardProps {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-export function deriveFileExt(mime_type: string, file_name: string): string {
-  const mimeMap: Record<string, string> = {
-    "application/pdf": "pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-      "docx",
-    "application/msword": "docx",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-      "xlsx",
-    "application/vnd.ms-excel": "xlsx",
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/tiff": "tiff",
-  };
-  if (mimeMap[mime_type]) return mimeMap[mime_type];
-  const dotIdx = file_name.lastIndexOf(".");
-  if (dotIdx >= 0) return file_name.slice(dotIdx + 1).toLowerCase();
+const MIME_TO_EXT: Record<string, string> = {
+  "text/plain": "txt",
+  "text/html": "html",
+  "application/pdf": "pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "docx",
+  "application/msword": "docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+    "xlsx",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.ms-outlook": "msg",
+  "message/rfc822": "eml",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/bmp": "bmp",
+  "image/tiff": "tiff",
+  "image/webp": "webp",
+};
+
+const EXT_ALIASES: Record<string, string> = {
+  htm: "html",
+  jpeg: "jpg",
+  tif: "tiff",
+};
+
+/**
+ * Derive a display-friendly file extension from MIME type or file name.
+ *
+ * Args:
+ *   mime_type: Raw MIME type for the document, when available.
+ *   file_name: Original document file name, used as a fallback source.
+ *
+ * Returns:
+ *   A normalized file extension such as `pdf`, `docx`, or `file`.
+ */
+export function deriveFileExt(
+  mime_type?: string | null,
+  file_name?: string | null
+): string {
+  const normalizedMime = mime_type?.toLowerCase().trim() || "";
+  if (normalizedMime && MIME_TO_EXT[normalizedMime]) {
+    return MIME_TO_EXT[normalizedMime];
+  }
+
+  const safeFileName = file_name?.trim() || "";
+  const dotIdx = safeFileName.lastIndexOf(".");
+  if (dotIdx >= 0) {
+    const rawExt = safeFileName.slice(dotIdx + 1).toLowerCase();
+    return EXT_ALIASES[rawExt] || rawExt;
+  }
   return "file";
 }
 
-const FILE_ICONS: Record<string, React.ReactNode> = {
-  pdf: <FileText className="h-4 w-4 text-red-500 dark:text-red-400" />,
-  docx: <FileText className="h-4 w-4 text-blue-500 dark:text-blue-400" />,
-  xlsx: (
-    <FileSpreadsheet className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
-  ),
-  jpg: <FileImage className="h-4 w-4 text-amber-500 dark:text-amber-400" />,
-  png: <FileImage className="h-4 w-4 text-amber-500 dark:text-amber-400" />,
-  tiff: <FileImage className="h-4 w-4 text-amber-500 dark:text-amber-400" />,
-};
+function iconSizeClass(size: "sm" | "lg"): string {
+  return size === "lg" ? "h-5 w-5" : "h-4 w-4";
+}
+
+export function getFileTypeIcon(
+  ext: string,
+  size: "sm" | "lg" = "sm"
+): React.ReactNode {
+  const className = iconSizeClass(size);
+
+  if (ext === "pdf") {
+    return <FileText className={`${className} text-red-500 dark:text-red-400`} />;
+  }
+  if (ext === "docx") {
+    return <FileText className={`${className} text-blue-500 dark:text-blue-400`} />;
+  }
+  if (ext === "xls" || ext === "xlsx") {
+    return (
+      <FileSpreadsheet
+        className={`${className} text-emerald-500 dark:text-emerald-400`}
+      />
+    );
+  }
+  if (ext === "txt") {
+    return <FileText className={`${className} text-slate-500 dark:text-slate-400`} />;
+  }
+  if (ext === "html") {
+    return <FileCode className={`${className} text-violet-500 dark:text-violet-400`} />;
+  }
+  if (ext === "msg" || ext === "eml") {
+    return <Mail className={`${className} text-cyan-500 dark:text-cyan-400`} />;
+  }
+  if (["jpg", "png", "gif", "bmp", "tiff", "webp"].includes(ext)) {
+    return <FileImage className={`${className} text-amber-500 dark:text-amber-400`} />;
+  }
+  return <File className={`${className} text-muted-foreground`} />;
+}
 
 const FILE_TYPE_BADGE: Record<string, string> = {
   pdf: "bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30 font-bold",
   docx: "bg-blue-500/20 text-blue-700 dark:text-blue-400 border-blue-500/30 font-bold",
+  txt: "bg-slate-500/20 text-slate-700 dark:text-slate-300 border-slate-500/30 font-bold",
+  html: "bg-violet-500/20 text-violet-700 dark:text-violet-400 border-violet-500/30 font-bold",
+  xls: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 font-bold",
   xlsx: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 font-bold",
+  msg: "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/30 font-bold",
+  eml: "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/30 font-bold",
   jpg: "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30 font-bold",
   png: "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30 font-bold",
+  gif: "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30 font-bold",
+  bmp: "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30 font-bold",
   tiff: "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30 font-bold",
+  webp: "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30 font-bold",
 };
+
+export function getFileTypeBadgeClass(ext: string): string {
+  return FILE_TYPE_BADGE[ext] || "bg-muted text-muted-foreground border-border";
+}
 
 const DOMAIN_BADGE: Record<string, string> = {
   claim: "bg-blue-500/20 text-blue-700 dark:text-blue-400 border-blue-500/30",
@@ -253,11 +330,8 @@ export function DocumentCard({
   const lastBulkVersion = useRef<number | null>(null);
   const didApplyHydratedUiState = useRef<boolean>(!!initialUiState);
   const ext = deriveFileExt(mime_type, file_name);
-  const icon = FILE_ICONS[ext] || (
-    <File className="h-4 w-4 text-muted-foreground" />
-  );
-  const typeBadgeClass =
-    FILE_TYPE_BADGE[ext] || "bg-muted text-muted-foreground border-border";
+  const icon = getFileTypeIcon(ext);
+  const typeBadgeClass = getFileTypeBadgeClass(ext);
   const domainBadgeClass = DOMAIN_BADGE[domain] || DOMAIN_BADGE.claim;
 
   const formattedDate = create_date

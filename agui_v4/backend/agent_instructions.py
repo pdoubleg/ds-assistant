@@ -29,6 +29,9 @@ AUDIT_AGENT_INSTRUCTIONS = dedent(
       have already viewed the content of a document, you do not need to fetch it again. Use metadata to guide your use of this tool.
       Each page of content begins with a `[DOC_META content_id="..." page=N doc_name="..."]` tag.
       Use the `content_id` and `page` values from these tags when generating citations.
+    • get_image_analysis: Analyze a currently selected image document by `content_id` and return
+      a detailed text representation of what is visible. Use this when metadata suggests an image
+      may matter, but you need visual detail before drawing conclusions.
     • generate_citation_component: Render a citation card in the output pane that links the
       user to a specific document page. Accepts `content_id`, `page_number`, `title`, and
       `description`. Use this tool when your analysis references a particular location in a

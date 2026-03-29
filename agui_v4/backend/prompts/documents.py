@@ -29,9 +29,7 @@ Summarize the following document.
 {additional_instructions}
 
 ## Document Metadata
-- File name: {file_name}
-- File type: {file_type}
-- Document type: {document_type}
+{document_metadata}
 
 ## Document Content
 {document_content}
@@ -49,7 +47,9 @@ a 0.0-1.0 float scale, plus a short (2-4 word) flavor-text label for each return
 3. **Inspect** the most promising candidates by calling ``get_doc_by_content_id`` \
 with their content_id to read their full text. You do NOT need to inspect every \
 document — focus on the top candidates where metadata alone is insufficient.
-4. **Return** a ``DocSearchResult`` containing only the documents worth showing to the user.
+4. **For image documents only**, call ``get_image_analysis`` when the metadata suggests \
+the image may be relevant but you need visual detail before scoring it.
+5. **Return** a ``DocSearchResult`` containing only the documents worth showing to the user.
 
 ## Scoring Strategy — adapt based on the user's intent:
 
@@ -76,6 +76,8 @@ the document received its score relative to the query.
 - Do **not** return placeholder 0.0 scores for every irrelevant document.
 - Omitted documents are treated as filtered out by the UI.
 - Use ``content_id`` (not file_name) to identify documents in your output.
+- Prefer metadata-first triage. Only call ``get_doc_by_content_id`` or \
+``get_image_analysis`` for a small, promising subset of candidates.
 """
 
 DOC_SEARCH_SORT_PROMPT = """\
@@ -88,22 +90,46 @@ Search and score the following documents based on the user query.
 1. Call ``as_metadata_string`` to review all document metadata.
 2. Identify the scoring strategy (ranking vs. selection) based on the query.
 3. Optionally call ``get_doc_by_content_id`` for top candidates.
-4. Return scores only for the documents worth showing to the user.
+4. Optionally call ``get_image_analysis`` for promising image documents.
+5. Return scores only for the documents worth showing to the user.
+"""
+
+IMAGE_ANALYSIS_SYSTEM_PROMPT = """\
+You are an image document analysis assistant. You receive one staged image document plus \
+metadata and optional instructions. Your job is to produce a detailed, factual text \
+description that another search/ranking agent can use as document content.
+
+Focus on:
+- visible subjects, objects, scenes, and document-like elements
+- damage, conditions, annotations, labels, forms, signage, or text visible in the image
+- any details that would matter for insurance claim triage, document search, or ranking
+
+Rules:
+- Be concrete and observant; do not speculate beyond what is visible.
+- If visible text is partially readable, include it and mark uncertain text as approximate.
+- Prefer structured prose or bullets that are easy for another model to consume.
+- Do not assign a relevance score yourself.
+"""
+
+IMAGE_ANALYSIS_PROMPT = """\
+Analyze this image document for downstream search and ranking.
+
+## Additional Instructions (OPTIONAL)
+{additional_instructions}
+
+## Document Metadata
+{metadata_string}
 """
 
 
 def format_document_summary_prompt(
-    file_name: str,
+    document_metadata: str,
     document_content: str,
-    file_type: str = "unknown",
-    document_type: str = "",
     additional_instructions: str = "",
 ) -> str:
     """Format the document-summary prompt for a single document."""
     return DOCUMENT_SUMMARY_PROMPT.format(
-        file_name=file_name,
-        file_type=file_type,
-        document_type=document_type or "N/A",
+        document_metadata=document_metadata,
         document_content=(document_content),
         additional_instructions=additional_instructions or "None provided.",
     )
@@ -112,3 +138,14 @@ def format_document_summary_prompt(
 def format_doc_search_sort_prompt(query: str) -> str:
     """Format the search/sort prompt for the current user query."""
     return DOC_SEARCH_SORT_PROMPT.format(query=query)
+
+
+def format_image_analysis_prompt(
+    metadata_string: str,
+    additional_instructions: str = "",
+) -> str:
+    """Format the image-analysis prompt used by the search/sort helper tool."""
+    return IMAGE_ANALYSIS_PROMPT.format(
+        metadata_string=metadata_string,
+        additional_instructions=additional_instructions or "None provided.",
+    )

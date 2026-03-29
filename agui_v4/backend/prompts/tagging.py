@@ -95,14 +95,29 @@ For every selected tag, also choose the best matching icon from the allowed icon
 """
 
 
-def format_batch_tagger_prompt(documents: list[dict[str, str]], active_tags: Sequence[str]) -> str:
+def format_batch_tagger_prompt(
+    documents: list[dict[str, str | bool]],
+    active_tags: Sequence[str],
+) -> str:
     """Format the batch-tagger prompt for a chunk of documents."""
     doc_parts: list[str] = []
     for document in documents:
-        content = _truncate(document.get("content", ""))
-        doc_parts.append(
-            f"### {document['file_name']} (type: {document.get('document_type', 'N/A')})\n{content}"
-        )
+        content = _truncate(str(document.get("content", "")))
+        metadata_string = str(document.get("metadata_string", "")).strip()
+        if document.get("is_image"):
+            doc_parts.append(
+                "\n".join(
+                    [
+                        f"### {document['file_name']} (image document)",
+                        metadata_string or "No metadata available.",
+                        "The image binary is attached immediately after the main prompt.",
+                    ]
+                )
+            )
+        else:
+            doc_parts.append(
+                f"### {document['file_name']} (type: {document.get('document_type', 'N/A')})\n{content}"
+            )
     documents_block = "\n\n".join(doc_parts)
     active_tags_block = "\n".join(f"- {tag}" for tag in active_tags)
     fallback_note = (

@@ -7,8 +7,8 @@
  * previously-persisted audit forms.
  */
 
-import React, { useState, useCallback, useEffect } from "react";
-import { motion } from "framer-motion";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuditAgent } from "@/hooks/use-audit-agent";
 import type { AuditFormPayload, SavedFormSummary } from "@/hooks/use-audit-agent";
 import { A2UIRenderer } from "@/components/a2ui-renderer";
@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Shield,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useFlaggedHits } from "@/hooks/use-flagged-hits";
 import { FlaggedHitsInline } from "@/components/doc-lens/flagged-hits-panel";
 import { DocumentViewerSheet } from "@/components/document-viewer-sheet";
+import { useUploadedDocs, type UploadedDoc } from "@/hooks/use-uploaded-docs";
+import type { DocumentSummaryData } from "@/components/a2ui/documents";
+
+const DOC_SUMMARIES_STORAGE_KEY = "agui_v3.docSummaries.v2";
 
 // ── SavedFormsPanel ──────────────────────────────────────────────
 
@@ -248,11 +253,143 @@ function SavedImagesPanel({
   open: boolean;
   onToggle: () => void;
 }) {
+  const { state } = useAuditAgent();
+  const { uploadedDocs } = useUploadedDocs();
   const flaggedHits = useFlaggedHits();
-  const [previewDoc, setPreviewDoc] = useState<{
-    file_name: string;
-    _initialPage?: number;
-  } | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<
+    (UploadedDoc & { _id: string; _initialPage?: number }) | null
+  >(null);
+  const [previewQuery, setPreviewQuery] = useState("");
+  const [summaries, setSummaries] = useState<Map<string, DocumentSummaryData>>(
+    new Map()
+  );
+
+  useEffect(() => {
+    try {
+      const rawSummaries = window.localStorage.getItem(DOC_SUMMARIES_STORAGE_KEY);
+      if (!rawSummaries) {
+        return;
+      }
+
+      const parsed = JSON.parse(rawSummaries) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return;
+      }
+
+      const entries = Object.entries(parsed as Record<string, unknown>).filter(
+        ([key, value]) =>
+          typeof key === "string" &&
+          !!value &&
+          typeof value === "object" &&
+          typeof (value as Record<string, unknown>).title === "string" &&
+          typeof (value as Record<string, unknown>).summary === "string"
+      ) as [string, DocumentSummaryData][];
+
+      setSummaries(new Map(entries));
+    } catch (error) {
+      console.warn("[SavedImagesPanel] Failed to restore summaries:", error);
+    }
+  }, []);
+
+  const previewDocsByFileName = useMemo(() => {
+    const docs = new Map<string, UploadedDoc>();
+
+    // Prefer uploaded-doc metadata because it usually includes the resolved URL.
+    for (const doc of uploadedDocs) {
+      docs.set(doc.file_name, doc);
+    }
+
+    // Fill any remaining gaps from shared agent state.
+    for (const doc of state.documents || []) {
+      const fileName =
+        (doc.file_name as string) || (doc.content_url as string) || "Untitled";
+      if (docs.has(fileName)) {
+        continue;
+      }
+
+      docs.set(fileName, {
+        file_name: fileName,
+        claim_number: (doc.claim_number as string) || "",
+        content_id: (doc.content_id as string) || "",
+        mime_type: (doc.mime_type as string) || "application/octet-stream",
+        content_url:
+          (doc.content_url as string) || (doc.path as string) || "",
+        domain: (doc.domain as "claim" | "policy") || "claim",
+        document_type: (doc.document_type as string) || undefined,
+        document_sub_type: (doc.document_sub_type as string) || undefined,
+        document_description:
+          (doc.document_description as string) || undefined,
+        create_date: (doc.create_date as string) || "",
+        source_system: (doc.source_system as string) || undefined,
+        company_name: (doc.company_name as string) || undefined,
+        content: (doc.content as string) || undefined,
+        token_count:
+          typeof doc.token_count === "number" ? doc.token_count : undefined,
+      });
+    }
+
+    return docs;
+  }, [state.documents, uploadedDocs]);
+
+  const uploadedContentByName = useMemo(() => {
+    const contentMap = new Map<string, string>();
+    for (const doc of uploadedDocs) {
+      if (doc.content) {
+        contentMap.set(doc.file_name, doc.content);
+      }
+    }
+    return contentMap;
+  }, [uploadedDocs]);
+
+  const contentByName = useMemo(() => {
+    const contentMap = new Map<string, Record<string, unknown>>();
+    for (const doc of state.documents || []) {
+      const fileName =
+        (doc.file_name as string) || (doc.content_url as string) || "";
+      if (fileName) {
+        contentMap.set(fileName, doc);
+      }
+    }
+    return contentMap;
+  }, [state.documents]);
+
+  const getTextContent = useCallback(
+    (fileName: string): string => {
+      const fromUploaded = uploadedContentByName.get(fileName);
+      if (fromUploaded) {
+        return fromUploaded;
+      }
+
+      const stateDoc = contentByName.get(fileName);
+      const fromState =
+        (stateDoc?.content as string) || (stateDoc?.text as string) || "";
+      if (fromState) {
+        return fromState;
+      }
+
+      return previewDocsByFileName.get(fileName)?.document_description || "";
+    },
+    [uploadedContentByName, contentByName, previewDocsByFileName]
+  );
+
+  const handlePreviewDoc = useCallback(
+    (fileName: string, page: number, query?: string) => {
+      const doc = previewDocsByFileName.get(fileName);
+      setPreviewQuery(query ?? "");
+
+      if (!doc) {
+        setPreviewDoc(null);
+        return;
+      }
+
+      setPreviewDoc({
+        ...doc,
+        _id: doc.content_id || doc.file_name,
+        _initialPage: page,
+      });
+    },
+    [previewDocsByFileName]
+  );
 
   if (!open) return null;
 
@@ -285,9 +422,7 @@ function SavedImagesPanel({
             onRemove={flaggedHits.removeFlag}
             onClearAll={flaggedHits.clearAll}
             onDownloadImage={flaggedHits.downloadImage}
-            onPreviewDoc={(fileName, page) => {
-              setPreviewDoc({ file_name: fileName, _initialPage: page });
-            }}
+            onPreviewDoc={handlePreviewDoc}
             isFlagged={flaggedHits.isFlagged}
             onToggleFlag={flaggedHits.toggleFlag}
           />
@@ -299,14 +434,23 @@ function SavedImagesPanel({
           doc={previewDoc as any}
           open={!!previewDoc}
           onOpenChange={(isOpen) => {
-            if (!isOpen) setPreviewDoc(null);
+            if (!isOpen) {
+              setPreviewDoc(null);
+              setPreviewQuery("");
+            }
           }}
           initialPage={previewDoc._initialPage}
+          highlightQuery={previewQuery}
+          textContent={getTextContent(previewDoc.file_name)}
+          summaryData={summaries.get(previewDoc.file_name)}
         />
       )}
     </>
   );
 }
+
+/** Component types excluded from output delete mode. */
+const DELETE_MODE_PROTECTED_TYPES = new Set(["a2ui.AuditQuestionForm"]);
 
 // ── OutputPane ────────────────────────────────────────────────────
 
@@ -323,10 +467,147 @@ export function OutputPane() {
     restoreForm,
     deleteForm,
   } = useAuditAgent();
+  const { uploadedDocs } = useUploadedDocs();
   const outputComponents = componentsByZone.output || [];
   const [showSavedForms, setShowSavedForms] = useState(false);
   const [showSavedImages, setShowSavedImages] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
   const flaggedHits = useFlaggedHits();
+  const [summaries, setSummaries] = useState<Map<string, DocumentSummaryData>>(
+    new Map()
+  );
+
+  useEffect(() => {
+    try {
+      const rawSummaries = window.localStorage.getItem(DOC_SUMMARIES_STORAGE_KEY);
+      if (!rawSummaries) {
+        return;
+      }
+
+      const parsed = JSON.parse(rawSummaries) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return;
+      }
+
+      const entries = Object.entries(parsed as Record<string, unknown>).filter(
+        ([key, value]) =>
+          typeof key === "string" &&
+          !!value &&
+          typeof value === "object" &&
+          typeof (value as Record<string, unknown>).title === "string" &&
+          typeof (value as Record<string, unknown>).summary === "string"
+      ) as [string, DocumentSummaryData][];
+
+      setSummaries(new Map(entries));
+    } catch (error) {
+      console.warn("[OutputPane] Failed to restore summaries:", error);
+    }
+  }, []);
+
+  const previewDocsByContentId = useMemo(() => {
+    const docs = new Map<string, UploadedDoc>();
+
+    for (const doc of uploadedDocs) {
+      const key = doc.content_id || doc.file_name;
+      docs.set(key, doc);
+    }
+
+    for (const doc of state.documents || []) {
+      const fileName =
+        (doc.file_name as string) || (doc.content_url as string) || "Untitled";
+      const key = (doc.content_id as string) || fileName;
+      if (docs.has(key)) {
+        continue;
+      }
+
+      docs.set(key, {
+        file_name: fileName,
+        claim_number: (doc.claim_number as string) || "",
+        content_id: (doc.content_id as string) || "",
+        mime_type: (doc.mime_type as string) || "application/octet-stream",
+        content_url:
+          (doc.content_url as string) || (doc.path as string) || "",
+        domain: (doc.domain as "claim" | "policy") || "claim",
+        document_type: (doc.document_type as string) || undefined,
+        document_sub_type: (doc.document_sub_type as string) || undefined,
+        document_description:
+          (doc.document_description as string) || undefined,
+        create_date: (doc.create_date as string) || "",
+        source_system: (doc.source_system as string) || undefined,
+        company_name: (doc.company_name as string) || undefined,
+        content: (doc.content as string) || undefined,
+        token_count:
+          typeof doc.token_count === "number" ? doc.token_count : undefined,
+      });
+    }
+
+    return docs;
+  }, [state.documents, uploadedDocs]);
+
+  const uploadedContentByName = useMemo(() => {
+    const contentMap = new Map<string, string>();
+    for (const doc of uploadedDocs) {
+      if (doc.content) {
+        contentMap.set(doc.file_name, doc.content);
+      }
+    }
+    return contentMap;
+  }, [uploadedDocs]);
+
+  const contentByName = useMemo(() => {
+    const contentMap = new Map<string, Record<string, unknown>>();
+    for (const doc of state.documents || []) {
+      const fileName =
+        (doc.file_name as string) || (doc.content_url as string) || "";
+      if (fileName) {
+        contentMap.set(fileName, doc);
+      }
+    }
+    return contentMap;
+  }, [state.documents]);
+
+  const getTextContent = useCallback(
+    (fileName: string): string => {
+      const fromUploaded = uploadedContentByName.get(fileName);
+      if (fromUploaded) {
+        return fromUploaded;
+      }
+
+      const stateDoc = contentByName.get(fileName);
+      const fromState =
+        (stateDoc?.content as string) || (stateDoc?.text as string) || "";
+      if (fromState) {
+        return fromState;
+      }
+
+      for (const doc of previewDocsByContentId.values()) {
+        if (doc.file_name === fileName) {
+          return doc.document_description || "";
+        }
+      }
+
+      return "";
+    },
+    [uploadedContentByName, contentByName, previewDocsByContentId]
+  );
+
+  // IDs of output components eligible for removal (excludes protected types)
+  const removableIds = useMemo(
+    () =>
+      new Set(
+        outputComponents
+          .filter((c) => !DELETE_MODE_PROTECTED_TYPES.has(c.type))
+          .map((c) => c.id)
+      ),
+    [outputComponents]
+  );
+
+  // Auto-exit delete mode when nothing removable remains or generation starts
+  useEffect(() => {
+    if (deleteMode && (removableIds.size === 0 || isGenerating)) {
+      setDeleteMode(false);
+    }
+  }, [deleteMode, removableIds, isGenerating]);
 
   // Citation card → document preview state
   const [citationPreviewDoc, setCitationPreviewDoc] = useState<
@@ -335,9 +616,7 @@ export function OutputPane() {
 
   const handleCitationPreview = useCallback(
     (contentId: string, page: number) => {
-      const doc = (state.documents || []).find(
-        (d) => d.content_id === contentId
-      );
+      const doc = previewDocsByContentId.get(contentId);
       if (doc) {
         setCitationPreviewDoc({ ...doc, _initialPage: page });
       } else {
@@ -347,7 +626,7 @@ export function OutputPane() {
         });
       }
     },
-    [state.documents]
+    [previewDocsByContentId]
   );
 
   const handleFormSubmit = useCallback(
@@ -408,6 +687,28 @@ export function OutputPane() {
     setShowSavedImages((prev) => !prev);
   }, []);
 
+  /** Remove a single output component by ID from shared agent state. */
+  const handleDeleteComponent = useCallback(
+    (componentId: string) => {
+      const components = state.components || [];
+      setState({
+        ...state,
+        components: components.filter((c) => c.id !== componentId),
+      });
+    },
+    [state, setState]
+  );
+
+  /** Remove all removable output components and exit delete mode. */
+  const handleDeleteAllRemovable = useCallback(() => {
+    const components = state.components || [];
+    setState({
+      ...state,
+      components: components.filter((c) => !removableIds.has(c.id)),
+    });
+    setDeleteMode(false);
+  }, [state, setState, removableIds]);
+
   const headerBar = (
     <div className="flex items-center gap-2.5 px-4 pr-10 border-b border-border/50 shrink-0 h-12">
       <ClipboardCheck className="h-[18px] w-[18px] text-primary" />
@@ -431,46 +732,88 @@ export function OutputPane() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        {state.current_form_id && (
-          <Badge
-            variant="outline"
-            className="text-[11px] text-muted-foreground border-border/40"
-          >
-            Form: {state.current_form_id.slice(0, 8)}...
-          </Badge>
-        )}
-        <Button
-          variant={showSavedForms ? "secondary" : "outline"}
-          size="sm"
-          onClick={toggleSavedForms}
-          className="h-8 gap-1.5 text-[11px]"
-        >
-          <FolderArchive className="h-3.5 w-3.5" />
-          Saved Forms
-          <ChevronDownIcon
-            className={`h-3.5 w-3.5 transition-transform duration-200 ${showSavedForms ? "rotate-180" : ""}`}
-          />
-        </Button>
-        <Button
-          variant={showSavedImages ? "secondary" : "outline"}
-          size="sm"
-          onClick={toggleSavedImages}
-          className="h-8 gap-1.5 text-[11px]"
-        >
-          <BookmarkCheck className="h-3.5 w-3.5" />
-          Saved Images
-          {flaggedHits.flagCount > 0 && (
+        {deleteMode ? (
+          <>
             <Badge
-              variant="secondary"
-              className="text-[9px] px-1 py-0 h-4 ml-0.5"
+              variant="outline"
+              className="text-[11px] text-destructive border-destructive/30 bg-destructive/5"
             >
-              {flaggedHits.flagCount}
+              Delete Mode
             </Badge>
-          )}
-          <ChevronDownIcon
-            className={`h-3.5 w-3.5 transition-transform duration-200 ${showSavedImages ? "rotate-180" : ""}`}
-          />
-        </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteMode(false)}
+              className="h-8 gap-1.5 text-[11px] hover:bg-secondary hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteAllRemovable}
+              className="h-8 gap-1.5 text-[11px]"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete All ({removableIds.size})
+            </Button>
+          </>
+        ) : (
+          <>
+            {state.current_form_id && (
+              <Badge
+                variant="outline"
+                className="text-[11px] text-muted-foreground border-border/40"
+              >
+                Form: {state.current_form_id.slice(0, 8)}...
+              </Badge>
+            )}
+            {removableIds.size > 0 && !isGenerating && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteMode(true)}
+                className="h-8 gap-1.5 text-[11px] text-muted-foreground hover:text-destructive hover:border-destructive/40"
+                title="Enter delete mode to remove output components"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            <Button
+              variant={showSavedForms ? "secondary" : "outline"}
+              size="sm"
+              onClick={toggleSavedForms}
+              className="h-8 gap-1.5 text-[11px]"
+            >
+              <FolderArchive className="h-3.5 w-3.5" />
+              Saved Forms
+              <ChevronDownIcon
+                className={`h-3.5 w-3.5 transition-transform duration-200 ${showSavedForms ? "rotate-180" : ""}`}
+              />
+            </Button>
+            <Button
+              variant={showSavedImages ? "secondary" : "outline"}
+              size="sm"
+              onClick={toggleSavedImages}
+              className="h-8 gap-1.5 text-[11px]"
+            >
+              <BookmarkCheck className="h-3.5 w-3.5" />
+              Saved Images
+              {flaggedHits.flagCount > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="text-[9px] px-1 py-0 h-4 ml-0.5"
+                >
+                  {flaggedHits.flagCount}
+                </Badge>
+              )}
+              <ChevronDownIcon
+                className={`h-3.5 w-3.5 transition-transform duration-200 ${showSavedImages ? "rotate-180" : ""}`}
+              />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -600,33 +943,66 @@ export function OutputPane() {
       <ScrollArea className="flex-1">
         <div className="px-5 py-5">
           <div className="grid grid-cols-12 gap-5 auto-rows-min">
-            {outputComponents.map((component, index) => (
-              <motion.div
-                key={component.id || `output-${index}`}
-                className={getGridSpan(component)}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: index * 0.1 }}
-              >
-                <A2UIRenderer
-                  component={component}
-                  showErrors={true}
-                  extraProps={
-                    component.type === "a2ui.AuditQuestionForm"
-                      ? {
-                          onSubmit: handleFormSubmit,
-                          onClose: handleFormClose,
-                          onDelete: handleFormDelete,
-                          isSaving,
-                          currentFormId: state.current_form_id,
-                        }
-                      : component.type === "a2ui.CitationCard"
-                        ? { onPreviewDoc: handleCitationPreview }
-                        : undefined
-                  }
-                />
-              </motion.div>
-            ))}
+            {outputComponents.map((component, index) => {
+              const isRemovable = removableIds.has(component.id);
+
+              return (
+                <motion.div
+                  key={component.id || `output-${index}`}
+                  className={`${getGridSpan(component)} relative`}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: index * 0.1 }}
+                >
+                  {deleteMode && isRemovable && (
+                    <motion.div
+                      className="absolute inset-0 rounded-xl ring-2 ring-destructive/25 pointer-events-none z-5"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    />
+                  )}
+
+                  <AnimatePresence>
+                    {deleteMode && isRemovable && (
+                      <motion.button
+                        type="button"
+                        initial={{ opacity: 0, scale: 0.6 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.6 }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 400,
+                          damping: 22,
+                        }}
+                        onClick={() => handleDeleteComponent(component.id)}
+                        className="absolute -top-2.5 -right-2.5 z-10 h-7 w-7 rounded-full bg-destructive text-destructive-foreground shadow-lg flex items-center justify-center hover:bg-destructive/90 transition-colors cursor-pointer"
+                        title="Remove component"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </motion.button>
+                    )}
+                  </AnimatePresence>
+
+                  <A2UIRenderer
+                    component={component}
+                    showErrors={true}
+                    extraProps={
+                      component.type === "a2ui.AuditQuestionForm"
+                        ? {
+                            onSubmit: handleFormSubmit,
+                            onClose: handleFormClose,
+                            onDelete: handleFormDelete,
+                            isSaving,
+                            currentFormId: state.current_form_id,
+                          }
+                        : component.type === "a2ui.CitationCard"
+                          ? { onPreviewDoc: handleCitationPreview }
+                          : undefined
+                    }
+                  />
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </ScrollArea>
@@ -639,6 +1015,16 @@ export function OutputPane() {
             if (!isOpen) setCitationPreviewDoc(null);
           }}
           initialPage={citationPreviewDoc._initialPage}
+          textContent={
+            typeof citationPreviewDoc.file_name === "string"
+              ? getTextContent(citationPreviewDoc.file_name)
+              : undefined
+          }
+          summaryData={
+            typeof citationPreviewDoc.file_name === "string"
+              ? summaries.get(citationPreviewDoc.file_name)
+              : undefined
+          }
         />
       )}
     </div>
