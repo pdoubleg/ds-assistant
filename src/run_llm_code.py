@@ -1,10 +1,12 @@
-import copy
+from typing import Any, Dict, Optional
+
 import numpy as np
-from typing import Dict, Optional
 import pandas as pd
 import ast
 import scipy
 import sklearn
+from scipy import sparse
+from sklearn import compose, feature_extraction, impute, pipeline, preprocessing
 
 
 def convert_categorical_to_integer_f(column: pd.Series, mapping: Optional[Dict[int, str]] = None) -> pd.Series:
@@ -77,6 +79,229 @@ def run_llm_code(code: str, df: pd.DataFrame, convert_categorical_to_integer: Op
     return df
 
 
+def get_default_tabular_encoder(df: pd.DataFrame) -> Any:
+    """Build a safe default encoder for tabular model evaluation.
+
+    Args:
+        df: Feature dataframe without the target column.
+
+    Returns:
+        A sklearn-compatible transformer.
+
+    Raises:
+        ValueError: If the dataframe does not contain any feature columns.
+    """
+    if df.empty:
+        raise ValueError("Cannot build a default encoder for an empty feature dataframe.")
+
+    numeric_columns = list(df.select_dtypes(include=["number", "bool"]).columns)
+    categorical_columns = [col for col in df.columns if col not in numeric_columns]
+
+    transformers = []
+    if numeric_columns:
+        transformers.append(("numeric", "passthrough", numeric_columns))
+    if categorical_columns:
+        transformers.append(
+            (
+                "categorical",
+                preprocessing.OneHotEncoder(
+                    handle_unknown="ignore",
+                    sparse_output=False,
+                ),
+                categorical_columns,
+            )
+        )
+
+    if not transformers:
+        raise ValueError("Unable to infer any columns for default tabular encoding.")
+
+    return compose.ColumnTransformer(
+        transformers=transformers,
+        remainder="drop",
+        sparse_threshold=0.0,
+    )
+
+
+def _build_execution_scope(
+    df: pd.DataFrame,
+    df_train: pd.DataFrame,
+    df_test: Optional[pd.DataFrame],
+    encoder: Any = None,
+) -> Dict[str, Any]:
+    """Build the execution namespace for LLM-authored code.
+
+    Args:
+        df: Primary dataframe reference exposed to the LLM.
+        df_train: Training dataframe for encoding code.
+        df_test: Optional validation dataframe for encoding code.
+        encoder: Optional pre-existing encoder instance.
+
+    Returns:
+        Execution scope passed to ``exec``.
+    """
+    scope: Dict[str, Any] = {
+        "df": df,
+        "df_train": df_train,
+        "df_test": df_test,
+        "encoder": encoder,
+        "pd": pd,
+        "np": np,
+        "scipy": scipy,
+        "sklearn": sklearn,
+        "compose": compose,
+        "feature_extraction": feature_extraction,
+        "impute": impute,
+        "pipeline": pipeline,
+        "preprocessing": preprocessing,
+    }
+    return {key: value for key, value in scope.items() if value is not None}
+
+
+def _coerce_feature_matrix(
+    matrix: Any,
+    expected_rows: int,
+    dataset_name: str,
+) -> Any:
+    """Validate and normalize an encoded feature matrix.
+
+    Args:
+        matrix: Matrix returned by a fitted sklearn transformer.
+        expected_rows: Expected number of rows after transform.
+        dataset_name: Human-readable dataset label for error messages.
+
+    Returns:
+        A numeric dataframe, numpy array, or scipy sparse matrix.
+
+    Raises:
+        ValueError: If the transformed output is empty, row-misaligned, or non-numeric.
+    """
+    if matrix is None:
+        raise ValueError(f"The {dataset_name} encoder output is None.")
+
+    if sparse.issparse(matrix):
+        if matrix.shape[0] != expected_rows:
+            raise ValueError(
+                f"The {dataset_name} encoder output row count {matrix.shape[0]} "
+                f"does not match the input row count {expected_rows}."
+            )
+        return matrix.astype(np.float32)
+
+    if isinstance(matrix, pd.DataFrame):
+        if len(matrix) != expected_rows:
+            raise ValueError(
+                f"The {dataset_name} encoder output row count {len(matrix)} "
+                f"does not match the input row count {expected_rows}."
+            )
+        numeric_df = matrix.replace([np.inf, -np.inf], np.nan)
+        try:
+            return numeric_df.astype(np.float32)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"The {dataset_name} encoder output must be numeric. {exc}"
+            ) from exc
+
+    array = np.asarray(matrix)
+    if array.ndim == 1:
+        array = array.reshape(-1, 1)
+
+    if array.shape[0] != expected_rows:
+        raise ValueError(
+            f"The {dataset_name} encoder output row count {array.shape[0]} "
+            f"does not match the input row count {expected_rows}."
+        )
+
+    try:
+        array = array.astype(np.float32)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"The {dataset_name} encoder output must be numeric. {exc}"
+        ) from exc
+
+    return np.nan_to_num(array, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def run_llm_encoder_code(
+    code: str,
+    df_train: pd.DataFrame,
+    df_test: Optional[pd.DataFrame] = None,
+    encoder: Any = None,
+    fit_encoder: bool = True,
+) -> tuple[Any, Optional[Any], Any]:
+    """Execute LLM-authored sklearn encoding code and transform data.
+
+    The encoding contract requires the code to assign a sklearn-compatible
+    transformer to ``encoder``. The helper fits the encoder on ``df_train`` and
+    transforms both train and optional test datasets.
+
+    Args:
+        code: Python code that assigns a transformer to ``encoder``.
+        df_train: Training dataframe without the target column.
+        df_test: Optional validation/inference dataframe without the target.
+        encoder: Optional pre-built or pre-fitted encoder.
+        fit_encoder: Whether to fit the encoder on ``df_train`` before transform.
+
+    Returns:
+        Tuple of ``(encoded_train, encoded_test, encoder)``.
+
+    Raises:
+        ValueError: If the code cannot be executed, does not assign ``encoder``,
+            or produces invalid transformed outputs.
+    """
+    if code.strip():
+        parsed = ast.parse(code)
+        check_ast(parsed)
+        scope = _build_execution_scope(
+            df=df_train.copy(),
+            df_train=df_train.copy(),
+            df_test=df_test.copy() if df_test is not None else None,
+            encoder=encoder,
+        )
+        try:
+            # Share the same global/local scope so assigned variables are reusable.
+            exec(compile(parsed, filename="<ast>", mode="exec"), scope, scope)
+        except Exception as exc:
+            raise ValueError(
+                f"Encoding code could not be executed! {exc}. Code that failed: {code}"
+            ) from exc
+        encoder = scope.get("encoder", encoder)
+    elif encoder is None:
+        encoder = get_default_tabular_encoder(df_train)
+
+    if encoder is None:
+        raise ValueError(
+            "Encoding code must assign a sklearn-compatible transformer to `encoder`."
+        )
+    if not hasattr(encoder, "fit") or not hasattr(encoder, "transform"):
+        raise ValueError(
+            "The `encoder` object must define both `fit` and `transform` methods."
+        )
+
+    try:
+        if fit_encoder:
+            encoder.fit(df_train)
+        encoded_train = encoder.transform(df_train)
+        encoded_test = encoder.transform(df_test) if df_test is not None else None
+    except Exception as exc:
+        raise ValueError(f"Encoding pipeline execution failed! {exc}") from exc
+
+    encoded_train = _coerce_feature_matrix(
+        encoded_train,
+        expected_rows=len(df_train),
+        dataset_name="train",
+    )
+    encoded_test = (
+        _coerce_feature_matrix(
+            encoded_test,
+            expected_rows=len(df_test),
+            dataset_name="test",
+        )
+        if df_test is not None
+        else None
+    )
+
+    return encoded_train, encoded_test, encoder
+
+
 def check_ast(node: ast.AST) -> None:
     """
     Checks if the given AST node is allowed.
@@ -141,6 +366,16 @@ def check_ast(node: ast.AST) -> None:
         ast.Store,
         ast.If,
         ast.IfExp,
+        ast.Match,
+        ast.match_case,
+        ast.MatchValue,
+        ast.MatchSingleton,
+        ast.MatchSequence,
+        ast.MatchMapping,
+        ast.MatchClass,
+        ast.MatchStar,
+        ast.MatchAs,
+        ast.MatchOr,
         # These nodes represent loop structures. If you allow arbitrary loops, a user could potentially create an infinite loop that consumes system resources and slows down or crashes your system.
         ast.For,
         ast.While,
@@ -148,6 +383,8 @@ def check_ast(node: ast.AST) -> None:
         ast.Continue,
         ast.Pass,
         ast.Assert,
+        ast.Try,
+        ast.ExceptHandler,
         ast.Return,
         ast.FunctionDef,
         ast.ListComp,
@@ -179,357 +416,114 @@ def check_ast(node: ast.AST) -> None:
         ast.alias,
     }
 
-    allowed_packages = {"numpy", "pandas", "sklearn", "scipy", "re"}
-
-    allowed_funcs = {
-        "sum": sum,
-        "min": min,
-        "max": max,
-        "abs": abs,
-        "round": round,
-        "len": len,
-        "str": str,
-        "int": int,
-        "float": float,
-        "bool": bool,
-        "list": list,
-        "dict": dict,
-        "set": set,
-        "tuple": tuple,
-        "enumerate": enumerate,
-        "zip": zip,
-        "range": range,
-        "sorted": sorted,
-        "reversed": reversed,
-        "isinstance": isinstance,
-        # Add other functions you want to allow here.
+    allowed_package_roots = {
+        "collections",
+        "datetime",
+        "functools",
+        "itertools",
+        "math",
+        "numpy",
+        "pandas",
+        "re",
+        "scipy",
+        "sklearn",
+        "statistics",
+        "typing",
     }
 
-    allowed_attrs = {
-        # NP
-        "array",
-        "arange",
-        "values",
-        "linspace",
-        # PD
-        "mean",
-        "sum",
-        "contains",
-        "where",
-        "min",
-        "max",
-        "median",
-        "std",
-        "sqrt",
-        "pow",
-        "iloc",
-        "cut",
-        "qcut",
-        "inf",
-        "nan",
-        "isna",
-        "map",
-        "reshape",
-        "shape",
-        "split",
-        "var",
-        "codes",
-        "abs",
-        "cumsum",
-        "cumprod",
-        "cummax",
-        "cummin",
-        "diff",
-        "repeat",
-        "index",
-        "log",
-        "log10",
-        "log1p",
-        "slice",
-        "exp",
-        "expm1",
-        "pow",
-        "pct_change",
-        "corr",
-        "cov",
-        "round",
-        "clip",
-        "dot",
-        "transpose",
-        "T",
-        "astype",
-        "copy",
-        "drop",
-        "dropna",
-        "fillna",
-        "replace",
-        "merge",
-        "append",
-        "join",
-        "groupby",
-        "resample",
-        "rolling",
-        "expanding",
-        "ewm",
-        "agg",
-        "aggregate",
-        "filter",
-        "transform",
-        "apply",
-        "pivot",
-        "melt",
-        "sort_values",
-        "sort_index",
-        "reset_index",
-        "set_index",
-        "reindex",
-        "shift",
-        # "extract",
+    dangerous_call_names = {
+        "__import__",
+        "breakpoint",
+        "compile",
+        "delattr",
+        "eval",
+        "exec",
+        "exit",
+        "getattr",
+        "globals",
+        "help",
+        "input",
+        "locals",
+        "open",
+        "quit",
+        "setattr",
+        "vars",
+    }
+
+    dangerous_attrs = {
+        "__class__",
+        "__dict__",
+        "__globals__",
+        "__subclasses__",
+        "check_call",
+        "check_output",
+        "chmod",
+        "chown",
+        "dump",
+        "dumps",
+        "exec_module",
+        "fromfile",
+        "kill",
+        "listdir",
+        "load",
+        "loads",
+        "makedirs",
+        "mkdir",
+        "popen",
+        "read_bytes",
+        "read_pickle",
+        "read_sql",
+        "remove",
+        "removedirs",
         "rename",
-        "tail",
-        "head",
-        "describe",
-        "count",
-        "value_counts",
-        "unique",
-        "nunique",
-        "idxmin",
-        "idxmax",
-        "isin",
-        "between",
-        "duplicated",
-        "rank",
-        "to_numpy",
-        "to_dict",
-        "to_list",
-        "to_frame",
-        "squeeze",
-        "add",
-        "sub",
-        "mul",
-        "div",
-        "mod",
-        "columns",
-        "loc",
-        "lt",
-        "le",
-        "eq",
-        "ne",
-        "ge",
-        "gt",
-        "all",
-        "any",
-        "clip",
-        "conj",
-        "conjugate",
-        "round",
-        "trace",
-        "cumprod",
-        "cumsum",
-        "prod",
-        "dot",
-        "flatten",
-        "ravel",
-        "T",
-        "transpose",
-        "swapaxes",
-        "clip",
-        "item",
-        "tolist",
-        "argmax",
-        "argmin",
-        "argsort",
-        "max",
-        "mean",
-        "min",
-        "nonzero",
-        "ptp",
-        "sort",
-        "std",
-        "var",
-        "str",
-        "dt",
-        "cat",
-        "sparse",
-        "plot",
-        # SCIPY attributes
-        "stats",
-        "signal",
-        "special",
-        "interpolate",
-        "integrate",
-        "optimize",
-        "linalg",
-        "fft",
-        "ndimage",
-        "spatial",
-        "distance",
-        "norm",
-        "normaltest",
-        "skew",
-        "kurtosis",
-        "mode",
-        "gmean",
-        "hmean",
-        "sem",
-        "ttest_ind",
-        "ttest_rel",
-        "chi2_contingency",
-        "pearsonr",
-        "spearmanr",
-        "kendalltau",
-        "zscore",
-        "percentileofscore",
-        "rankdata",
-        "boxcox",
-        "boxcox1p",
-        "yeojohnson",
-        "gaussian_filter",
-        "medfilt",
-        "savgol_filter",
-        "interp1d",
-        "UnivariateSpline",
-        "griddata",
-        "cdist",
-        "pdist",
-        "euclidean",
-        "cosine",
-        "correlation",
-        # SKLEARN attributes
-        "preprocessing",
-        "feature_selection",
-        "decomposition",
-        "cluster",
-        "metrics",
-        "model_selection",
-        "ensemble",
-        "linear_model",
-        "tree",
-        "svm",
-        "neighbors",
-        "naive_bayes",
-        "discriminant_analysis",
-        "gaussian_process",
-        "neural_network",
-        "StandardScaler",
-        "MinMaxScaler",
-        "MaxAbsScaler",
-        "RobustScaler",
-        "Normalizer",
-        "QuantileTransformer",
-        "PowerTransformer",
-        "PolynomialFeatures",
-        "OneHotEncoder",
-        "OrdinalEncoder",
-        "LabelEncoder",
-        "LabelBinarizer",
-        "MultiLabelBinarizer",
-        "KBinsDiscretizer",
-        "Binarizer",
-        "FunctionTransformer",
-        "SimpleImputer",
-        "KNNImputer",
-        "MissingIndicator",
-        "SelectKBest",
-        "SelectPercentile",
-        "SelectFpr",
-        "SelectFdr",
-        "SelectFwe",
-        "GenericUnivariateSelect",
-        "VarianceThreshold",
-        "RFE",
-        "RFECV",
-        "SelectFromModel",
-        "SequentialFeatureSelector",
-        "chi2",
-        "f_classif",
-        "f_regression",
-        "mutual_info_classif",
-        "mutual_info_regression",
-        "PCA",
-        "IncrementalPCA",
-        "KernelPCA",
-        "SparsePCA",
-        "MiniBatchSparsePCA",
-        "FactorAnalysis",
-        "FastICA",
-        "TruncatedSVD",
-        "NMF",
-        "MiniBatchNMF",
-        "LatentDirichletAllocation",
-        "KMeans",
-        "MiniBatchKMeans",
-        "AffinityPropagation",
-        "MeanShift",
-        "SpectralClustering",
-        "AgglomerativeClustering",
-        "DBSCAN",
-        "OPTICS",
-        "Birch",
-        "GaussianMixture",
-        "BayesianGaussianMixture",
-        "fit",
-        "transform",
-        "fit_transform",
-        "predict",
-        "predict_proba",
-        "predict_log_proba",
-        "score",
-        "decision_function",
-        "inverse_transform",
-        "get_params",
-        "set_params",
-        "partial_fit",
-        "get_feature_names",
-        "get_feature_names_out",
-        "components_",
-        "explained_variance_",
-        "explained_variance_ratio_",
-        "singular_values_",
-        "mean_",
-        "var_",
-        "scale_",
-        "n_components_",
-        "n_features_",
-        "n_samples_",
-        "feature_importances_",
-        "coef_",
-        "intercept_",
-        "classes_",
-        "n_classes_",
-        "feature_names_in_",
-        "n_features_in_",
-        "data_min_",
-        "data_max_",
-        "data_range_",
-        "min_",
-        "max_",
-        "center_",
-        "scale_",
-        "mean_",
-        "var_",
-        "n_samples_seen_",
-        "isnull",
-        "notnull",
-        "isna",
-        "dtype",
-        # Add other DataFrame methods you want to allow here.
+        "rmdir",
+        "run",
+        "runcall",
+        "rmtree",
+        "save",
+        "savetxt",
+        "sleep",
+        "symlink",
+        "system",
+        "to_csv",
+        "to_excel",
+        "to_feather",
+        "to_file",
+        "to_hdf",
+        "to_json",
+        "to_parquet",
+        "to_pickle",
+        "to_sql",
+        "tofile",
+        "touch",
+        "unlink",
+        "walk",
+        "write_bytes",
+        "write_text",
     }
 
     if type(node) not in allowed_nodes:
         raise ValueError(f"Disallowed code: {ast.unparse(node)} is {type(node)}")
 
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        if node.func.id not in allowed_funcs:
+        if node.func.id in dangerous_call_names:
             raise ValueError(f"Disallowed function: {node.func.id}")
 
-    if isinstance(node, ast.Attribute) and node.attr not in allowed_attrs:
-        raise ValueError(f"Disallowed attribute: {node.attr}")
+    if isinstance(node, ast.Attribute):
+        if node.attr.startswith("__") or node.attr in dangerous_attrs:
+            raise ValueError(f"Disallowed attribute: {node.attr}")
 
-    if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+    if isinstance(node, ast.Import):
         for alias in node.names:
-            if alias.name not in allowed_packages:
+            root_name = alias.name.split(".")[0]
+            if root_name not in allowed_package_roots:
                 raise ValueError(f"Disallowed package import: {alias.name}")
+
+    if isinstance(node, ast.ImportFrom):
+        module_name = node.module or ""
+        root_name = module_name.split(".")[0]
+        if root_name not in allowed_package_roots:
+            raise ValueError(f"Disallowed package import: {module_name}")
 
     for child in ast.iter_child_nodes(node):
         check_ast(child)

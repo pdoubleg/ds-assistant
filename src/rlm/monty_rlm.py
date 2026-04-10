@@ -324,7 +324,6 @@ Available:
 - `SUBMIT({final_output_names})` - submit final output when done
 - Builtins plus these imports: `sys`, `os`, `typing`, `re`, `datetime`, `json`. Use them when helpful for parsing, chunking, \
 filesystem/context inspection, or formatting. NO class definitions.
-- Always use one import per line. Do not write import a, b, c. Monty does not support comma-separated import statements.
 
 IMPORTANT: This is ITERATIVE. Each code block you write will execute, you'll see the output, then you decide what to do next. Do NOT try to solve everything in one step. \
 Be mindful that in the case of code interpreter errors, objects created by that code may not be saved. If errors occur you should pivot to a simpler approach.

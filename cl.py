@@ -18,12 +18,12 @@ console = Console()
 pretty.install(console=console)
 install(show_locals=True, console=console)
 
-# court_listener = MCPServerStdio(
-#     "python",
-#     ["src/mcp/court_listener.py"],
-#     timeout=60,
-#     max_retries=5,
-# )
+court_listener = MCPServerStdio(
+    "python",
+    ["src/mcp/court_listener.py"],
+    timeout=60,
+    max_retries=5,
+)
 
 cl_query_writer = MCPServerStdio(
     "python",
@@ -32,7 +32,7 @@ cl_query_writer = MCPServerStdio(
     max_retries=5,
 )
 
-# court_listener = LoggingToolset(wrapped=court_listener, console=console)
+court_listener = LoggingToolset(wrapped=court_listener, console=console)
 cl_query_writer = LoggingToolset(wrapped=cl_query_writer, console=console)
 
 agent = Agent(
@@ -40,7 +40,7 @@ agent = Agent(
     output_type=str,
     retries=5,
     toolsets=[
-        # court_listener,
+        court_listener,
         cl_query_writer,
     ],
     deps_type=None,
