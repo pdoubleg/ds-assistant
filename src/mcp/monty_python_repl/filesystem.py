@@ -38,6 +38,36 @@ class HostWorkspaceOSAccess(pydantic_monty.AbstractOS):
             self._environ.update(
                 {str(key): str(value) for key, value in environ.items()}
             )
+        self._tracked_artifacts: set[str] = set()
+
+    def begin_artifact_tracking(self) -> None:
+        """Start a fresh execution-scoped artifact tracking window."""
+        self._tracked_artifacts.clear()
+
+    def record_virtual_artifact(self, path: PurePosixPath | str) -> None:
+        """Record a changed workspace file by virtual path.
+
+        Args:
+            path (PurePosixPath | str): Virtual or relative workspace path.
+        """
+        normalized = self._normalize_virtual_path(PurePosixPath(str(path)))
+        if normalized == ROOT_DIRECTORY or self.path_is_dir(normalized):
+            return
+        self._tracked_artifacts.add(str(normalized))
+
+    def record_host_artifact(self, host_path: Path) -> None:
+        """Record a changed workspace file by host path.
+
+        Args:
+            host_path (Path): Host path inside the workspace root.
+        """
+        self._tracked_artifacts.add(str(self.virtualize_host_path(host_path)))
+
+    def consume_tracked_artifacts(self) -> list[str]:
+        """Return tracked artifacts for the current execution and clear them."""
+        artifacts = sorted(self._tracked_artifacts)
+        self._tracked_artifacts.clear()
+        return artifacts
 
     def _normalize_virtual_path(self, path: PurePosixPath) -> PurePosixPath:
         """Normalize a virtual path and keep it inside ``/workspace``."""
@@ -75,6 +105,17 @@ class HostWorkspaceOSAccess(pydantic_monty.AbstractOS):
         )
         host_path.relative_to(self.host_workspace_root)
         return host_path
+
+    def to_host_path(self, path: PurePosixPath | str) -> Path:
+        """Translate a virtual or relative path to the host workspace.
+
+        Args:
+            path (PurePosixPath | str): Virtual or relative workspace path.
+
+        Returns:
+            Path: Resolved host path inside the workspace root.
+        """
+        return self._to_host_path(PurePosixPath(str(path)))
 
     def virtualize_host_path(self, host_path: Path) -> PurePosixPath:
         """Convert a host workspace path back into a virtual sandbox path."""
@@ -129,6 +170,7 @@ class HostWorkspaceOSAccess(pydantic_monty.AbstractOS):
                 f"[Errno 2] No such file or directory: {str(path)!r}"
             )
         host_path.write_text(data, encoding="utf-8")
+        self.record_virtual_artifact(path)
         return len(data)
 
     def path_write_bytes(self, path: PurePosixPath, data: bytes) -> int:
@@ -141,6 +183,7 @@ class HostWorkspaceOSAccess(pydantic_monty.AbstractOS):
                 f"[Errno 2] No such file or directory: {str(path)!r}"
             )
         host_path.write_bytes(data)
+        self.record_virtual_artifact(path)
         return len(data)
 
     def path_mkdir(self, path: PurePosixPath, parents: bool, exist_ok: bool) -> None:
@@ -196,7 +239,10 @@ class HostWorkspaceOSAccess(pydantic_monty.AbstractOS):
         normalized = self._normalize_virtual_path(path)
         if self._is_virtual_root(normalized):
             raise PermissionError("The virtual root directory cannot be renamed.")
-        self._to_host_path(normalized).rename(self._to_host_path(target))
+        target_normalized = self._normalize_virtual_path(target)
+        self._to_host_path(normalized).rename(self._to_host_path(target_normalized))
+        if not self.path_is_dir(target_normalized):
+            self.record_virtual_artifact(target_normalized)
 
     def path_resolve(self, path: PurePosixPath) -> str:
         """Resolve a path into its canonical virtual form."""

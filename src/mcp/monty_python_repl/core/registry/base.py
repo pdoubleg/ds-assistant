@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from abc import ABC
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, ClassVar
@@ -15,12 +15,7 @@ from .utils import safe_json_value
 
 @dataclass(slots=True)
 class ToolMetadata:
-    """Decorator-supplied metadata for a collection tool."""
-
-    name: str | None = None
-    description: str | None = None
-    usage_example: str | None = None
-    categories: tuple[str, ...] = field(default_factory=tuple)
+    """Marker metadata attached to decorated collection tools."""
 
 
 @dataclass(slots=True)
@@ -30,33 +25,67 @@ class RegisteredFunction:
     name: str
     func: Callable[..., Any]
     description: str
+    detailed_description: str | None = None
     usage_example: str | None = None
-    categories: tuple[str, ...] = field(default_factory=tuple)
     collection: str | None = None
+    collection_description: str | None = None
     arguments: tuple[ToolArgument, ...] = field(default_factory=tuple)
     return_annotation: str | None = None
+    return_description: str | None = None
 
     @property
     def signature(self) -> str:
         """Return the Python signature for the registered callable."""
         return str(inspect.signature(self.func))
 
-    def to_help_dict(self) -> dict[str, Any]:
+    def _build_usage_guidance(self) -> list[str]:
+        """Build Monty-specific guidance for using a registered function."""
+        guidance = [
+            "Call this helper directly inside `execute(...)` code, not as a method on a dataframe or collection object.",
+        ]
+        if self.collection:
+            guidance.append(
+                f"Use `help({self.collection!r})` to discover related helpers in the same collection."
+            )
+        if any(argument.name.endswith("_handle") for argument in self.arguments):
+            guidance.append(
+                "Arguments ending in `_handle` expect a stored handle string returned by an earlier Monty step."
+            )
+        if self.usage_example:
+            guidance.append(
+                "Start from the usage example, then adapt the variable names and paths to the current session."
+            )
+        return guidance
+
+    def to_help_dict(self, *, detailed: bool = False) -> dict[str, Any]:
         """Render the function metadata for help responses.
 
         Returns:
             dict[str, Any]: JSON-friendly function metadata.
         """
-        return {
+        payload = {
             "name": self.name,
             "signature": f"{self.name}{self.signature}",
             "description": self.description,
-            "categories": list(self.categories),
             "collection": self.collection,
             "usage_example": self.usage_example,
             "arguments": [argument.to_help_dict() for argument in self.arguments],
             "return_annotation": self.return_annotation,
         }
+        if detailed:
+            payload.update(
+                {
+                    "detailed_description": self.detailed_description
+                    or self.description,
+                    "collection_description": self.collection_description,
+                    "return_value": {
+                        "annotation": self.return_annotation,
+                        "description": self.return_description,
+                    },
+                    "usage_guidance": self._build_usage_guidance(),
+                }
+            )
+        return payload
 
 
 @dataclass(slots=True)
@@ -85,31 +114,15 @@ _TOOL_METADATA_ATTR = "__monty_tool_metadata__"
 
 
 def tool(
-    *,
-    name: str | None = None,
-    description: str | None = None,
-    usage_example: str | None = None,
-    categories: Iterable[str] = (),
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    func: Callable[..., Any] | None = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]] | Callable[..., Any]:
     """Mark a collection method as a Monty tool.
-
-    Args:
-        name (str | None): Optional exported tool name override.
-        description (str | None): Optional summary override when the docstring is
-            unavailable or should be customized.
-        usage_example (str | None): Optional example surfaced in the help output.
-        categories (Iterable[str]): Categories used to group related tools.
 
     Returns:
         Callable[[Callable[..., Any]], Callable[..., Any]]: Decorator that stores
         tool metadata on the wrapped callable.
     """
-    metadata = ToolMetadata(
-        name=name,
-        description=description,
-        usage_example=usage_example,
-        categories=tuple(str(category) for category in categories),
-    )
+    metadata = ToolMetadata()
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         """Attach registry metadata to the target callable.
@@ -132,7 +145,9 @@ def tool(
         setattr(wrapped, _TOOL_METADATA_ATTR, metadata)
         return wrapped
 
-    return decorator
+    if func is None:
+        return decorator
+    return decorator(func)
 
 
 def _get_tool_metadata(func: Callable[..., Any]) -> ToolMetadata | None:
@@ -176,16 +191,11 @@ class ToolCollection(ABC):
         """
         specs: list[ToolSpec] = []
         for _, member in inspect.getmembers(self, predicate=callable):
-            metadata = _get_tool_metadata(member)
-            if metadata is None:
+            if _get_tool_metadata(member) is None:
                 continue
             specs.append(
                 build_tool_spec(
                     member,
-                    name=metadata.name,
-                    description=metadata.description,
-                    usage_example=metadata.usage_example,
-                    categories=metadata.categories,
                     collection=self.collection_name,
                     collection_description=self.collection_description,
                 )
@@ -234,9 +244,6 @@ class FunctionRegistry:
         func: Callable[..., Any],
         *,
         name: str | None = None,
-        description: str | None = None,
-        usage_example: str | None = None,
-        categories: Iterable[str] = (),
         collection: str | None = None,
         collection_description: str | None = None,
     ) -> RegisteredFunction:
@@ -245,9 +252,6 @@ class FunctionRegistry:
         Args:
             func (Callable[..., Any]): Tool callable to register.
             name (str | None): Optional exported name override.
-            description (str | None): Optional summary override.
-            usage_example (str | None): Optional usage example.
-            categories (Iterable[str]): Tool categories.
             collection (str | None): Optional collection grouping.
             collection_description (str | None): Optional collection summary.
 
@@ -258,9 +262,6 @@ class FunctionRegistry:
             build_tool_spec(
                 func,
                 name=name,
-                description=description,
-                usage_example=usage_example,
-                categories=categories,
                 collection=collection,
                 collection_description=collection_description,
             )
@@ -285,11 +286,13 @@ class FunctionRegistry:
             name=tool_spec.name,
             func=tool_spec.func,
             description=tool_spec.description,
+            detailed_description=tool_spec.detailed_description,
             usage_example=tool_spec.usage_example,
-            categories=tool_spec.categories,
             collection=tool_spec.collection,
+            collection_description=tool_spec.collection_description,
             arguments=tool_spec.arguments,
             return_annotation=tool_spec.return_annotation,
+            return_description=tool_spec.return_description,
         )
         self._functions[entry.name] = entry
 

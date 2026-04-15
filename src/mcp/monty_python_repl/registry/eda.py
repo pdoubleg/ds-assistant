@@ -1,194 +1,22 @@
-"""Built-in data analysis tool collections for the Monty Python REPL."""
+"""Dataframe EDA and Plotly collections for the Monty Python REPL."""
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
 from typing import Any
 
-import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import plotly.io as pio
 
-from ..filesystem import HostWorkspaceOSAccess
-from .base import (
-    ObjectStore,
-    ToolCollection,
-    tool,
-)
-from .utils import (
+from ..core.registry import (
+    WorkspaceToolCollection,
     coerce_group_keys,
     flatten_columns,
     safe_json_value,
+    tool,
 )
 
 
-class _WorkspaceToolCollection(ToolCollection):
-    """Shared workspace-aware helpers for built-in data tool collections."""
-
-    def __init__(
-        self, os_access: HostWorkspaceOSAccess, object_store: ObjectStore
-    ) -> None:
-        """Initialize the helper collection.
-
-        Args:
-            os_access (HostWorkspaceOSAccess): Workspace path sandbox adapter.
-            object_store (ObjectStore): Shared handle store for dataframes and figures.
-        """
-        self._os_access = os_access
-        self._object_store = object_store
-
-    def _resolve_host_path(self, path: str) -> Path:
-        """Resolve a virtual or relative path to the host workspace."""
-        return self._os_access._to_host_path(PurePosixPath(path))
-
-    def _get_dataframe(self, dataframe_handle: str) -> pd.DataFrame:
-        """Fetch a dataframe from the object store."""
-        return self._object_store.get(dataframe_handle, expected_type=pd.DataFrame)
-
-    def _get_figure(self, figure_handle: str) -> go.Figure:
-        """Fetch a Plotly figure from the object store."""
-        return self._object_store.get(figure_handle, expected_type=go.Figure)
-
-
-class DataIOCollection(_WorkspaceToolCollection):
-    """Workspace file loading and export helpers."""
-
-    name = "data_io"
-    description = "Data loading, file export, and workspace file discovery helpers."
-
-    @tool(
-        categories=("io", "pandas"),
-        usage_example="df_handle = load_csv('/workspace/input/data.csv')",
-    )
-    def load_csv(self, path: str, *, nrows: int | None = None) -> str:
-        """Load a CSV file from `/workspace` and return a dataframe handle.
-
-        Args:
-            path (str): Relative or `/workspace`-scoped path to the CSV file.
-            nrows (int | None): Optional maximum row count to load.
-
-        Returns:
-            str: Handle for the stored dataframe.
-        """
-        dataframe = pd.read_csv(self._resolve_host_path(path), nrows=nrows)
-        return self._object_store.put(dataframe, prefix="df")
-
-    @tool(
-        categories=("io", "export"),
-        usage_example="save_csv(df_handle, '/workspace/output/clean.csv')",
-    )
-    def save_csv(self, dataframe_handle: str, path: str, *, index: bool = False) -> str:
-        """Save a stored dataframe handle to CSV inside `/workspace`.
-
-        Args:
-            dataframe_handle (str): Handle pointing to a stored dataframe.
-            path (str): Relative or `/workspace`-scoped CSV destination.
-            index (bool): Whether to persist the dataframe index.
-
-        Returns:
-            str: Virtual path to the saved CSV file.
-        """
-        host_path = self._resolve_host_path(path)
-        host_path.parent.mkdir(parents=True, exist_ok=True)
-        self._get_dataframe(dataframe_handle).to_csv(host_path, index=index)
-        return str(self._os_access.virtualize_host_path(host_path))
-
-    @tool(
-        categories=("io", "workspace"),
-        usage_example="print(list_workspace_files())",
-    )
-    def list_workspace_files(self, subdir: str = ".") -> list[str]:
-        """List files currently available under `/workspace`.
-
-        Args:
-            subdir (str): Optional workspace subdirectory to search from.
-
-        Returns:
-            list[str]: Virtual workspace file paths.
-        """
-        host_root = self._resolve_host_path(subdir)
-        if not host_root.exists():
-            return []
-
-        files: list[str] = []
-        for child in sorted(host_root.rglob("*")):
-            if child.is_file():
-                files.append(str(self._os_access.virtualize_host_path(child)))
-        return files
-
-    @tool(
-        categories=("export", "excel"),
-        usage_example=(
-            "save_excel("
-            "{'raw': df_handle, 'summary': summary_handle}, "
-            "'/workspace/output/report.xlsx')"
-        ),
-    )
-    def save_excel(
-        self,
-        dataframes: dict[str, str],
-        path: str,
-        *,
-        index: bool = False,
-    ) -> str:
-        """Save one or more stored dataframes to an Excel workbook.
-
-        Args:
-            dataframes (dict[str, str]): Mapping of sheet names to dataframe handles.
-            path (str): Relative or `/workspace` workbook destination.
-            index (bool): Whether to include dataframe indices in each sheet.
-
-        Returns:
-            str: Virtual path to the saved workbook.
-        """
-        host_path = self._resolve_host_path(path)
-        host_path.parent.mkdir(parents=True, exist_ok=True)
-        with pd.ExcelWriter(host_path) as writer:
-            for sheet_name, dataframe_handle in dataframes.items():
-                self._get_dataframe(dataframe_handle).to_excel(
-                    writer,
-                    sheet_name=str(sheet_name)[:31],
-                    index=index,
-                )
-        return str(self._os_access.virtualize_host_path(host_path))
-
-
-class HandleInspectionCollection(_WorkspaceToolCollection):
-    """Handle inspection helpers for stored in-memory artifacts."""
-
-    name = "handles"
-    description = "Inspect active dataframe and figure handles stored by Monty."
-
-    @tool(
-        categories=("state", "workspace"),
-        usage_example="print(list_object_handles())",
-    )
-    def list_object_handles(self) -> list[str]:
-        """List the dataframe and figure handles currently stored in memory.
-
-        Returns:
-            list[str]: Active object handles in insertion order.
-        """
-        return self._object_store.list_handles()
-
-    @tool(
-        categories=("state", "summary"),
-        usage_example="print(inspect_handle(df_handle))",
-    )
-    def inspect_handle(self, handle: str) -> dict[str, Any]:
-        """Return a summary of a stored host-side object.
-
-        Args:
-            handle (str): Dataframe or figure handle to inspect.
-
-        Returns:
-            dict[str, Any]: JSON-friendly handle summary.
-        """
-        return self._object_store.summary(handle)
-
-
-class DataframeEDACollection(_WorkspaceToolCollection):
+class DataframeEDACollection(WorkspaceToolCollection):
     """Dataframe inspection, summary, and transformation helpers."""
 
     name = "dataframe"
@@ -197,10 +25,7 @@ class DataframeEDACollection(_WorkspaceToolCollection):
         "dataframe handles."
     )
 
-    @tool(
-        categories=("eda", "summary"),
-        usage_example="print(dataframe_shape(df_handle))",
-    )
+    @tool
     def dataframe_shape(self, dataframe_handle: str) -> dict[str, int]:
         """Return row and column counts for a stored dataframe.
 
@@ -209,14 +34,15 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             dict[str, int]: Mapping with `rows` and `columns` counts.
+
+        Examples:
+            print(dataframe_shape(df_handle))
+            # Returns: {"rows": 1000, "columns": 24}
         """
         dataframe = self._get_dataframe(dataframe_handle)
         return {"rows": int(dataframe.shape[0]), "columns": int(dataframe.shape[1])}
 
-    @tool(
-        categories=("eda", "summary"),
-        usage_example="print(dataframe_head(df_handle, rows=5))",
-    )
+    @tool
     def dataframe_head(
         self, dataframe_handle: str, *, rows: int = 5
     ) -> list[dict[str, Any]]:
@@ -228,15 +54,15 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             list[dict[str, Any]]: Record-oriented preview rows.
+
+        Examples:
+            print(dataframe_head(df_handle, rows=5))
         """
         return (
             self._get_dataframe(dataframe_handle).head(rows).to_dict(orient="records")
         )
 
-    @tool(
-        categories=("eda", "summary"),
-        usage_example="print(dataframe_columns(df_handle))",
-    )
+    @tool
     def dataframe_columns(self, dataframe_handle: str) -> list[str]:
         """Return column names for a stored dataframe.
 
@@ -245,13 +71,13 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             list[str]: Column labels converted to strings.
+
+        Examples:
+            print(dataframe_columns(df_handle))
         """
         return [str(column) for column in self._get_dataframe(dataframe_handle).columns]
 
-    @tool(
-        categories=("eda", "summary"),
-        usage_example="print(dataframe_dtypes(df_handle))",
-    )
+    @tool
     def dataframe_dtypes(self, dataframe_handle: str) -> dict[str, str]:
         """Return dataframe dtypes keyed by column name.
 
@@ -260,14 +86,19 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             dict[str, str]: Column dtype mapping.
+
+        Examples:
+            print(dataframe_dtypes(df_handle))
+            # Returns:
+            # {
+            #     "claim_amount": "float64",
+            #     "segment": "object"
+            # }
         """
         dataframe = self._get_dataframe(dataframe_handle)
         return {str(column): str(dtype) for column, dtype in dataframe.dtypes.items()}
 
-    @tool(
-        categories=("eda", "quality"),
-        usage_example="print(dataframe_missing_summary(df_handle))",
-    )
+    @tool
     def dataframe_missing_summary(self, dataframe_handle: str) -> list[dict[str, Any]]:
         """Summarize missing values for each dataframe column.
 
@@ -276,6 +107,9 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             list[dict[str, Any]]: Per-column missing-count summaries.
+
+        Examples:
+            print(dataframe_missing_summary(df_handle))
         """
         dataframe = self._get_dataframe(dataframe_handle)
         total_rows = max(len(dataframe), 1)
@@ -292,10 +126,7 @@ class DataframeEDACollection(_WorkspaceToolCollection):
             )
         return summary
 
-    @tool(
-        categories=("eda", "summary"),
-        usage_example="print(dataframe_describe(df_handle, include_all=True))",
-    )
+    @tool
     def dataframe_describe(
         self,
         dataframe_handle: str,
@@ -312,6 +143,9 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             list[dict[str, Any]]: Record-oriented describe output.
+
+        Examples:
+            print(dataframe_describe(df_handle, include_all=True))
         """
         dataframe = self._get_dataframe(dataframe_handle)
         described = dataframe.describe(
@@ -319,10 +153,7 @@ class DataframeEDACollection(_WorkspaceToolCollection):
         ).reset_index()
         return described.head(max_rows).to_dict(orient="records")
 
-    @tool(
-        categories=("eda", "summary"),
-        usage_example="print(value_counts(df_handle, 'segment', limit=10))",
-    )
+    @tool
     def value_counts(
         self,
         dataframe_handle: str,
@@ -343,6 +174,9 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             list[dict[str, Any]]: Top values with counts or normalized shares.
+
+        Examples:
+            print(value_counts(df_handle, "segment", limit=10))
         """
         dataframe = self._get_dataframe(dataframe_handle)
         series = (
@@ -358,10 +192,7 @@ class DataframeEDACollection(_WorkspaceToolCollection):
             for index, value in series.items()
         ]
 
-    @tool(
-        categories=("eda", "transform"),
-        usage_example="high_value_handle = filter_dataframe(df_handle, 'premium > 1000')",
-    )
+    @tool
     def filter_dataframe(self, dataframe_handle: str, query: str) -> str:
         """Filter rows with a pandas query expression.
 
@@ -371,17 +202,14 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             str: Handle for the filtered dataframe.
+
+        Examples:
+            high_value_handle = filter_dataframe(df_handle, "premium > 1000")
         """
         filtered = self._get_dataframe(dataframe_handle).query(query).copy()
         return self._object_store.put(filtered, prefix="df")
 
-    @tool(
-        categories=("eda", "transform"),
-        usage_example=(
-            "summary_handle = groupby_aggregate("
-            "df_handle, ['segment'], {'loss': ['mean', 'sum']})"
-        ),
-    )
+    @tool
     def groupby_aggregate(
         self,
         dataframe_handle: str,
@@ -398,6 +226,13 @@ class DataframeEDACollection(_WorkspaceToolCollection):
 
         Returns:
             str: Handle for the aggregated dataframe.
+
+        Examples:
+            summary_handle = groupby_aggregate(
+                df_handle,
+                ["segment"],
+                {"loss": ["mean", "sum"], "premium": "mean"},
+            )
         """
         dataframe = self._get_dataframe(dataframe_handle)
         grouped = (
@@ -409,7 +244,7 @@ class DataframeEDACollection(_WorkspaceToolCollection):
         return self._object_store.put(grouped, prefix="df")
 
 
-class PlotlyCollection(_WorkspaceToolCollection):
+class PlotlyCollection(WorkspaceToolCollection):
     """Plotly chart creation and export helpers."""
 
     name = "plotly"
@@ -417,13 +252,7 @@ class PlotlyCollection(_WorkspaceToolCollection):
         "Create Plotly figures from stored dataframes and export chart artifacts."
     )
 
-    @tool(
-        categories=("plotly", "visualization"),
-        usage_example=(
-            "fig_handle = create_scatter_plot("
-            "df_handle, 'age', 'claim_amount', color='state')"
-        ),
-    )
+    @tool
     def create_scatter_plot(
         self,
         dataframe_handle: str,
@@ -444,6 +273,14 @@ class PlotlyCollection(_WorkspaceToolCollection):
 
         Returns:
             str: Handle for the stored Plotly figure.
+
+        Examples:
+            fig_handle = create_scatter_plot(
+                df_handle,
+                "age",
+                "claim_amount",
+                color="state",
+            )
         """
         figure = px.scatter(
             self._get_dataframe(dataframe_handle),
@@ -454,10 +291,7 @@ class PlotlyCollection(_WorkspaceToolCollection):
         )
         return self._object_store.put(figure, prefix="fig")
 
-    @tool(
-        categories=("plotly", "visualization"),
-        usage_example="fig_handle = create_bar_chart(summary_handle, 'segment', 'loss__sum')",
-    )
+    @tool
     def create_bar_chart(
         self,
         dataframe_handle: str,
@@ -478,6 +312,9 @@ class PlotlyCollection(_WorkspaceToolCollection):
 
         Returns:
             str: Handle for the stored Plotly figure.
+
+        Examples:
+            fig_handle = create_bar_chart(summary_handle, "segment", "loss__sum")
         """
         figure = px.bar(
             self._get_dataframe(dataframe_handle),
@@ -488,10 +325,7 @@ class PlotlyCollection(_WorkspaceToolCollection):
         )
         return self._object_store.put(figure, prefix="fig")
 
-    @tool(
-        categories=("plotly", "visualization"),
-        usage_example="fig_handle = create_histogram(df_handle, 'claim_amount', nbins=30)",
-    )
+    @tool
     def create_histogram(
         self,
         dataframe_handle: str,
@@ -512,6 +346,9 @@ class PlotlyCollection(_WorkspaceToolCollection):
 
         Returns:
             str: Handle for the stored Plotly figure.
+
+        Examples:
+            fig_handle = create_histogram(df_handle, "claim_amount", nbins=30)
         """
         figure = px.histogram(
             self._get_dataframe(dataframe_handle),
@@ -522,10 +359,7 @@ class PlotlyCollection(_WorkspaceToolCollection):
         )
         return self._object_store.put(figure, prefix="fig")
 
-    @tool(
-        categories=("plotly", "export"),
-        usage_example="save_plotly_figure(fig_handle, '/workspace/output/chart.html')",
-    )
+    @tool
     def save_plotly_figure(
         self,
         figure_handle: str,
@@ -542,17 +376,22 @@ class PlotlyCollection(_WorkspaceToolCollection):
 
         Returns:
             list[str]: Saved virtual paths in write order.
+
+        Examples:
+            save_plotly_figure(fig_handle, "/workspace/output/chart.html")
         """
         figure = self._get_figure(figure_handle)
         host_html_path = self._resolve_host_path(html_path)
         host_html_path.parent.mkdir(parents=True, exist_ok=True)
         pio.write_html(figure, host_html_path, auto_open=False, include_plotlyjs="cdn")
+        self._record_artifact(host_html_path)
 
         saved_paths = [str(self._os_access.virtualize_host_path(host_html_path))]
         if image_path:
             host_image_path = self._resolve_host_path(image_path)
             host_image_path.parent.mkdir(parents=True, exist_ok=True)
             pio.write_image(figure, host_image_path)
+            self._record_artifact(host_image_path)
             saved_paths.append(
                 str(self._os_access.virtualize_host_path(host_image_path))
             )
@@ -560,8 +399,6 @@ class PlotlyCollection(_WorkspaceToolCollection):
 
 
 __all__ = [
-    "DataIOCollection",
     "DataframeEDACollection",
-    "HandleInspectionCollection",
     "PlotlyCollection",
 ]

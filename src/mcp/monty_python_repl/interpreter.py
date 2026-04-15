@@ -40,14 +40,11 @@ class _TopLevelNameCollector:
     ) -> None:
         """Visit a statement that executes in module scope."""
         if isinstance(statement, ast.Assign):
-            if self._is_persistable_expression(statement.value, safe_call_names):
-                for target in statement.targets:
-                    self._record_target(target, assigned=True)
+            for target in statement.targets:
+                self._record_target(target, assigned=True)
             return
         if isinstance(statement, ast.AnnAssign):
-            if statement.value and self._is_persistable_expression(
-                statement.value, safe_call_names
-            ):
+            if statement.value:
                 self._record_target(statement.target, assigned=True)
             return
         if isinstance(statement, ast.AugAssign):
@@ -174,6 +171,7 @@ class InterpreterRunResult:
 
     stdout: str
     persisted_names: list[str]
+    persistence_failures: list[dict[str, str]]
 
 
 class MontyReplInterpreter:
@@ -181,6 +179,7 @@ class MontyReplInterpreter:
 
     _persist_tool_name = "__monty_repl_persist__"
     _delete_tool_name = "__monty_repl_delete__"
+    _persist_error_tool_name = "__monty_repl_persist_error__"
 
     def __init__(
         self,
@@ -260,8 +259,9 @@ class MontyReplInterpreter:
                 [
                     "try:",
                     f"    {self._persist_tool_name}({name!r}, {name})",
-                    "except Exception:",
-                    "    pass",
+                    "except Exception as exc:",
+                    "    error_message = str(exc).strip() or exc.__class__.__name__",
+                    f"    {self._persist_error_tool_name}({name!r}, error_message)",
                     "",
                 ]
             )
@@ -281,6 +281,7 @@ class MontyReplInterpreter:
 
         captured_state: dict[str, Any] = {}
         deleted_state_names: set[str] = set()
+        persistence_failures: list[dict[str, str]] = []
         all_tools = dict(self._tools)
 
         def _persist_variable(name: str, value: Any) -> None:
@@ -289,8 +290,12 @@ class MontyReplInterpreter:
         def _delete_variable(name: str) -> None:
             deleted_state_names.add(name)
 
+        def _record_persist_failure(name: str, error: str) -> None:
+            persistence_failures.append({"name": name, "error": error})
+
         all_tools[self._persist_tool_name] = _persist_variable
         all_tools[self._delete_tool_name] = _delete_variable
+        all_tools[self._persist_error_tool_name] = _record_persist_failure
 
         merged_vars = dict(self._state)
         awaited_tool_names = self._find_awaited_tool_names(wrapped_code, set(all_tools))
@@ -425,4 +430,5 @@ class MontyReplInterpreter:
         return InterpreterRunResult(
             stdout="".join(stdout_parts),
             persisted_names=sorted(captured_state),
+            persistence_failures=persistence_failures,
         )

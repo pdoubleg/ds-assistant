@@ -10,6 +10,38 @@ import pandas as pd
 import plotly.graph_objects as go
 
 
+def _is_scalar_json_like(value: Any) -> bool:
+    """Return whether a value is already small and JSON-friendly.
+
+    Args:
+        value (Any): Runtime value to classify.
+
+    Returns:
+        bool: ``True`` when the value is a scalar-like JSON primitive.
+    """
+    return value is None or isinstance(value, (bool, int, float, str))
+
+
+def _truncate_preview_value(value: Any, *, max_chars: int, max_items: int) -> Any:
+    """Summarize dataframe-like preview cells without bloating payloads.
+
+    Args:
+        value (Any): Cell or preview value.
+        max_chars (int): Maximum characters to retain for long preview strings.
+        max_items (int): Maximum nested preview items to retain.
+
+    Returns:
+        Any: JSON-friendly preview representation.
+    """
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        if len(value) > max_chars:
+            return value[:max_chars] + "... [truncated]"
+        return value
+    return safe_json_value(value, max_items=max_items, max_chars=max_chars)
+
+
 def safe_json_value(value: Any, *, max_items: int = 20, max_chars: int = 500) -> Any:
     """Convert runtime values into JSON-friendly summaries.
 
@@ -21,20 +53,37 @@ def safe_json_value(value: Any, *, max_items: int = 20, max_chars: int = 500) ->
     Returns:
         Any: JSON-friendly representation of the input value.
     """
-    if value is None or isinstance(value, (bool, int, float, str)):
-        if isinstance(value, str) and len(value) > max_chars:
-            return value[:max_chars] + "... [truncated]"
+    if _is_scalar_json_like(value):
         return value
+
+    # Let rich host-side artifacts provide their own compact summaries without
+    # forcing this module to import every registry-specific runtime type.
+    to_json_summary = getattr(value, "to_json_summary", None)
+    if callable(to_json_summary):
+        return to_json_summary(max_items=max_items, max_chars=max_chars)
 
     if isinstance(value, PurePosixPath | Path):
         return str(value)
 
     if isinstance(value, pd.DataFrame):
+        preview_records = value.head(max_items).to_dict(orient="records")
         return {
             "type": "DataFrame",
             "shape": [int(value.shape[0]), int(value.shape[1])],
-            "columns": [str(column) for column in value.columns[:max_items]],
-            "preview": value.head(max_items).to_dict(orient="records"),
+            # Preserve the full schema because callers often need the exact
+            # fitted/evaluation column names for debugging.
+            "columns": [str(column) for column in value.columns],
+            "preview": [
+                {
+                    str(key): _truncate_preview_value(
+                        item,
+                        max_chars=max_chars,
+                        max_items=max_items,
+                    )
+                    for key, item in row.items()
+                }
+                for row in preview_records
+            ],
         }
 
     if isinstance(value, pd.Series):
@@ -42,7 +91,14 @@ def safe_json_value(value: Any, *, max_items: int = 20, max_chars: int = 500) ->
             "type": "Series",
             "name": str(value.name),
             "length": int(len(value)),
-            "preview": value.head(max_items).tolist(),
+            "preview": [
+                _truncate_preview_value(
+                    item,
+                    max_chars=max_chars,
+                    max_items=max_items,
+                )
+                for item in value.head(max_items).tolist()
+            ],
         }
 
     if isinstance(value, go.Figure):
@@ -53,16 +109,21 @@ def safe_json_value(value: Any, *, max_items: int = 20, max_chars: int = 500) ->
         }
 
     if isinstance(value, Mapping):
-        items = list(value.items())[:max_items]
         return {
             str(key): safe_json_value(item, max_items=max_items, max_chars=max_chars)
-            for key, item in items
+            for key, item in value.items()
         }
 
     if isinstance(value, (list, tuple, set)):
+        items = list(value)
+        if all(_is_scalar_json_like(item) for item in items):
+            return [
+                safe_json_value(item, max_items=max_items, max_chars=max_chars)
+                for item in items
+            ]
         return [
             safe_json_value(item, max_items=max_items, max_chars=max_chars)
-            for item in list(value)[:max_items]
+            for item in items[:max_items]
         ]
 
     rendered = repr(value)
