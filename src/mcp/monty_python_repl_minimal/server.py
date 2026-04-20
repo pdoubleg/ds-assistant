@@ -1,4 +1,4 @@
-"""FastMCP server wiring for the hackathon Monty Python REPL."""
+"""FastMCP server wiring for the minimal Monty Python REPL."""
 
 from __future__ import annotations
 
@@ -14,16 +14,29 @@ mcp = FastMCP(
     instructions=(
         "A minimal Monty-sandboxed Python REPL for tabular modeling. "
         "Use `help` to discover safe collections, `execute` to run code, and "
-        "`results` to retrieve buffered execution history. `execute` surfaces "
-        "privacy-safe helper summaries directly, while raw stdout stays "
-        "suppressed. The runtime is restricted, so direct stdlib filesystem, "
-        "compilation, and introspection operations may be limited. Prefer "
+        "`results` to retrieve buffered execution history. `execute` returns "
+        "a compact status payload, while stdout, including `print(...)`, stays "
+        "suppressed. `results` is the detailed output channel and returns "
+        "buffered execution records whose visible computed values come from the "
+        "last expression or helper summary rather than printed output. Build the "
+        "final expression deliberately when you want `results` to expose a "
+        "specific value shape. "
+        "The runtime is restricted, so direct stdlib filesystem, "
+        "compilation, and introspection operations may be limited. Only a small "
+        "supported subset of imports is available to caller code, such as "
+        "`typing`, `json`, `math`, `re`, `dataclasses`, and `datetime`. "
+        "If registered helpers rely on external packages like `pandas` or "
+        "`sklearn`, the helper handles those imports internally, so never "
+        "execute code that starts with `import pandas as pd`. Prefer "
         "`write_workspace_text`, `write_workspace_json`, `read_workspace_text`, "
         "and `read_workspace_json` for workspace file IO, and prefer model/report "
         "helpers for persistence. Sanitized errors may hide the exact underlying "
-        "operation. Prefer predefined helpers for inspection, feature "
-        "screening, and modeling, and use freeform code mainly to create new "
-        "dataframe handles from transformations or slices. This server never "
+        "operation. Prefer predefined helpers for EDA, feature selection, "
+        "feature pipelines, scoring, and modeling, and keep `execute(...)` "
+        "focused on orchestrating those helpers. Score dataframes with "
+        "`score_model_dataframe(...)`, summarize ranked slices with "
+        "`summarize_top_p_predictions(...)`, and inspect aggregate false-positive "
+        "patterns with `analyze_top_p_false_positives(...)`. This server never "
         "returns raw training rows, categorical examples, raw workspace text, "
         "or embedded row-level chart payloads. Prefer schema summaries, safe "
         "plots, feature screening, LightGBM native categorical handling, and "
@@ -49,13 +62,23 @@ async def execute(
             description=(
                 "Python code to execute inside the persistent Monty session. "
                 "Use safe helper functions for data access, schema summaries, "
-                "plotting, feature workbench steps, and LightGBM modeling. "
+                "EDA, feature selection, feature pipelines, and LightGBM modeling. "
                 "This is a restricted Python runtime, so direct `open(...)`, "
                 "`Path.write_text(...)`, `Path.read_text(...)`, `compile(...)`, "
-                "and similar stdlib operations may be limited. Prefer workspace "
+                "and similar stdlib operations may be limited. Only a small "
+                "supported subset of imports is available to caller code, such as "
+                "`typing`, `json`, `math`, `re`, `dataclasses`, and `datetime`; "
+                "if a helper relies on packages like `pandas` or `sklearn`, it "
+                "handles those imports internally, so do not execute "
+                "`import pandas as pd`. Prefer workspace "
                 "helpers and model/report save helpers instead. "
-                "Execute returns privacy-safe helper summaries directly, while "
-                "raw stdout and exception details are sanitized for privacy."
+                "Execute returns only compact execution status, while stdout, "
+                "including `print(...)`, is suppressed and exception details are "
+                "sanitized for privacy. Call `results()` for accumulated helper "
+                "summaries, handles, and buffered execution details. Use a "
+                "deliberate final bare expression when you want `results` to "
+                "expose a specific value shape. Prefer helper composition over "
+                "nested code strings."
             )
         ),
     ],
@@ -75,12 +98,12 @@ async def help(
             )
         ),
     ] = None,
-) -> dict[str, Any]:
+) -> str:
     """Describe available safe modeling helpers."""
     return get_repl().help(name=name)
 
 
 @mcp.tool(name="results")
 async def results() -> dict[str, Any]:
-    """Return and clear buffered privacy-safe execution history."""
+    """Return and clear buffered detailed execution records."""
     return get_repl().results()

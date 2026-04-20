@@ -8,7 +8,6 @@ from typing import Any
 import lightgbm as lgb
 import optuna
 
-from ..execution import FreeformDataframeTransformer
 from ..privacy import safe_json_value
 
 
@@ -172,26 +171,24 @@ class StoredFeatureSelectionReport:
 
 
 @dataclass(slots=True)
-class StoredFreeformTransformerArtifact:
-    """Persisted reusable freeform transformer artifact.
+class StoredDataframeReport:
+    """Persisted aggregate report for privacy-safe EDA and planning.
 
     Args:
-        estimator (FreeformDataframeTransformer): Fitted reusable transformer.
-        input_columns (list[str]): Input columns seen during fit.
-        output_columns (list[str]): Output columns produced during transform.
-        columns_added (list[str]): New columns added by the transformer.
-        columns_removed (list[str]): Columns removed by the transformer.
-        params (dict[str, Any]): User-supplied transformer parameters.
-        target_column (str | None): Optional target excluded during fit.
+        report_type (str): Report category identifier.
+        title (str): Short human-readable report title.
+        summary (str): Compact user-facing summary sentence.
+        details (dict[str, Any]): Structured aggregate report payload.
+        warnings (list[str]): Non-fatal warnings emitted during report creation.
+        metadata (dict[str, Any]): Additional context for later inspection.
     """
 
-    estimator: FreeformDataframeTransformer
-    input_columns: list[str]
-    output_columns: list[str]
-    columns_added: list[str]
-    columns_removed: list[str]
-    params: dict[str, Any]
-    target_column: str | None = None
+    report_type: str
+    title: str
+    summary: str
+    details: dict[str, Any]
+    warnings: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_json_summary(
         self,
@@ -199,7 +196,7 @@ class StoredFreeformTransformerArtifact:
         max_items: int = 100,
         max_chars: int = 1_000,
     ) -> dict[str, Any]:
-        """Render a compact freeform-transformer summary.
+        """Render a compact structured report summary.
 
         Args:
             max_items (int): Maximum items retained in preview lists.
@@ -210,14 +207,65 @@ class StoredFreeformTransformerArtifact:
         """
 
         return {
-            "type": "StoredFreeformTransformerArtifact",
+            "type": "StoredDataframeReport",
+            "report_type": self.report_type,
+            "title": self.title,
+            "summary": self.summary,
+            "details": safe_json_value(
+                self.details,
+                max_items=max_items,
+                max_chars=max_chars,
+            ),
+            "warnings": self.warnings[:max_items],
+            "metadata": safe_json_value(
+                self.metadata,
+                max_items=max_items,
+                max_chars=max_chars,
+            ),
+        }
+
+
+@dataclass(slots=True)
+class StoredFeatureEngineeringPipeline:
+    """Persisted deterministic feature-engineering pipeline.
+
+    Args:
+        target_column (str | None): Optional target excluded during fitting.
+        steps (list[dict[str, Any]]): Resolved pipeline steps and learned params.
+        input_columns (list[str]): Input feature columns seen during fitting.
+        output_columns (list[str]): Output columns produced after applying steps.
+        warnings (list[str]): Non-fatal warnings emitted during fitting.
+        metadata (dict[str, Any]): Additional pipeline metadata for inspection.
+    """
+
+    target_column: str | None
+    steps: list[dict[str, Any]]
+    input_columns: list[str]
+    output_columns: list[str]
+    warnings: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_json_summary(
+        self,
+        *,
+        max_items: int = 100,
+        max_chars: int = 1_000,
+    ) -> dict[str, Any]:
+        """Render a compact fitted pipeline summary."""
+
+        return {
+            "type": "StoredFeatureEngineeringPipeline",
+            "target_column": self.target_column,
             "input_columns": self.input_columns[:max_items],
             "output_columns": self.output_columns[:max_items],
-            "columns_added": self.columns_added[:max_items],
-            "columns_removed": self.columns_removed[:max_items],
-            "target_column": self.target_column,
-            "params": safe_json_value(
-                self.params,
+            "steps": safe_json_value(
+                self.steps[:max_items],
+                max_items=max_items,
+                max_chars=max_chars,
+            ),
+            "warnings": self.warnings[:max_items],
+            "metadata": safe_json_value(
+                self.metadata,
                 max_items=max_items,
                 max_chars=max_chars,
             ),
@@ -369,8 +417,9 @@ __all__ = [
     "FeatureScreenConfig",
     "OptunaConfig",
     "SplitConfig",
+    "StoredDataframeReport",
+    "StoredFeatureEngineeringPipeline",
     "StoredFeatureSelectionReport",
-    "StoredFreeformTransformerArtifact",
     "StoredLightGBMModelArtifact",
     "StoredLightGBMStudy",
     "TrainConfig",

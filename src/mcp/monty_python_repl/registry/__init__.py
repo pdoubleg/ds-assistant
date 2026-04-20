@@ -17,7 +17,7 @@ from ..core.registry import (
     tool,
     validate_tool_docstring,
 )
-from .eda import DataframeEDACollection, PlotlyCollection
+from .eda import DataframeEDACollection
 from .freeform import FreeformCodeCollection, StoredFreeformTransformer
 from .feature_engineering import (
     FeatureEngineeringCollection,
@@ -73,6 +73,7 @@ from .workspace_io import (
     HandleInspectionCollection,
     WorkspaceFileCollection,
 )
+from .visualizations import VisualizationCollection
 from ..core.registry import coerce_group_keys, flatten_columns, safe_json_value
 
 
@@ -94,7 +95,7 @@ def build_default_registry(
     registry.register_collection(DataIOCollection(os_access, object_store))
     registry.register_collection(DataframeEDACollection(os_access, object_store))
     registry.register_collection(HandleInspectionCollection(os_access, object_store))
-    registry.register_collection(PlotlyCollection(os_access, object_store))
+    registry.register_collection(VisualizationCollection(os_access, object_store))
     registry.register_collection(PreprocessingCollection(os_access, object_store))
     registry.register_collection(FeatureEngineeringCollection(os_access, object_store))
     registry.register_collection(FeatureSelectionCollection(os_access, object_store))
@@ -117,7 +118,7 @@ __all__ = [
     "MetricsCollection",
     "ObjectStore",
     "ParsedToolDocstring",
-    "PlotlyCollection",
+    "VisualizationCollection",
     "PreprocessingCollection",
     "RegisteredCollection",
     "RegisteredFunction",

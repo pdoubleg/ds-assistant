@@ -130,4 +130,4 @@ class WorkspaceToolCollection(ToolCollection):
         return specs
 
 
-__all__ = ["HackathonWorkspaceToolCollection", "SafeObjectStore"]
+__all__ = ["SafeObjectStore", "WorkspaceToolCollection"]

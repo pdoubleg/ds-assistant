@@ -1,21 +1,19 @@
-"""Feature workbench tools for the minimal registry package."""
+"""Feature-selection helpers for the minimal registry package."""
 
 from __future__ import annotations
 
 from typing import Any
 
 import joblib
+import pandas as pd
 
 from ..base import WorkspaceToolCollection, SafeObjectStore
 from ..core.registry import tool
-from ..execution import FreeformDataframeExecutor, FreeformDataframeTransformer
 from ..filesystem import HostWorkspaceOSAccess
-from ..privacy import summarize_dataframe
 from .base import (
     FeatureScreenConfig,
     SplitConfig,
     StoredFeatureSelectionReport,
-    StoredFreeformTransformerArtifact,
     TrainConfig,
 )
 from .utils import (
@@ -27,13 +25,13 @@ from .utils import (
 )
 
 
-class FeatureWorkbenchCollection(WorkspaceToolCollection):
-    """Safe freeform and feature-screening helpers."""
+class FeatureSelectionCollection(WorkspaceToolCollection):
+    """Deterministic feature-selection helpers for modeling workflows."""
 
-    name = "feature_workbench"
+    name = "feature_selection"
     description = (
-        "Run privacy-safe freeform dataframe transforms, fit reusable freeform "
-        "transformers, and screen features for LightGBM modeling."
+        "Screen features, remove highly correlated columns, rank feature subsets, "
+        "and apply saved selection reports."
     )
 
     def __init__(
@@ -41,7 +39,7 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
         os_access: HostWorkspaceOSAccess,
         object_store: SafeObjectStore,
     ) -> None:
-        """Initialize the collection and its dedicated freeform executor.
+        """Initialize the feature-selection collection.
 
         Args:
             os_access (HostWorkspaceOSAccess): Workspace path sandbox adapter.
@@ -49,205 +47,58 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
         """
 
         super().__init__(os_access, object_store)
-        self._executor = FreeformDataframeExecutor(
-            workspace_root=self._os_access.host_workspace_root
-        )
 
-    @tool
-    def run_dataframe_code(self, dataframe_handle: str, code: str) -> dict[str, Any]:
-        """Run privacy-safe freeform Python against a stored dataframe.
-
-        The submitted code operates on a `df` variable and returns a transformed
-        dataframe while suppressing raw row output for privacy. Prefer this only
-        when predefined helpers do not already cover the transformation.
-
-        Args:
-            dataframe_handle (str): Source dataframe handle.
-            code (str): Freeform Python source operating on `df`.
-
-        Returns:
-            dict[str, Any]: New dataframe handle plus safe execution metadata.
-
-        Examples:
-            run_dataframe_code(
-                df_handle,
-                "df['ratio'] = df['balance'] / df['income']\\nresult = df",
-            )
-            # Returns:
-            # {
-            #     "dataframe_handle": "df_123",
-            #     "rows": 10000,
-            #     "column_count": 9,
-            #     "columns": ["balance", "income", "ratio", "target"],
-            #     "columns_added": ["ratio"],
-            #     "columns_removed": [],
-            #     "stdout": {
-            #         "suppressed": False,
-            #         "line_count": 0,
-            #         "character_count": 0,
-            #         "message": "No stdout was captured."
-            #     }
-            # }
-        """
-
-        source_dataframe = self._get_dataframe(dataframe_handle)
-        result = self._executor.execute(code, source_dataframe)
-        handle = self._object_store.put(result.dataframe, prefix="df")
-        return {
-            "dataframe_handle": handle,
-            "rows": result.rows,
-            "column_count": len(result.columns),
-            "columns": result.columns,
-            "columns_added": result.columns_added,
-            "columns_removed": result.columns_removed,
-            "stdout": result.stdout_summary,
-        }
-
-    @tool
-    def fit_freeform_transformer(
+    def _resolve_candidate_columns(
         self,
-        dataframe_handle: str,
-        code: str,
+        dataframe: pd.DataFrame,
         *,
-        target_column: str | None = None,
-        params: dict[str, Any] | None = None,
-        preserve_index: bool = True,
-        strict_schema: bool = True,
-    ) -> str:
-        """Fit a reusable freeform transformer artifact from Python code.
+        target_column: str | None,
+        id_columns: list[str] | None,
+        feature_columns: list[str] | None,
+    ) -> list[str]:
+        """Resolve candidate feature columns in stable dataframe order."""
 
-        This lets you capture a repeatable dataframe transformation once and reuse
-        it later across train, validation, or scoring dataframes.
+        if feature_columns is not None:
+            return [column for column in feature_columns if column in dataframe.columns]
 
-        Args:
-            dataframe_handle (str): Source dataframe handle used for fitting.
-            code (str): Freeform Python source defining the transformation.
-            target_column (str | None): Optional target column excluded during fit.
-            params (dict[str, Any] | None): Optional parameter dictionary exposed to
-                the transformer code.
-            preserve_index (bool): Whether transformed dataframes keep their index.
-            strict_schema (bool): Whether transformed inputs must match the fit schema.
-
-        Returns:
-            str: Handle for the fitted freeform transformer artifact.
-
-        Examples:
-            transformer_handle = fit_freeform_transformer(
-                df_handle,
-                "df['balance_log'] = np.log1p(df['balance'])\\nresult = df",
-                target_column="target",
-                params={"clip_min": 0.0, "clip_max": 100000.0},
-            )
-            # Returns:
-            # "freeform_123"
-        """
-
-        dataframe = self._get_dataframe(dataframe_handle).copy()
+        excluded = set(id_columns or [])
         if target_column is not None:
-            if target_column not in dataframe.columns:
-                raise ValueError(f"Target column {target_column!r} was not found.")
-            feature_frame = dataframe.drop(columns=[target_column]).copy()
-        else:
-            feature_frame = dataframe
-        estimator = FreeformDataframeTransformer(
-            code=code,
-            workspace_root=str(self._os_access.host_workspace_root),
-            params=dict(params or {}),
-            preserve_index=preserve_index,
-            strict_schema=strict_schema,
-        )
-        estimator.fit(feature_frame)
-        artifact = StoredFreeformTransformerArtifact(
-            estimator=estimator,
-            input_columns=list(estimator.input_columns_),
-            output_columns=list(estimator.output_columns_),
-            columns_added=list(estimator.columns_added_),
-            columns_removed=list(estimator.columns_removed_),
-            params=dict(params or {}),
-            target_column=target_column,
-        )
-        return self._object_store.put(artifact, prefix="freeform")
+            excluded.add(target_column)
+        return [
+            str(column) for column in dataframe.columns if str(column) not in excluded
+        ]
 
-    @tool
-    def transform_with_freeform_transformer(
+    def _categorical_columns(
         self,
-        dataframe_handle: str,
-        transformer_handle: str,
+        dataframe: pd.DataFrame,
+        columns: list[str],
+    ) -> list[str]:
+        """Return the non-numeric feature subset."""
+
+        return [
+            column for column in columns if not _is_numeric_dtype(dataframe[column])
+        ]
+
+    def _build_selected_dataframe(
+        self,
+        dataframe: pd.DataFrame,
         *,
-        include_target: bool = False,
-    ) -> dict[str, Any]:
-        """Transform a dataframe with a fitted freeform transformer.
+        target_column: str | None,
+        id_columns: list[str] | None,
+        selected_features: list[str],
+    ) -> pd.DataFrame:
+        """Build a reduced dataframe from selected features and preserved columns."""
 
-        Args:
-            dataframe_handle (str): Input dataframe handle to transform.
-            transformer_handle (str): Stored freeform transformer handle.
-            include_target (bool): Whether to append the saved target column back to
-                the transformed dataframe when available.
-
-        Returns:
-            dict[str, Any]: Transformed dataframe handle plus a safe summary.
-
-        Examples:
-            transformed = transform_with_freeform_transformer(df_handle, transformer_handle)
-            # Returns:
-            # {
-            #     "dataframe_handle": "df_456",
-            #     "summary": {
-            #         "row_count": 10000,
-            #         "column_count": 9,
-            #         "columns": ["balance", "income", "balance_log", "target"]
-            #     }
-            # }
-        """
-
-        artifact = self._object_store.get(
-            transformer_handle,
-            expected_type=StoredFreeformTransformerArtifact,
-        )
-        dataframe = self._get_dataframe(dataframe_handle).copy()
-        target_series = None
-        if (
-            artifact.target_column is not None
-            and artifact.target_column in dataframe.columns
-        ):
-            target_series = dataframe[artifact.target_column].copy()
-            dataframe = dataframe.drop(columns=[artifact.target_column]).copy()
-        transformed = artifact.estimator.transform(dataframe)
-        if include_target and target_series is not None:
-            transformed[artifact.target_column] = target_series.values
-        handle = self._object_store.put(transformed, prefix="df")
-        return {
-            "dataframe_handle": handle,
-            "summary": summarize_dataframe(transformed),
-        }
-
-    @tool
-    def inspect_freeform_transformer(self, transformer_handle: str) -> dict[str, Any]:
-        """Return a safe summary of a reusable freeform transformer.
-
-        Args:
-            transformer_handle (str): Stored freeform transformer handle.
-
-        Returns:
-            dict[str, Any]: Compact transformer summary for handle inspection.
-
-        Examples:
-            summary = inspect_freeform_transformer(transformer_handle)
-            # Returns:
-            # {
-            #     "type": "StoredFreeformTransformerArtifact",
-            #     "input_columns": ["balance", "income"],
-            #     "output_columns": ["balance", "income", "balance_log"],
-            #     "columns_added": ["balance_log"],
-            #     "params": {"clip_min": 0.0, "clip_max": 100000.0}
-            # }
-        """
-
-        artifact = self._object_store.get(
-            transformer_handle,
-            expected_type=StoredFreeformTransformerArtifact,
-        )
-        return artifact.to_json_summary()
+        selected_columns: list[str] = []
+        if target_column is not None and target_column in dataframe.columns:
+            selected_columns.append(target_column)
+        for column in list(id_columns or []):
+            if column in dataframe.columns and column not in selected_columns:
+                selected_columns.append(column)
+        for column in selected_features:
+            if column in dataframe.columns and column not in selected_columns:
+                selected_columns.append(column)
+        return dataframe[selected_columns].copy()
 
     @tool
     def screen_features(
@@ -264,8 +115,8 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
     ) -> dict[str, Any]:
         """Screen candidate features with descriptive and univariate filters.
 
-        This tool quickly drops obviously weak features and ranks the remaining
-        candidates by simple univariate signal before modeling.
+        This is the fastest selection pass. It removes obviously weak columns and
+        ranks the remaining feature set using privacy-safe univariate signal.
 
         Args:
             dataframe_handle (str): Source dataframe handle.
@@ -279,51 +130,70 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
             top_k_univariate (int): Maximum number of kept features after ranking.
 
         Returns:
-            dict[str, Any]: Report handle, reduced dataframe handle, and selected
-            feature metadata.
+            dict[str, Any]: Selection report handle, reduced dataframe handle, and a
+            compact workflow summary.
 
         Examples:
-            screen_features(
+            ```python
+            screen = screen_features(
                 df_handle,
                 "target",
                 id_columns=["customer_id"],
                 top_k_univariate=50,
             )
-            # Returns:
+            # Returns
             # {
-            #     "report_handle": "fs_123",
-            #     "dataframe_handle": "df_789",
-            #     "selected_columns": ["balance", "segment_rate", "utilization"],
-            #     "categorical_columns": ["segment_rate"]
+            #     "report_handle": "report_abc123",
+            #     "dataframe_handle": "df_abc123",
+            #     "summary": "Screened 10 candidate features and kept 5.",
+            #     "warnings": [],
+            #     "selected_columns": ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"],
+            #     "categorical_columns": ["feature_6", "feature_7"],
+            #     "selected_feature_count": 5,
             # }
+            screen_report = inspect_feature_report(screen["report_handle"])
+            # Returns
+            # {
+            #     "type": "FeatureSelectionReport",
+            #     "target_column": "target",
+            #     "selected_columns": ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"],
+            #     "categorical_columns": ["feature_6", "feature_7"],
+            #     "findings": [...],
+            #     "metrics": {
+            #         "candidate_feature_count": 10,
+            #         "selected_feature_count": 5,
+            #         "dropped_feature_count": 5,
+            #     },
+            #     "warnings": [],
+            #     "metadata": {
+            #         "id_columns": ["customer_id"],
+            #         "top_k_univariate": 50,
+            #     }
+            # }
+            ```
         """
 
         dataframe = self._get_dataframe(dataframe_handle).copy()
         if target_column not in dataframe.columns:
             raise ValueError(f"Target column {target_column!r} was not found.")
-        id_columns = list(id_columns or [])
+
         config = FeatureScreenConfig(
             max_missing_frac=max_missing_frac,
             near_constant_thresh=near_constant_thresh,
             min_non_null=min_non_null,
             top_k_univariate=top_k_univariate,
         )
-        if feature_columns is None:
-            candidate_columns = [
-                str(column)
-                for column in dataframe.columns
-                if column not in [target_column] + id_columns
-            ]
-        else:
-            candidate_columns = list(feature_columns)
-        y = dataframe[target_column].astype(int)
+        candidate_columns = self._resolve_candidate_columns(
+            dataframe,
+            target_column=target_column,
+            id_columns=id_columns,
+            feature_columns=feature_columns,
+        )
+        target = dataframe[target_column].astype(int)
         findings: list[dict[str, Any]] = []
-        numeric_columns: list[str] = []
-        categorical_columns: list[str] = []
+        warnings: list[str] = []
 
         for column in candidate_columns:
-            if column not in dataframe.columns:
-                continue
             series = dataframe[column]
             non_null_count = int(series.notna().sum())
             missing_rate = float(series.isna().mean())
@@ -333,6 +203,7 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
                 if not series.empty
                 else 0.0
             )
+
             keep = True
             reasons: list[str] = []
             if non_null_count < config.min_non_null:
@@ -351,11 +222,9 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
             score = 0.0
             if keep:
                 if _is_numeric_dtype(series):
-                    numeric_columns.append(column)
-                    score = univariate_numeric_score(series, y)
+                    score = univariate_numeric_score(series, target)
                 else:
-                    categorical_columns.append(column)
-                    score = univariate_categorical_score(series, y)
+                    score = univariate_categorical_score(series, target)
 
             findings.append(
                 {
@@ -375,38 +244,187 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
         selected_features = [
             str(row["feature"]) for row in kept_rows[: config.top_k_univariate]
         ]
-        selected_columns = (
-            [target_column]
-            + [column for column in id_columns if column in dataframe.columns]
-            + selected_features
+        categorical_columns = self._categorical_columns(dataframe, selected_features)
+        selected_dataframe = self._build_selected_dataframe(
+            dataframe,
+            target_column=target_column,
+            id_columns=id_columns,
+            selected_features=selected_features,
         )
-        selected_dataframe = dataframe[selected_columns].copy()
         report = StoredFeatureSelectionReport(
             report_type="screen_features",
             target_column=target_column,
             selected_columns=selected_features,
-            categorical_columns=[
-                column for column in categorical_columns if column in selected_features
-            ],
-            findings=kept_rows,
+            categorical_columns=categorical_columns,
+            findings=findings,
             metrics={
+                "candidate_feature_count": len(candidate_columns),
                 "selected_feature_count": len(selected_features),
-                "numeric_feature_count": len(numeric_columns),
+                "dropped_feature_count": len(candidate_columns)
+                - len(selected_features),
             },
+            warnings=warnings,
             metadata={
-                "id_columns": id_columns,
+                "id_columns": list(id_columns or []),
                 "top_k_univariate": top_k_univariate,
             },
         )
         report_handle = self._object_store.put(report, prefix="fs")
-        dataframe_result_handle = self._object_store.put(
-            selected_dataframe, prefix="df"
+        dataframe_handle_out = self._object_store.put(selected_dataframe, prefix="df")
+        summary = (
+            f"Screened {len(candidate_columns)} candidate features and kept "
+            f"{len(selected_features)}."
         )
         return {
             "report_handle": report_handle,
-            "dataframe_handle": dataframe_result_handle,
+            "dataframe_handle": dataframe_handle_out,
+            "summary": summary,
+            "warnings": warnings,
             "selected_columns": selected_features,
-            "categorical_columns": report.categorical_columns,
+            "categorical_columns": categorical_columns,
+            "selected_feature_count": len(selected_features),
+        }
+
+    @tool
+    def analyze_feature_correlation(
+        self,
+        dataframe_handle: str,
+        *,
+        target_column: str | None = None,
+        id_columns: list[str] | None = None,
+        feature_columns: list[str] | None = None,
+        threshold: float = 0.95,
+        max_numeric_features: int = 300,
+    ) -> dict[str, Any]:
+        """Find highly correlated numeric features and suggest deterministic drops.
+
+        Use this after the first screening pass when you want to reduce redundant
+        numeric signal before model-based ranking or HPO.
+
+        Args:
+            dataframe_handle (str): Source dataframe handle.
+            target_column (str | None): Optional target column excluded from the
+                correlation candidate set.
+            id_columns (list[str] | None): Optional identifier columns excluded from
+                the candidate set.
+            feature_columns (list[str] | None): Optional explicit feature subset.
+            threshold (float): Absolute correlation threshold used to flag pairs.
+            max_numeric_features (int): Maximum numeric columns considered in one pass.
+
+        Returns:
+            dict[str, Any]: Selection report handle, reduced dataframe handle, and a
+            compact summary of proposed drops.
+
+        Examples:
+            ```python
+            screen = screen_features(
+                df_handle,
+                "target",
+                id_columns=["customer_id"],
+                top_k_univariate=80,
+            )
+            decorrelated = analyze_feature_correlation(
+                screen["dataframe_handle"],
+                target_column="target",
+                threshold=0.9,
+            )
+            # Returns
+            # {
+            #     "report_handle": "report_abc123",
+            #     "dataframe_handle": "df_abc123",
+            #     "summary": "Flagged 5 highly correlated pairs and proposed 2 drops.",
+            #     "warnings": [],
+            #     "selected_columns": ["feature_1", "feature_2", "feature_3"],
+            #     "dropped_columns": ["feature_4", "feature_5"],
+            # }
+            ```
+        """
+
+        dataframe = self._get_dataframe(dataframe_handle).copy()
+        candidate_columns = self._resolve_candidate_columns(
+            dataframe,
+            target_column=target_column,
+            id_columns=id_columns,
+            feature_columns=feature_columns,
+        )
+        numeric_columns = [
+            column
+            for column in candidate_columns
+            if _is_numeric_dtype(dataframe[column])
+        ]
+        warnings: list[str] = []
+        if len(numeric_columns) > max_numeric_features:
+            warnings.append(
+                "Too many numeric features for one correlation pass; used the first "
+                f"{max_numeric_features} numeric columns in dataframe order."
+            )
+            numeric_columns = numeric_columns[:max_numeric_features]
+
+        if len(numeric_columns) < 2:
+            raise ValueError("At least two numeric feature columns are required.")
+
+        numeric_frame = dataframe[numeric_columns].apply(pd.to_numeric, errors="coerce")
+        corr = numeric_frame.corr(method="pearson").abs().fillna(0.0)
+
+        pair_rows: list[dict[str, Any]] = []
+        drop_columns: list[str] = []
+        dropped_set: set[str] = set()
+        for left_index, left_column in enumerate(numeric_columns):
+            for right_column in numeric_columns[left_index + 1 :]:
+                corr_value = float(corr.loc[left_column, right_column])
+                if corr_value < threshold:
+                    continue
+                pair_rows.append(
+                    {
+                        "left_feature": left_column,
+                        "right_feature": right_column,
+                        "abs_correlation": corr_value,
+                    }
+                )
+                if right_column not in dropped_set:
+                    drop_columns.append(right_column)
+                    dropped_set.add(right_column)
+
+        selected_features = [
+            column for column in candidate_columns if column not in dropped_set
+        ]
+        selected_dataframe = self._build_selected_dataframe(
+            dataframe,
+            target_column=target_column,
+            id_columns=id_columns,
+            selected_features=selected_features,
+        )
+        report = StoredFeatureSelectionReport(
+            report_type="decorrelation",
+            target_column=target_column or "",
+            selected_columns=selected_features,
+            categorical_columns=self._categorical_columns(dataframe, selected_features),
+            findings=pair_rows,
+            metrics={
+                "candidate_feature_count": len(candidate_columns),
+                "numeric_feature_count": len(numeric_columns),
+                "flagged_pair_count": len(pair_rows),
+                "dropped_feature_count": len(drop_columns),
+            },
+            warnings=warnings,
+            metadata={
+                "threshold": threshold,
+                "id_columns": list(id_columns or []),
+            },
+        )
+        report_handle = self._object_store.put(report, prefix="fs")
+        dataframe_handle_out = self._object_store.put(selected_dataframe, prefix="df")
+        summary = (
+            f"Flagged {len(pair_rows)} highly correlated pairs and proposed "
+            f"{len(drop_columns)} drops."
+        )
+        return {
+            "report_handle": report_handle,
+            "dataframe_handle": dataframe_handle_out,
+            "summary": summary,
+            "warnings": warnings,
+            "selected_columns": selected_features,
+            "dropped_columns": drop_columns,
         }
 
     @tool
@@ -418,12 +436,11 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
         feature_columns: list[str] | None = None,
         validation_handle: str | None = None,
         keep_top_k: int = 100,
-        top_p: float = 0.05,
         random_seed: int = 42,
     ) -> dict[str, Any]:
         """Rank candidate features using a lightweight LightGBM model.
 
-        This is a stronger ranking pass than `screen_features` because it uses
+        This is a stronger ranking pass than `screen_features(...)` because it uses
         model-based feature importance instead of purely univariate signal.
 
         Args:
@@ -432,24 +449,48 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
             feature_columns (list[str] | None): Optional explicit feature subset.
             validation_handle (str | None): Optional held-out validation dataframe.
             keep_top_k (int): Maximum number of top-ranked features to keep.
-            top_p (float): Fraction retained for PPV-style evaluation.
             random_seed (int): Random seed for splitting and LightGBM training.
 
         Returns:
-            dict[str, Any]: Feature-report handle plus selected feature metadata.
+            dict[str, Any]: Feature-report handle and a compact ranking summary.
 
         Examples:
-            rank_features_by_lightgbm(
+            ```python
+            ranked = rank_features_by_lightgbm(
                 df_handle,
                 "target",
                 keep_top_k=75,
             )
-            # Returns:
+            # Returns
             # {
-            #     "report_handle": "fs_456",
-            #     "selected_columns": ["score_signal", "balance", "segment"],
-            #     "categorical_columns": ["segment"]
+            #     "report_handle": "report_abc123",
+            #     "summary": "Ranked 100 features and kept the top 75 by LightGBM gain.",
+            #     "selected_columns": ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"],
+            #     "categorical_columns": ["feature_6", "feature_7"],
+            #     "selected_feature_count": 75,
             # }
+            ranked_report = inspect_feature_report(ranked["report_handle"])
+            # Returns
+            # {
+            #     "type": "FeatureSelectionReport",
+            #     "target_column": "target",
+            #     "selected_columns": ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"],
+            #     "categorical_columns": ["feature_6", "feature_7"],
+            #     "findings": [...],
+            #     "metrics": {
+            #         "candidate_feature_count": 100,
+            #         "selected_feature_count": 75,
+            #         "valid_ppv_at_5": 0.75,
+            #         "valid_recall_at_5": 0.75,
+            #         "valid_lift_at_5": 1.5,
+            #         "base_rate": 0.5,
+            #     },
+            #     "warnings": [],
+            #     "metadata": {
+            #         "keep_top_k": 75,
+            #     }
+            # }
+            ```
         """
 
         dataframe = self._get_dataframe(dataframe_handle).copy()
@@ -459,6 +500,7 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
             feature_columns = [
                 str(column) for column in dataframe.columns if column != target_column
             ]
+
         model_frame = dataframe[[target_column] + feature_columns].copy()
         if validation_handle is None:
             train_df, valid_df = make_train_valid_split(
@@ -470,18 +512,15 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
             valid_df = self._get_dataframe(validation_handle)[
                 [target_column] + feature_columns
             ].copy()
-        categorical_columns = [
-            column
-            for column in feature_columns
-            if not _is_numeric_dtype(model_frame[column])
-        ]
+
+        categorical_columns = self._categorical_columns(model_frame, feature_columns)
         result = train_lightgbm_once(
             train_df,
             valid_df,
             label_col=target_column,
             categorical_cols=categorical_columns,
             train_config=TrainConfig(seed=random_seed),
-            top_p=top_p,
+            top_p=0.05,
         )
         top_rows = [
             {"feature": feature, "gain": gain}
@@ -498,22 +537,245 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
             categorical_columns=result["categorical_columns"],
             findings=top_rows,
             metrics={
+                "candidate_feature_count": len(feature_columns),
+                "selected_feature_count": len(top_rows),
                 "valid_ppv_at_5": result["valid_ppv_at_5"],
                 "valid_recall_at_5": result["valid_recall_at_5"],
                 "valid_lift_at_5": result["valid_lift_at_5"],
                 "base_rate": result["base_rate"],
             },
         )
-        handle = self._object_store.put(report, prefix="fs")
+        report_handle = self._object_store.put(report, prefix="fs")
+        summary = (
+            f"Ranked {len(feature_columns)} features and kept the top {len(top_rows)} "
+            "by LightGBM gain."
+        )
         return {
-            "report_handle": handle,
+            "report_handle": report_handle,
+            "summary": summary,
             "selected_columns": report.selected_columns,
             "categorical_columns": report.categorical_columns,
+            "selected_feature_count": len(top_rows),
+        }
+
+    @tool
+    def rank_feature_subsets(
+        self,
+        dataframe_handle: str,
+        target_column: str,
+        feature_subsets: list[list[str]],
+        *,
+        validation_handle: str | None = None,
+        keep_top_k_per_subset: int = 25,
+        random_seed: int = 42,
+    ) -> dict[str, Any]:
+        """Rank multiple feature subsets with repeated LightGBM passes.
+
+        Use this after `plan_feature_subsets(...)` when the dataframe is too wide
+        for one ranking pass and you want one deterministic report over all subsets.
+
+        Args:
+            dataframe_handle (str): Source dataframe handle.
+            target_column (str): Binary target column used for ranking.
+            feature_subsets (list[list[str]]): Ordered feature subsets to evaluate.
+            validation_handle (str | None): Optional held-out validation dataframe.
+            keep_top_k_per_subset (int): Maximum retained features per subset.
+            random_seed (int): Random seed for splitting and LightGBM training.
+
+        Returns:
+            dict[str, Any]: Batch-ranking report handle, reduced dataframe handle, and
+            a compact summary.
+
+        Examples:
+            ```python
+            subset_plan = plan_feature_subsets(
+                df_handle,
+                target_column="target",
+                id_columns=["customer_id"],
+                batch_size=25,
+            )
+            batched_rank = rank_feature_subsets(
+                df_handle,
+                "target",
+                subset_plan["feature_subsets"],
+            )
+            # Returns
+            # {
+            #     "report_handle": "report_abc123",
+            #     "dataframe_handle": "df_abc123",
+            #     "summary": "Ranked 2 feature subsets and kept 5 combined features.",
+            #     "warnings": [],
+            #     "selected_columns": ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"],
+            #     "selected_feature_count": 5,
+            # }
+            ```
+        """
+
+        dataframe = self._get_dataframe(dataframe_handle).copy()
+        if target_column not in dataframe.columns:
+            raise ValueError(f"Target column {target_column!r} was not found.")
+
+        subset_rows: list[dict[str, Any]] = []
+        selected_union: list[str] = []
+        warnings: list[str] = []
+
+        for subset_index, raw_subset in enumerate(feature_subsets, start=1):
+            feature_columns = [
+                column
+                for column in raw_subset
+                if column in dataframe.columns and column != target_column
+            ]
+            if not feature_columns:
+                warnings.append(
+                    f"Skipped empty feature subset at index {subset_index}."
+                )
+                continue
+
+            model_frame = dataframe[[target_column] + feature_columns].copy()
+            if validation_handle is None:
+                train_df, valid_df = make_train_valid_split(
+                    model_frame,
+                    config=SplitConfig(random_seed=random_seed),
+                )
+            else:
+                train_df = model_frame
+                valid_df = self._get_dataframe(validation_handle)[
+                    [target_column] + feature_columns
+                ].copy()
+
+            categorical_columns = self._categorical_columns(
+                model_frame, feature_columns
+            )
+            result = train_lightgbm_once(
+                train_df,
+                valid_df,
+                label_col=target_column,
+                categorical_cols=categorical_columns,
+                train_config=TrainConfig(seed=random_seed),
+                top_p=0.05,
+            )
+            ranked_columns = [
+                feature
+                for feature, _ in sorted(
+                    result["feature_importance_gain"].items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )[:keep_top_k_per_subset]
+            ]
+            for column in ranked_columns:
+                if column not in selected_union:
+                    selected_union.append(column)
+            subset_rows.append(
+                {
+                    "subset_index": subset_index,
+                    "input_feature_count": len(feature_columns),
+                    "selected_columns": ranked_columns,
+                    "valid_ppv_at_5": result["valid_ppv_at_5"],
+                    "valid_recall_at_5": result["valid_recall_at_5"],
+                    "valid_lift_at_5": result["valid_lift_at_5"],
+                }
+            )
+
+        reduced_dataframe = self._build_selected_dataframe(
+            dataframe,
+            target_column=target_column,
+            id_columns=None,
+            selected_features=selected_union,
+        )
+        report = StoredFeatureSelectionReport(
+            report_type="batched_lightgbm_importance",
+            target_column=target_column,
+            selected_columns=selected_union,
+            categorical_columns=self._categorical_columns(dataframe, selected_union),
+            findings=subset_rows,
+            metrics={
+                "subset_count": len(feature_subsets),
+                "selected_feature_count": len(selected_union),
+            },
+            warnings=warnings,
+            metadata={"keep_top_k_per_subset": keep_top_k_per_subset},
+        )
+        report_handle = self._object_store.put(report, prefix="fs")
+        dataframe_handle_out = self._object_store.put(reduced_dataframe, prefix="df")
+        summary = (
+            f"Ranked {len(feature_subsets)} feature subsets and kept "
+            f"{len(selected_union)} combined features."
+        )
+        return {
+            "report_handle": report_handle,
+            "dataframe_handle": dataframe_handle_out,
+            "summary": summary,
+            "warnings": warnings,
+            "selected_columns": selected_union,
+            "selected_feature_count": len(selected_union),
+        }
+
+    @tool
+    def apply_feature_report(
+        self,
+        dataframe_handle: str,
+        report_handle: str,
+        *,
+        id_columns: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Apply a saved feature-selection report to a dataframe handle.
+
+        Args:
+            dataframe_handle (str): Source dataframe handle.
+            report_handle (str): Stored feature-selection report handle.
+            id_columns (list[str] | None): Optional identifier columns preserved in
+                the reduced dataframe.
+
+        Returns:
+            dict[str, Any]: Reduced dataframe handle and a compact summary.
+
+        Examples:
+            ```python
+            screen = screen_features(
+                df_handle,
+                "target",
+                id_columns=["customer_id"],
+                top_k_univariate=40,
+            )
+            reduced = apply_feature_report(
+                df_handle,
+                screen["report_handle"],
+                id_columns=["customer_id"],
+            )
+            # Returns
+            # {
+            #     "dataframe_handle": "df_abc123",
+            #     "report_handle": "report_abc123",
+            #     "summary": "Applied feature report with 40 selected features.",
+            # }
+            ```
+        """
+
+        dataframe = self._get_dataframe(dataframe_handle).copy()
+        report = self._object_store.get(
+            report_handle,
+            expected_type=StoredFeatureSelectionReport,
+        )
+        reduced_dataframe = self._build_selected_dataframe(
+            dataframe,
+            target_column=report.target_column or None,
+            id_columns=id_columns,
+            selected_features=report.selected_columns,
+        )
+        reduced_handle = self._object_store.put(reduced_dataframe, prefix="df")
+        summary = (
+            f"Applied feature report with {len(report.selected_columns)} selected "
+            "features."
+        )
+        return {
+            "dataframe_handle": reduced_handle,
+            "report_handle": report_handle,
+            "summary": summary,
         }
 
     @tool
     def inspect_feature_report(self, report_handle: str) -> dict[str, Any]:
-        """Return a safe summary for a stored feature report.
+        """Return a safe summary for a stored feature-selection report.
 
         Args:
             report_handle (str): Stored feature-report handle.
@@ -522,14 +784,27 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
             dict[str, Any]: Compact feature-report summary.
 
         Examples:
-            report = inspect_feature_report(report_handle)
-            # Returns:
+            ```python
+            report_summary = inspect_feature_report(report_handle)
+            # Returns
             # {
-            #     "type": "StoredFeatureSelectionReport",
-            #     "report_type": "screen_features",
-            #     "selected_columns": ["balance", "utilization"],
-            #     "metrics": {"selected_feature_count": 2}
+            #     "type": "FeatureSelectionReport",
+            #     "target_column": "target",
+            #     "selected_columns": ["feature_1", "feature_2", "feature_3", "feature_4", "feature_5"],
+            #     "categorical_columns": ["feature_6", "feature_7"],
+            #     "findings": [...],
+            #     "metrics": {
+            #         "candidate_feature_count": 10,
+            #         "selected_feature_count": 5,
+            #         "dropped_feature_count": 5,
+            #     },
+            #     "warnings": [],
+            #     "metadata": {
+            #         "id_columns": ["customer_id"],
+            #         "top_k_univariate": 50,
+            #     }
             # }
+            ```
         """
 
         report = self._object_store.get(
@@ -550,9 +825,14 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
             str: Virtual workspace path to the saved artifact.
 
         Examples:
-            saved_path = save_feature_report(report_handle, "/workspace/reports/screen.joblib")
-            # Returns:
-            # "/workspace/reports/screen.joblib"
+            ```python
+            saved_path = save_feature_report(
+                report_handle,
+                "/workspace/reports/selection.joblib",
+            )
+            # Returns
+            # "/workspace/reports/selection.joblib"
+            ```
         """
 
         report = self._object_store.get(
@@ -566,4 +846,4 @@ class FeatureWorkbenchCollection(WorkspaceToolCollection):
         return str(self._os_access.virtualize_host_path(host_path))
 
 
-__all__ = ["FeatureWorkbenchCollection"]
+__all__ = ["FeatureSelectionCollection"]

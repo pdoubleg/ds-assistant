@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+      "monty_python_repl_minimal": {
+        "command": "uv run",
+        "args": [
+          "-m",
+          "src.mcp.monty_python_repl_minimal"
+        ]
+      }
+    }
+  }

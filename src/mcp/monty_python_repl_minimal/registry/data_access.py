@@ -45,19 +45,30 @@ class DataAccessCollection(WorkspaceToolCollection):
             columns (list[str] | None): Optional subset of columns to read.
 
         Returns:
-            dict[str, Any]: Dataframe handle plus a safe dataframe summary.
+            dict[str, Any]: Dataframe handle plus a lightweight safe dataframe
+            overview.
 
         Examples:
-            load_csv("/workspace/train.csv", nrows=5000)
-            # Returns:
+            ```python
+            dataset = load_csv("/workspace/train.csv", nrows=5000)
+            df_handle = dataset["dataframe_handle"]
+            # Returns
             # {
-            #     "dataframe_handle": "df_123",
+            #     "dataframe_handle": "df_abc123",
             #     "summary": {
-            #         "row_count": 5000,
-            #         "column_count": 12,
-            #         "columns": ["customer_id", "balance", "target"]
+            #         "type": "DataFrame",
+            #         "shape": [5000, 10],
+            #         "columns": ["customer_id", "balance", "target"],
+            #         "column_type_counts": {
+            #             "numeric": 2,
+            #             "datetime": 0,
+            #             "categorical": 1,
+            #             "other": 0,
+            #         },
+            #         "usage_hint": "Use summarize_dataframe_columns(...) ...",
             #     }
             # }
+            ```
         """
 
         dataframe = pd.read_csv(
@@ -102,10 +113,12 @@ class DataAccessCollection(WorkspaceToolCollection):
             random_seed (int): Seed used for fragment and row sampling.
 
         Returns:
-            dict[str, Any]: Dataframe handle plus a safe dataframe summary.
+            dict[str, Any]: Dataframe handle plus a lightweight safe dataframe
+            overview.
 
         Examples:
-            load_parquet_slice(
+            ```python
+            parquet_sample = load_parquet_slice(
                 "s3://bucket/train_dataset",
                 label_col="target",
                 id_cols=["customer_id"],
@@ -113,15 +126,15 @@ class DataAccessCollection(WorkspaceToolCollection):
                 partition_filters={"snapshot_date": "2026-04-01", "country": ["US", "CA"]},
                 sample_n_rows=10000,
             )
-            # Returns:
+            # Returns
             # {
-            #     "dataframe_handle": "df_456",
+            #     "dataframe_handle": "df_abc123",
             #     "summary": {
-            #         "row_count": 10000,
-            #         "column_count": 5,
-            #         "columns": ["target", "customer_id", "segment", "balance", "utilization"]
-            #     }
-            # }
+            #         "type": "DataFrame",
+            #         "shape": [10000, 10],
+            #         "columns": ["customer_id", "balance", "target"],
+            #         "column_type_counts": {
+            ```
         """
 
         try:
@@ -245,19 +258,32 @@ class DataAccessCollection(WorkspaceToolCollection):
             columns (list[str]): Columns to retain in the output dataframe.
 
         Returns:
-            dict[str, Any]: New dataframe handle plus a safe dataframe summary.
+            dict[str, Any]: New dataframe handle plus a lightweight safe dataframe
+            overview.
 
         Examples:
-            slim = select_columns(df_handle, ["customer_id", "balance", "target"])
-            # Returns:
+            ```python
+            dataset = load_csv("/workspace/train.csv")
+            slim = select_columns(
+                dataset["dataframe_handle"],
+                ["customer_id", "balance", "target"],
+            )
+            # Returns
             # {
-            #     "dataframe_handle": "df_789",
+            #     "dataframe_handle": "df_abc123",
             #     "summary": {
-            #         "row_count": 10000,
-            #         "column_count": 3,
-            #         "columns": ["customer_id", "balance", "target"]
+            #         "type": "DataFrame",
+            #         "shape": [10000, 3],
+            #         "columns": ["customer_id", "balance", "target"],
+            #         "column_type_counts": {
+            #             "numeric": 2,
+            #             "datetime": 0,
+            #             "categorical": 1,
+            #             "other": 0,
+            #         },
             #     }
             # }
+            ```
         """
 
         dataframe = self._get_dataframe(dataframe_handle)
@@ -339,7 +365,13 @@ class WorkspaceFileCollection(WorkspaceToolCollection):
             list[str]: Virtual workspace file paths.
 
         Examples:
-            print(list_workspace_files("docs"))
+            ```python
+            workspace_files = list_workspace_files("docs")
+            # Returns
+            # {
+            #     "files": ["/workspace/docs/notes.md", "/workspace/docs/README.md"]
+            # }
+            ```
         """
         host_root = self._resolve_host_path(subdir)
         if not host_root.exists():
@@ -373,23 +405,24 @@ class WorkspaceFileCollection(WorkspaceToolCollection):
             dict[str, Any]: File contents and summary metadata.
 
         Examples:
-            result = read_workspace_text('/workspace/docs/notes.md')
-            # Returns:
+            ```python
+            notes = read_workspace_text("/workspace/docs/notes.md")
+            # Returns
             # {
             #     "path": "/workspace/docs/notes.md",
             #     "content": "# Notes\\nReady to go",
             #     "character_count": 18,
             #     "truncated": False
             # }
-
-            result = read_workspace_text('/workspace/large_file.txt', max_chars=100)
-            # Returns (if file is larger than 100 chars):
+            preview = read_workspace_text("/workspace/large_file.txt", max_chars=100)
+            # Returns
             # {
             #     "path": "/workspace/large_file.txt",
             #     "content": "First 100 characters...\\n... [truncated]",
             #     "character_count": 5000,
             #     "truncated": True
             # }
+            ```
         """
         if max_chars <= 0:
             raise ValueError("`max_chars` must be greater than zero.")
@@ -432,19 +465,25 @@ class WorkspaceFileCollection(WorkspaceToolCollection):
             dict[str, Any]: Saved path and write summary metadata.
 
         Examples:
-            write_workspace_text("/workspace/scripts/train.py", "print('ready')\n")
-            # Returns:
+            ```python
+            write_result = write_workspace_text(
+                "/workspace/scripts/train.py",
+                "print('ready')\\n",
+            )
+            # Returns
             # {
             #     "path": "/workspace/scripts/train.py",
-            #     "character_count": 15
-            # }
-
-            write_workspace_text("/workspace/docs/notes.md", "Ready to go")
-            # Returns:
-            # {
-            #     "path": "/workspace/docs/notes.md",
             #     "character_count": 11
             # }
+            saved_script = read_workspace_text(write_result["path"])
+            # Returns
+            # {
+            #     "path": "/workspace/scripts/train.py",
+            #     "content": "print('ready')\\n",
+            #     "character_count": 11,
+            #     "truncated": False
+            # }
+            ```
         """
         self._validate_text_path(path)
         host_path = self._resolve_host_path(path)
@@ -474,15 +513,14 @@ class WorkspaceFileCollection(WorkspaceToolCollection):
             dict[str, Any]: Parsed JSON payload and file path metadata.
 
         Examples:
+            ```python
             payload = read_workspace_json("/workspace/config/settings.json")
-            # Returns:
+            # Returns
             # {
             #     "path": "/workspace/config/settings.json",
-            #     "data": {
-            #         "mode": "demo",
-            #         "retries": 2
-            #     }
+            #     "data": {"mode": "demo", "retries": 2}
             # }
+            ```
         """
         if PurePosixPath(path).suffix.lower() != ".json":
             raise ValueError("`read_workspace_json` only supports `.json` files.")
@@ -515,15 +553,23 @@ class WorkspaceFileCollection(WorkspaceToolCollection):
             dict[str, Any]: Saved path and write summary metadata.
 
         Examples:
+            ```python
             result = write_workspace_json(
                 "/workspace/config/settings.json",
                 {"mode": "demo", "retries": 2, "features": {"beta": True}},
             )
-            # Returns:
+            # Returns
             # {
             #     "path": "/workspace/config/settings.json",
             #     "character_count": 82
             # }
+            saved_config = read_workspace_json(result["path"])
+            # Returns
+            # {
+            #     "path": "/workspace/config/settings.json",
+            #     "data": {"mode": "demo", "retries": 2, "features": {"beta": True}}
+            # }
+            ```
         """
         if PurePosixPath(path).suffix.lower() != ".json":
             raise ValueError("`write_workspace_json` only supports `.json` files.")

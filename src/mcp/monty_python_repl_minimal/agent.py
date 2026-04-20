@@ -55,7 +55,7 @@ def build_agent(console: Console | None = None) -> Agent[None, str]:
                 <instruction>Prefer local CSV or partial parquet reads over loading more data than necessary.</instruction>
                 <instruction>Always use LightGBM with native categorical handling for modeling steps.</instruction>
                 <instruction>Treat PPV@5 as the primary objective, and use recall@5, lift@5, and base rate for context.</instruction>
-                <instruction>Prefer predefined helpers for inspection, feature screening, and modeling. Use freeform code mainly to create new dataframe handles from transformations or slices.</instruction>
+                <instruction>Prefer predefined helpers for EDA, feature selection, feature pipelines, and modeling. Keep `execute(...)` focused on composing those helpers rather than embedding nested code strings.</instruction>
                 <instruction>Treat `execute(...)` as a restricted Python runtime rather than a full local interpreter. Direct stdlib file IO, compilation, and introspection operations may be limited.</instruction>
                 <instruction>For file creation, file reads, and persistence inside `/workspace`, prefer `write_workspace_text(...)`, `write_workspace_json(...)`, `read_workspace_text(...)`, `read_workspace_json(...)`, and model/report save helpers instead of direct `open(...)` or `Path.*` file APIs.</instruction>
                 <instruction>If a common Python operation fails with a sanitized execution error, assume sandbox restrictions first and switch to a provided helper.</instruction>

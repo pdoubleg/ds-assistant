@@ -15,7 +15,7 @@ try:
 
 except ImportError:
     from src.mcp.utils import get_citation_context, get_context_with_bm25
-    
+
 try:
     from models import (
         OralArgumentSearchResults,
@@ -24,7 +24,13 @@ try:
         DocketSearchResults,
         PersonSearchResults,
         RECAPSearchResults,
-        Attorney, Docket, Opinion, OpinionExcerpt, OpinionExcerpts, OralArgument, Person
+        Attorney,
+        Docket,
+        Opinion,
+        OpinionExcerpt,
+        OpinionExcerpts,
+        OralArgument,
+        Person,
     )
 except ImportError:
     from src.mcp.models import (
@@ -34,7 +40,13 @@ except ImportError:
         DocketSearchResults,
         PersonSearchResults,
         RECAPSearchResults,
-        Attorney, Docket, Opinion, OpinionExcerpt, OpinionExcerpts, OralArgument, Person
+        Attorney,
+        Docket,
+        Opinion,
+        OpinionExcerpt,
+        OpinionExcerpts,
+        OralArgument,
+        Person,
     )
 
 load_dotenv()
@@ -55,6 +67,7 @@ query_server = FastMCP(
         get_oral_argument tools to retrieve the data you need.
     """),
 )
+
 
 class CourtListenerSearchQuery(BaseModel):
     """Search query or series of queries for the CourtListener API"""
@@ -352,13 +365,12 @@ async def get_court_listener_query(
         await ctx.info(f"Getting CL query for with context: {query}")
     else:
         logger.info(f"Getting CL query for: {query}")
-        
+
         result = await agent.run(query)
 
     return result.output
 
 
-    
 @query_server.tool()
 async def execute_court_listener_search_query(
     q: Annotated[
@@ -371,17 +383,14 @@ async def execute_court_listener_search_query(
             description="The type of search to execute. Options are as follows: o = opinions, r = List of Federal cases (dockets), rd = Federal filing documents from PACER, d = Federal cases (dockets) from PACER, p = judges, oa = oral arguments"
         ),
     ],
-    
     order_by: Annotated[
         str,
         Field(description="Sort by 'score desc', 'dateFiled desc', or 'dateFiled asc'"),
     ] = "score desc",
-    
     params: Annotated[
         Dict[str, str] | None,
         Field(description="The params to use"),
     ] = None,
-    
     limit: Annotated[
         int,
         Field(description="The limit to use"),
@@ -415,10 +424,10 @@ async def execute_court_listener_search_query(
         raise ValueError(error_msg)
 
     headers = {"Authorization": f"Token {API_KEY}"}
-    
+
     if not params:
         params = {}
-    
+
     if limit:
         params["limit"] = limit
 
@@ -432,8 +441,8 @@ async def execute_court_listener_search_query(
             )
             response.raise_for_status()
             data = response.json()
-            data['results'] = data['results'][:limit]
-            
+            data["results"] = data["results"][:limit]
+
             if type == "o":
                 data = OpinionSearchResults(**data)
             elif type == "r":
@@ -446,7 +455,7 @@ async def execute_court_listener_search_query(
                 data = PersonSearchResults(**data)
             elif type == "oa":
                 data = OralArgumentSearchResults(**data)
-                
+
             return data.to_xml()
 
     except httpx.HTTPStatusError as e:
@@ -463,8 +472,8 @@ async def execute_court_listener_search_query(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @query_server.tool()
 async def get_opinion(
     opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
@@ -534,8 +543,8 @@ async def get_opinion(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @query_server.tool()
 async def get_opinion_excerpt(
     opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
@@ -624,8 +633,8 @@ async def get_opinion_excerpt(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @query_server.tool()
 async def get_opinion_excerpt_by_citation(
     opinion_id: Annotated[str, Field(description="The opinion ID to retrieve")],
@@ -714,8 +723,8 @@ async def get_opinion_excerpt_by_citation(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @query_server.tool()
 async def get_person(
     person_id: Annotated[str, Field(description="The person (judge) ID to retrieve")],
@@ -779,8 +788,8 @@ async def get_person(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @query_server.tool()
 async def get_docket(
     docket_id: Annotated[str, Field(description="The docket ID to retrieve")],
@@ -846,8 +855,8 @@ async def get_docket(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @query_server.tool()
 async def get_attorney(
     attorney_id: Annotated[str, Field(description="The attorney ID to retrieve")],
@@ -910,11 +919,14 @@ async def get_attorney(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @query_server.tool()
 async def get_oral_argument(
-    audio_id: Annotated[str, Field(description="The audio recording, i.e., oral argument, ID to retrieve")],
+    audio_id: Annotated[
+        str,
+        Field(description="The audio recording, i.e., oral argument, ID to retrieve"),
+    ],
     ctx: Context | None = None,
 ) -> str:
     """Get oral argument information by ID from CourtListener. Typically contains transcript text.
@@ -977,8 +989,7 @@ async def get_oral_argument(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
 
 if __name__ == "__main__":
     # Initialize and run the server

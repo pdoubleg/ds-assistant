@@ -653,4 +653,3 @@ async def enhanced_citation_lookup(
 if __name__ == "__main__":
     # Initialize and run the server
     citation_server.run(transport="stdio")
-    

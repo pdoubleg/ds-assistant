@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -17,33 +18,18 @@ from .filesystem import (
     HostWorkspaceOSAccess,
     VIRTUAL_WORKSPACE_ROOT,
 )
+from .help_content import (
+    OVERVIEW_KEY_NOTES,
+    OVERVIEW_LIMITATIONS,
+    OVERVIEW_PURPOSE,
+    OVERVIEW_TITLE,
+    OVERVIEW_WORKFLOW,
+    SUPPORTED_NATIVE_IMPORTS,
+    CollectionWorkflowStep,
+    get_collection_help_content,
+)
 from .interpreter import MontyReplInterpreter
 from .registry import FunctionRegistry, ObjectStore, build_default_registry
-
-
-class HelpResponse(BaseModel):
-    """Structured response for the MCP ``help`` tool."""
-
-    session_id: str = Field(description="Session identifier for the active REPL.")
-    view: Literal["overview", "collection", "tool", "not_found"] = Field(
-        description="Active help payload variant."
-    )
-    name: str | None = Field(
-        default=None,
-        description="Optional collection or tool name used to build the response.",
-    )
-    workspace_root: str = Field(description="Sandbox workspace path.")
-    collections: list[dict[str, Any]] | None = Field(default=None)
-    collection: dict[str, Any] | None = Field(default=None)
-    functions: list[dict[str, Any]] | None = Field(default=None)
-    function: dict[str, Any] | None = Field(default=None)
-    notes: list[str] | None = Field(default=None)
-    workflow: list[str] | None = Field(default=None)
-    supported_native_imports: list[str] | None = Field(default=None)
-    limitations: list[str] | None = Field(default=None)
-    error: str | None = Field(default=None)
-    available_collections: list[str] | None = Field(default=None)
-    available_functions: list[str] | None = Field(default=None)
 
 
 class ExecutionRecord(BaseModel):
@@ -106,140 +92,288 @@ class MontyPythonREPL:
     def help(
         self,
         name: str | None = None,
-    ) -> dict[str, Any]:
-        """Describe available sandbox functions."""
+    ) -> str:
+        """Describe available sandbox functions as formatted text."""
         if name is None:
-            return self._help_overview_payload()
+            return self._render_help_overview()
 
         collection = self.registry.get_collection(name)
         if collection is not None:
-            return self._help_collection_payload(name, collection.to_help_dict())
+            return self._render_help_collection(name)
 
         function = self.registry.get(name)
         if function is not None:
-            return self._help_tool_payload(name, function.to_help_dict(detailed=True))
+            return self._render_help_tool(name)
 
-        return self._help_not_found_payload(name)
+        return self._render_help_not_found(name)
 
-    def _base_help_response(
+    def _join_help_sections(self, *sections: str) -> str:
+        """Join non-empty help sections with a stable separator."""
+
+        return "\n\n---\n\n".join(section for section in sections if section.strip())
+
+    def _format_bullets(self, items: list[str] | tuple[str, ...]) -> str:
+        """Render a flat bullet list for help output."""
+
+        return "\n".join(f"- {item}" for item in items)
+
+    def _format_numbered_steps(self, items: list[str] | tuple[str, ...]) -> str:
+        """Render a numbered step list for help output."""
+
+        return "\n".join(
+            f"{index}. {item}" for index, item in enumerate(items, start=1)
+        )
+
+    def _render_help_overview(self) -> str:
+        """Render the high-level collection overview as formatted text."""
+
+        collections_section = "\n\n".join(
+            self._render_collection_overview_block(collection.name)
+            for collection in self.registry.collections()
+        )
+        return self._join_help_sections(
+            f"{OVERVIEW_TITLE}\n\nPurpose:\n{OVERVIEW_PURPOSE}",
+            f"Collections:\n\n{collections_section}",
+            f"Workflow:\n\n{self._format_numbered_steps(OVERVIEW_WORKFLOW)}",
+            f"Key Notes:\n\n{self._format_bullets(OVERVIEW_KEY_NOTES)}",
+            "Supported native imports:\n" + ", ".join(SUPPORTED_NATIVE_IMPORTS),
+            f"Limitations:\n\n{self._format_bullets(OVERVIEW_LIMITATIONS)}",
+        )
+
+    def _render_collection_overview_block(self, collection_name: str) -> str:
+        """Render one collection summary block for the overview page."""
+
+        collection = self.registry.get_collection(collection_name)
+        if collection is None:  # pragma: no cover - defensive guard
+            return collection_name
+
+        tool_names = collection.sorted_tool_names()
+        return "\n".join(
+            (
+                f"[{collection.name}] ({len(tool_names)} tools)",
+                collection.description,
+                "Tools: " + ", ".join(tool_names),
+            )
+        )
+
+    def _render_help_collection(self, name: str) -> str:
+        """Render a collection-specific help page."""
+
+        collection = self.registry.get_collection(name)
+        if collection is None:  # pragma: no cover - defensive guard
+            return self._render_help_not_found(name)
+
+        content = get_collection_help_content(name)
+        functions = self.registry.entries(collection=name)
+        sections = [
+            f"Collection: {name}\n\nPurpose:\n{content.purpose or collection.description}"
+        ]
+
+        if content.when_to_use:
+            sections.append(
+                f"When to use:\n\n{self._format_bullets(content.when_to_use)}"
+            )
+        if content.workflow:
+            sections.append(
+                "Typical Workflow:\n\n"
+                + self._render_collection_workflow(content.workflow)
+            )
+
+        sections.append(
+            "Available Tools:\n\n"
+            + "\n\n".join(
+                self._render_collection_tool_block(function.name)
+                for function in functions
+            )
+        )
+
+        if content.key_concepts:
+            sections.append(
+                "Key Concepts:\n\n" + self._render_key_concepts(content.key_concepts)
+            )
+        if content.common_patterns:
+            sections.append(
+                f"Common Patterns:\n\n{self._format_bullets(content.common_patterns)}"
+            )
+        if content.common_mistakes:
+            sections.append(
+                f"Common Mistakes:\n\n{self._format_bullets(content.common_mistakes)}"
+            )
+
+        next_steps = list(content.next_steps)
+        if not next_steps:
+            next_steps.append(
+                'Call help("<tool-name>") before using an unfamiliar helper.'
+            )
+            if functions:
+                next_steps.append(
+                    f'Call help("{functions[0].name}") to inspect a representative tool in this collection.'
+                )
+        sections.append(f"Next Steps:\n\n{self._format_bullets(next_steps)}")
+        return self._join_help_sections(*sections)
+
+    def _render_collection_workflow(
         self,
-        *,
-        view: Literal["overview", "collection", "tool", "not_found"],
-        name: str | None = None,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        """Build a shared help response payload.
+        steps: tuple[CollectionWorkflowStep, ...],
+    ) -> str:
+        """Render the typical workflow section for a collection."""
 
-        Args:
-            view: Active response variant.
-            name: Optional collection or tool name being resolved.
-            **kwargs: View-specific payload fields.
+        blocks: list[str] = []
+        for index, step in enumerate(steps, start=1):
+            lines = [f"{index}. {step.title}"]
+            if step.tools:
+                lines.extend(f"   -> {tool}(...)" for tool in step.tools)
+            if step.detail:
+                lines.append(f"   {step.detail}")
+            blocks.append("\n".join(lines))
+        return "\n\n".join(blocks)
 
-        Returns:
-            dict[str, Any]: JSON-friendly help response with empty fields omitted.
-        """
-        response = HelpResponse(
-            session_id=self.session_id,
-            view=view,
-            name=name,
-            workspace_root=str(VIRTUAL_WORKSPACE_ROOT),
-            **kwargs,
-        )
-        return response.model_dump(exclude_none=True)
+    def _render_collection_tool_block(self, function_name: str) -> str:
+        """Render one compact tool block for collection help."""
 
-    def _help_overview_payload(self) -> dict[str, Any]:
-        """Build the high-level collection overview payload."""
-        return self._base_help_response(
-            view="overview",
-            collections=[item.to_help_dict() for item in self.registry.collections()],
-            notes=[
-                "Use the collections list below to choose the right capability area before executing code.",
-                "Relative paths resolve under /workspace.",
-                "Native imports inside execute(...) are intentionally limited to a small built-in set.",
-                "When you need broader dataframe-oriented DS library usage over a stored pandas dataframe, inspect and use `run_dataframe_code`.",
-                "`run_dataframe_code` still returns a single final dataframe, so add print statements inside the submitted code when you want intermediate diagnostics.",
-                "When you pass nested freeform source into helpers, prefer assigning the inner code to a named multiline variable first.",
-                "Avoid escape-heavy inline strings such as `print(f'\\n...')`; prefer separate `print()` calls, or double-escape as `\\\\n` when a literal escape must survive outer parsing.",
-                "The results tool returns and clears everything accumulated since the previous results call.",
-            ],
-            workflow=[
-                "Call help() to discover task-focused collections.",
-                "Call help('<collection-name>') to inspect the tools in that collection.",
-                "Call help('<tool-name>') to inspect exact arguments and return details before writing execute(...) code.",
-            ],
-            supported_native_imports=["datetime", "json", "math", "re"],
-            limitations=[
-                "Monty supports expression-oriented REPL code and helper calls, but does not support defining classes.",
-                "Keep all files inside /workspace.",
-            ],
+        function = self.registry.get(function_name)
+        if function is None:  # pragma: no cover - defensive guard
+            return function_name
+
+        lines = [
+            function.render_signature(multiline=False),
+            f"  {function.description}",
+        ]
+        compact_returns = self._render_return_value(function, compact=True)
+        if compact_returns:
+            lines.append(compact_returns)
+        return "\n".join(lines)
+
+    def _render_key_concepts(self, concepts: dict[str, str]) -> str:
+        """Render key concepts as definition-style bullets."""
+
+        return "\n\n".join(
+            f"- {name}:\n  {description}" for name, description in concepts.items()
         )
 
-    def _help_collection_payload(
+    def _render_help_tool(self, name: str) -> str:
+        """Render a single-tool help page."""
+
+        function = self.registry.get(name)
+        if function is None:  # pragma: no cover - defensive guard
+            return self._render_help_not_found(name)
+
+        intro_lines = [
+            f"Tool: {function.name}",
+            f"Collection: {function.collection or 'ungrouped'}",
+            f"Purpose: {function.description}",
+        ]
+        if (
+            function.detailed_description
+            and function.detailed_description != function.description
+        ):
+            intro_lines.append("")
+            intro_lines.append(function.detailed_description)
+
+        sections = [
+            "\n".join(intro_lines),
+            "Signature:\n" + function.render_signature(multiline=True),
+            "Arguments:\n" + self._render_arguments_section(name),
+        ]
+
+        returns_section = self._render_return_value(function)
+        if returns_section:
+            sections.append("Returns:\n" + returns_section)
+        if function.usage_example:
+            sections.append("Usage example:\n" + function.usage_example)
+        sections.append(
+            "Guidance:\n" + self._format_bullets(tuple(function.usage_guidance))
+        )
+        return self._join_help_sections(*sections)
+
+    def _render_arguments_section(self, function_name: str) -> str:
+        """Render the argument list for a tool help page."""
+
+        function = self.registry.get(function_name)
+        if function is None or not function.arguments:
+            return "- None"
+        return "\n".join(
+            argument.render_argument_help() for argument in function.arguments
+        )
+
+    def _render_return_value(self, function: Any, *, compact: bool = False) -> str:
+        """Render return annotation and key hints for help output."""
+
+        lines: list[str] = []
+        normalized_description = self._normalize_return_description(
+            function.return_annotation,
+            function.return_description,
+        )
+        if function.return_annotation and function.return_description:
+            lines.append(f"- {function.return_annotation}: {normalized_description}")
+        elif function.return_annotation:
+            lines.append(f"- {function.return_annotation}")
+        elif normalized_description:
+            lines.append(f"- {normalized_description}")
+
+        if function.return_annotation and function.return_annotation.startswith(
+            "dict["
+        ):
+            return_keys = self._extract_return_keys(function.usage_example or "")
+            if return_keys:
+                key_label = "Keys:" if not compact else "  Keys:"
+                lines.append(key_label)
+                prefix = "  - " if not compact else "    - "
+                lines.extend(f"{prefix}{key}" for key in return_keys)
+
+        if compact and lines:
+            return "\n".join(f"  {line}" for line in lines)
+        return "\n".join(lines)
+
+    def _extract_return_keys(self, usage_example: str) -> list[str]:
+        """Extract representative dict keys from an example block."""
+
+        lines = usage_example.splitlines()
+        collecting = False
+        seen: set[str] = set()
+        keys: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if "Returns:" in stripped:
+                collecting = True
+                continue
+            if not collecting:
+                continue
+            if not stripped.startswith("#"):
+                break
+            for key in re.findall(r'"([^"]+)":', stripped):
+                if key in seen:
+                    continue
+                seen.add(key)
+                keys.append(key)
+        return keys if 0 < len(keys) <= 4 else []
+
+    def _normalize_return_description(
         self,
-        name: str,
-        collection: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Build the collection-specific help payload.
+        annotation: str | None,
+        description: str | None,
+    ) -> str | None:
+        """Strip duplicated type prefixes from parsed return descriptions."""
 
-        Args:
-            name: Collection name supplied by the caller.
-            collection: Serialized collection metadata.
+        if not description:
+            return None
+        if annotation:
+            prefixed = f"{annotation}: "
+            if description.startswith(prefixed):
+                return description.removeprefix(prefixed)
+        return description
 
-        Returns:
-            dict[str, Any]: Collection view payload.
-        """
-        return self._base_help_response(
-            view="collection",
-            name=name,
-            collection=collection,
-            functions=[
-                entry.to_help_dict() for entry in self.registry.entries(collection=name)
-            ],
-            notes=[
-                f"You are viewing the {name!r} collection.",
-                "Call help('<tool-name>') for exact argument and return details before using an unfamiliar helper in execute(...).",
-            ],
+    def _render_help_not_found(self, name: str) -> str:
+        """Render a readable not-found page with valid alternatives."""
+
+        available_collections = ", ".join(
+            collection.name for collection in self.registry.collections()
         )
-
-    def _help_tool_payload(self, name: str, function: dict[str, Any]) -> dict[str, Any]:
-        """Build the detailed single-tool help payload.
-
-        Args:
-            name: Tool name supplied by the caller.
-            function: Detailed serialized tool metadata.
-
-        Returns:
-            dict[str, Any]: Tool view payload.
-        """
-        return self._base_help_response(
-            view="tool",
-            name=name,
-            function=function,
-            notes=[
-                f"Call `{name}(...)` directly inside execute(...) code.",
-            ],
-        )
-
-    def _help_not_found_payload(self, name: str) -> dict[str, Any]:
-        """Build the invalid-name help payload.
-
-        Args:
-            name: Unknown lookup target supplied by the caller.
-
-        Returns:
-            dict[str, Any]: Not-found help payload with valid alternatives.
-        """
-        return self._base_help_response(
-            view="not_found",
-            name=name,
-            error=(
-                f"No collection or function named {name!r} is registered. "
-                "Choose one of the valid names below."
-            ),
-            available_collections=[
-                collection.name for collection in self.registry.collections()
-            ],
-            available_functions=[entry.name for entry in self.registry.entries()],
+        available_functions = ", ".join(entry.name for entry in self.registry.entries())
+        return self._join_help_sections(
+            f"No collection or function named {name!r} is registered.\n\nChoose one of the valid names below.",
+            "Available collections:\n" + available_collections,
+            "Available tools:\n" + available_functions,
         )
 
     def _build_summary(

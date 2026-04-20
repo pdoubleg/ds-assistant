@@ -8,6 +8,7 @@ import inspect
 import keyword
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from types import TracebackType
 from typing import Any
 
 import pydantic_monty
@@ -188,7 +189,7 @@ class MontyReplInterpreter:
         type_check: bool = False,
         type_check_stubs: str | None = None,
         limits: pydantic_monty.ResourceLimits | None = None,
-        os_access: pydantic_monty.OSAccess | None = None,
+        os_access: pydantic_monty.AbstractOS | None = None,
     ) -> None:
         """Initialize the interpreter."""
         self._tools: dict[str, Callable[..., Any]] = dict(tools) if tools else {}
@@ -198,6 +199,50 @@ class MontyReplInterpreter:
         self._os_access = os_access
         self._state: dict[str, Any] = {}
         self._name_collector = _TopLevelNameCollector()
+
+    @staticmethod
+    def _matches_monty_exception(
+        exc: BaseException,
+        exception_name: str,
+    ) -> bool:
+        """Return whether *exc* matches a Monty exception by export or name.
+
+        Args:
+            exc: Raised exception to inspect.
+            exception_name: Expected Monty exception class name.
+
+        Returns:
+            True when the exception matches the requested Monty exception type.
+        """
+        exported_type = getattr(pydantic_monty, exception_name, None)
+        if isinstance(exported_type, type) and issubclass(exported_type, BaseException):
+            return isinstance(exc, exported_type)
+        return type(exc).__name__ == exception_name
+
+    def _raise_known_monty_error(
+        self,
+        exc: BaseException,
+        traceback: TracebackType | None = None,
+    ) -> None:
+        """Translate Monty-specific exceptions into local interpreter errors.
+
+        Args:
+            exc: Raised exception from the Monty runtime.
+            traceback: Optional traceback to preserve when re-raising.
+
+        Raises:
+            SyntaxError: When Monty reports a syntax error.
+            CodeExecutionError: When Monty reports a typing or runtime error.
+        """
+        if self._matches_monty_exception(exc, "MontySyntaxError"):
+            error = SyntaxError(str(exc))
+        elif self._matches_monty_exception(exc, "MontyTypingError"):
+            error = CodeExecutionError(str(exc))
+        elif self._matches_monty_exception(exc, "MontyRuntimeError"):
+            error = CodeExecutionError(str(exc))
+        else:
+            raise exc.with_traceback(traceback)
+        raise error.with_traceback(traceback) from exc
 
     @property
     def state(self) -> dict[str, Any]:
@@ -271,6 +316,73 @@ class MontyReplInterpreter:
 
         return "\n".join(wrapped_lines).strip() + "\n"
 
+    def _start_monty(
+        self,
+        monty: pydantic_monty.Monty,
+        merged_vars: dict[str, Any],
+        print_callback: Callable[[str, str], None],
+    ) -> (
+        pydantic_monty.FunctionSnapshot
+        | pydantic_monty.NameLookupSnapshot
+        | pydantic_monty.FutureSnapshot
+        | pydantic_monty.MontyComplete
+    ):
+        """Start Monty execution across nearby API versions."""
+        start_kwargs: dict[str, Any] = {
+            "inputs": merged_vars or None,
+            "limits": self._limits,
+            "print_callback": print_callback,
+        }
+        if self._os_access is not None:
+            start_kwargs["os"] = self._os_access
+
+        try:
+            return monty.start(**start_kwargs)
+        except TypeError as exc:
+            if self._os_access is None or "os" not in str(exc):
+                raise
+            start_kwargs.pop("os", None)
+            try:
+                return monty.start(**start_kwargs)
+            except Exception as retry_exc:
+                self._raise_known_monty_error(retry_exc, retry_exc.__traceback__)
+                raise
+        except Exception as exc:
+            self._raise_known_monty_error(exc, exc.__traceback__)
+            raise
+
+    def _resume_function_snapshot(
+        self,
+        snapshot: pydantic_monty.FunctionSnapshot,
+        result: pydantic_monty.ExternalResult,
+    ) -> (
+        pydantic_monty.FunctionSnapshot
+        | pydantic_monty.NameLookupSnapshot
+        | pydantic_monty.FutureSnapshot
+        | pydantic_monty.MontyComplete
+    ):
+        """Resume a function snapshot across old and new Monty APIs."""
+        resume_kwargs: dict[str, Any] = {}
+        if self._os_access is not None:
+            resume_kwargs["os"] = self._os_access
+
+        try:
+            return snapshot.resume(result, **resume_kwargs)
+        except TypeError:
+            if not result or len(result) != 1:
+                raise
+            key, value = next(iter(result.items()))
+            if key not in {"return_value", "exception", "future"}:
+                raise
+            try:
+                return snapshot.resume(**{key: value})
+            except Exception as retry_exc:
+                self._raise_known_monty_error(retry_exc, retry_exc.__traceback__)
+                raise
+        except Exception as exc:
+            self._raise_known_monty_error(exc, exc.__traceback__)
+            raise
+
     async def execute(self, code: str) -> InterpreterRunResult:
         """Execute code and persist supported top-level variables."""
         assigned_names, deleted_names = self._name_collector.collect(
@@ -311,24 +423,16 @@ class MontyReplInterpreter:
                 type_check=self._type_check,
                 type_check_stubs=type_check_stubs,
             )
-        except pydantic_monty.MontySyntaxError as exc:
-            raise SyntaxError(str(exc)) from exc
-        except pydantic_monty.MontyTypingError as exc:
-            raise CodeExecutionError(str(exc)) from exc
+        except Exception as exc:
+            self._raise_known_monty_error(exc, exc.__traceback__)
+            raise
 
         stdout_parts: list[str] = []
 
         def _capture_print(_stream: str, text: str) -> None:
             stdout_parts.append(text)
 
-        try:
-            progress = monty.start(
-                inputs=merged_vars or None,
-                limits=self._limits,
-                print_callback=_capture_print,
-            )
-        except pydantic_monty.MontyRuntimeError as exc:
-            raise CodeExecutionError(str(exc)) from exc
+        progress = self._start_monty(monty, merged_vars, _capture_print)
 
         pending_tasks: dict[
             int, asyncio.Task[tuple[int, pydantic_monty.ExternalResult]]
@@ -370,7 +474,10 @@ class MontyReplInterpreter:
                             raise CodeExecutionError(
                                 f"OS function {progress.function_name} failed: {exc}"
                             ) from exc
-                        progress = progress.resume(return_value=result)
+                        progress = self._resume_function_snapshot(
+                            progress,
+                            {"return_value": result},
+                        )
                         continue
 
                     func = all_tools.get(progress.function_name)
@@ -385,7 +492,10 @@ class MontyReplInterpreter:
                                 pending_tasks[progress.call_id] = asyncio.create_task(
                                     _resolve_async_tool(progress.call_id, result)
                                 )
-                                progress = progress.resume(future=...)
+                                progress = self._resume_function_snapshot(
+                                    progress,
+                                    {"future": ...},
+                                )
                                 continue
                             result = await result
                     except Exception as exc:
@@ -393,7 +503,10 @@ class MontyReplInterpreter:
                             f"Tool {progress.function_name} failed: {exc}"
                         ) from exc
 
-                    progress = progress.resume(return_value=result)
+                    progress = self._resume_function_snapshot(
+                        progress,
+                        {"return_value": result},
+                    )
                     continue
 
                 if isinstance(progress, pydantic_monty.FutureSnapshot):
@@ -417,6 +530,11 @@ class MontyReplInterpreter:
                 raise CodeExecutionError(
                     f"Unexpected Monty progress type: {type(progress).__name__}"
                 )
+        except CodeExecutionError:
+            raise
+        except Exception as exc:
+            self._raise_known_monty_error(exc, exc.__traceback__)
+            raise
         finally:
             for task in pending_tasks.values():
                 task.cancel()

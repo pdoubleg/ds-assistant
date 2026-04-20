@@ -321,6 +321,49 @@ def prepare_lightgbm_frame(
     return features, target, final_cats
 
 
+def prepare_lightgbm_features(
+    dataframe: pd.DataFrame,
+    *,
+    feature_columns: list[str],
+    categorical_cols: list[str] | None = None,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Prepare a feature-only dataframe for LightGBM scoring.
+
+    Args:
+        dataframe: Source dataframe containing the feature columns.
+        feature_columns: Exact feature columns expected by the fitted model.
+        categorical_cols: Preferred categorical columns.
+
+    Returns:
+        Tuple of prepared features and resolved categorical columns.
+    """
+    categorical_cols = list(categorical_cols or [])
+    features = dataframe[feature_columns].copy()
+
+    final_cats: list[str] = []
+    for column in list(features.columns):
+        series = features[column]
+        if _is_datetime_dtype(series):
+            datetime_values = _safe_series_to_datetime(series)
+            features[column] = (datetime_values.view("int64") / 10**9).replace(
+                -9223372036854775808 / 10**9, np.nan
+            )
+            continue
+
+        if column in categorical_cols:
+            features[column] = series.astype("category")
+            final_cats.append(column)
+            continue
+
+        if _is_numeric_dtype(series):
+            continue
+
+        features[column] = series.astype("category")
+        final_cats.append(column)
+
+    return features, final_cats
+
+
 def make_train_valid_split(
     dataframe: pd.DataFrame,
     *,
@@ -391,6 +434,117 @@ def _align_validation_categories(
     return aligned
 
 
+def score_lightgbm_dataframe(
+    dataframe: pd.DataFrame,
+    *,
+    booster: lgb.Booster,
+    feature_columns: list[str],
+    categorical_columns: list[str],
+    best_iteration: int,
+) -> np.ndarray:
+    """Score a dataframe with a fitted LightGBM booster.
+
+    Args:
+        dataframe: Source dataframe to score.
+        booster: Fitted LightGBM booster.
+        feature_columns: Exact feature columns expected by the booster.
+        categorical_columns: Columns treated as categorical at fit time.
+        best_iteration: Best iteration retained by the fitted booster.
+
+    Returns:
+        Prediction scores aligned with the dataframe rows.
+    """
+    features, final_cats = prepare_lightgbm_features(
+        dataframe,
+        feature_columns=feature_columns,
+        categorical_cols=categorical_columns,
+    )
+    aligned_features = features.reindex(columns=feature_columns)
+    for column in final_cats:
+        if column in aligned_features.columns:
+            aligned_features[column] = aligned_features[
+                column
+            ].cat.remove_unused_categories()
+    return booster.predict(aligned_features, num_iteration=best_iteration)
+
+
+def top_p_indices(
+    y_score: np.ndarray,
+    *,
+    p: float = 0.05,
+) -> np.ndarray:
+    """Return ranked indices for the retained top-p slice.
+
+    Args:
+        y_score: Model scores used for ranking.
+        p: Fraction of rows retained in the top slice.
+
+    Returns:
+        Numpy array of retained row indices in descending score order.
+    """
+    if len(y_score) == 0:
+        return np.array([], dtype=int)
+    n_top = max(1, int(math.ceil(len(y_score) * p)))
+    order = np.argsort(-y_score, kind="mergesort")
+    return order[:n_top]
+
+
+def summarize_top_p_predictions(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    *,
+    p: float = 0.05,
+) -> dict[str, Any]:
+    """Return aggregate outcome metrics for the highest-ranked predictions.
+
+    Args:
+        y_true: Binary ground-truth labels.
+        y_score: Model scores used for ranking.
+        p: Fraction of rows retained in the top slice.
+
+    Returns:
+        Aggregate top-p prediction metrics.
+    """
+    labels = np.asarray(y_true).astype(int)
+    scores = np.asarray(y_score).astype(float)
+    if len(labels) != len(scores):
+        raise ValueError("`y_true` and `y_score` must have the same length.")
+    if len(labels) == 0:
+        return {
+            "top_p": float(p),
+            "row_count": 0,
+            "top_p_row_count": 0,
+            "score_threshold": None,
+            "true_positive_count": 0,
+            "false_positive_count": 0,
+            "ppv_at_p": 0.0,
+            "recall_at_p": 0.0,
+            "lift_at_p": 0.0,
+            "base_rate": 0.0,
+        }
+
+    selected = top_p_indices(scores, p=p)
+    selected_labels = labels[selected]
+    selected_scores = scores[selected]
+    true_positive_count = int(np.sum(selected_labels == 1))
+    false_positive_count = int(np.sum(selected_labels == 0))
+    base_rate = float(np.mean(labels))
+    return {
+        "top_p": float(p),
+        "row_count": int(len(labels)),
+        "top_p_row_count": int(len(selected)),
+        "score_threshold": float(np.min(selected_scores))
+        if len(selected_scores)
+        else None,
+        "true_positive_count": true_positive_count,
+        "false_positive_count": false_positive_count,
+        "ppv_at_p": float(ppv_at_top_p(labels, scores, p=p)),
+        "recall_at_p": float(recall_at_top_p(labels, scores, p=p)),
+        "lift_at_p": float(lift_at_top_p(labels, scores, p=p)),
+        "base_rate": base_rate,
+    }
+
+
 def train_lightgbm_once(
     train_df: pd.DataFrame,
     valid_df: pd.DataFrame,
@@ -435,20 +589,6 @@ def train_lightgbm_once(
     )
     X_valid = _align_validation_categories(X_train, X_valid, final_cats)
 
-    dtrain = lgb.Dataset(
-        X_train,
-        label=y_train,
-        categorical_feature=final_cats,
-        free_raw_data=False,
-    )
-    dvalid = lgb.Dataset(
-        X_valid,
-        label=y_valid,
-        categorical_feature=final_cats,
-        reference=dtrain,
-        free_raw_data=False,
-    )
-
     default_params = {
         "objective": "binary",
         "metric": "None",
@@ -466,6 +606,31 @@ def train_lightgbm_once(
         "num_threads": train_config.num_threads,
     }
     default_params.update(params)
+    if default_params.get("boosting_type") == "goss":
+        # GOSS uses its own sampling strategy and cannot be combined with bagging.
+        default_params.pop("bagging_fraction", None)
+        default_params.pop("bagging_freq", None)
+    else:
+        default_params.pop("top_rate", None)
+        default_params.pop("other_rate", None)
+
+    # Some LightGBM options, such as `linear_tree`, are bound when the Dataset
+    # handle is constructed, so build datasets only after params are finalized.
+    dtrain = lgb.Dataset(
+        X_train,
+        label=y_train,
+        categorical_feature=final_cats,
+        params=default_params,
+        free_raw_data=False,
+    )
+    dvalid = lgb.Dataset(
+        X_valid,
+        label=y_valid,
+        categorical_feature=final_cats,
+        params=default_params,
+        reference=dtrain,
+        free_raw_data=False,
+    )
 
     booster = lgb.train(
         params=default_params,
@@ -521,11 +686,12 @@ def suggest_lgbm_params(
         dict[str, Any]: Candidate LightGBM parameter set.
     """
 
+    boosting_type = trial.suggest_categorical("boosting_type", ["gbdt", "goss"])
     max_depth = trial.suggest_categorical("max_depth", [-1, 4, 5, 6, 7, 8, 10, 12])
-    return {
+    params: dict[str, Any] = {
         "objective": "binary",
         "metric": "None",
-        "boosting_type": "gbdt",
+        "boosting_type": boosting_type,
         "verbosity": -1,
         "seed": seed,
         "num_threads": num_threads,
@@ -534,14 +700,41 @@ def suggest_lgbm_params(
         "min_child_samples": trial.suggest_int(
             "min_child_samples", 50, 1_000, log=True
         ),
+        "min_child_weight": trial.suggest_float(
+            "min_child_weight", 1e-4, 10.0, log=True
+        ),
         "feature_fraction": trial.suggest_float("feature_fraction", 0.4, 0.95),
-        "bagging_fraction": trial.suggest_float("bagging_fraction", 0.5, 0.95),
-        "bagging_freq": trial.suggest_int("bagging_freq", 1, 7),
+        "feature_fraction_bynode": trial.suggest_float(
+            "feature_fraction_bynode", 0.4, 1.0
+        ),
         "lambda_l1": trial.suggest_float("lambda_l1", 1e-4, 10.0, log=True),
         "lambda_l2": trial.suggest_float("lambda_l2", 1e-4, 10.0, log=True),
         "min_gain_to_split": trial.suggest_float("min_gain_to_split", 0.0, 2.0),
         "max_depth": max_depth,
+        "extra_trees": trial.suggest_categorical("extra_trees", [False, True]),
+        "linear_tree": trial.suggest_categorical("linear_tree", [False, True]),
+        "force_row_wise": trial.suggest_categorical("force_row_wise", [False, True]),
+        "cat_smooth": trial.suggest_float("cat_smooth", 0.0, 100.0),
+        "cat_l2": trial.suggest_float("cat_l2", 0.0, 100.0),
+        "max_cat_to_onehot": trial.suggest_int("max_cat_to_onehot", 1, 64),
+        "min_data_per_group": trial.suggest_int(
+            "min_data_per_group", 10, 500, log=True
+        ),
+        "max_cat_threshold": trial.suggest_int("max_cat_threshold", 8, 256, log=True),
     }
+    if boosting_type == "gbdt":
+        params["bagging_fraction"] = trial.suggest_float("bagging_fraction", 0.5, 0.95)
+        params["bagging_freq"] = trial.suggest_int("bagging_freq", 1, 7)
+    if boosting_type == "goss":
+        top_rate = trial.suggest_float("top_rate", 0.1, 0.5)
+        max_other_rate = min(0.4, 0.99 - top_rate)
+        params["top_rate"] = top_rate
+        params["other_rate"] = trial.suggest_float(
+            "other_rate",
+            0.05,
+            max_other_rate,
+        )
+    return params
 
 
 __all__ = [
@@ -553,9 +746,13 @@ __all__ = [
     "make_lgb_ppv_eval",
     "make_train_valid_split",
     "ppv_at_top_p",
+    "prepare_lightgbm_features",
     "prepare_lightgbm_frame",
     "recall_at_top_p",
+    "score_lightgbm_dataframe",
     "suggest_lgbm_params",
+    "summarize_top_p_predictions",
+    "top_p_indices",
     "train_lightgbm_once",
     "univariate_categorical_score",
     "univariate_numeric_score",

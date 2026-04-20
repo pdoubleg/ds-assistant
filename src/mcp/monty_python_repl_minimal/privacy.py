@@ -1,4 +1,4 @@
-"""Privacy and redaction helpers for the hackathon Monty REPL."""
+"""Privacy and redaction helpers for the minimal Monty REPL."""
 
 from __future__ import annotations
 
@@ -10,10 +10,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-_DEFAULT_MAX_COLUMNS = 1_000
 _DEFAULT_MAX_ITEMS = 200
 _DEFAULT_MAX_CHARS = 500
-_FREEFORM_LINE_PATTERN = re.compile(r"<monty_freeform>.*?line (\d+)")
+_SANDBOX_LINE_PATTERN = re.compile(r"<[^>]+>.*?line (\d+)")
 
 
 def _truncate_string(value: str, *, max_chars: int) -> str:
@@ -69,7 +68,7 @@ def sanitize_exception(
     """
     line_number = None
     if traceback_text:
-        match = _FREEFORM_LINE_PATTERN.search(traceback_text)
+        match = _SANDBOX_LINE_PATTERN.search(traceback_text)
         if match:
             line_number = int(match.group(1))
 
@@ -119,73 +118,167 @@ def summarize_series(series: pd.Series) -> dict[str, Any]:
     return summary
 
 
+def _summarize_numeric_non_null(non_null: pd.Series) -> dict[str, Any]:
+    """Return aggregate numeric statistics for a non-null numeric series.
+
+    Args:
+        non_null: Numeric series with nulls already dropped.
+
+    Returns:
+        Aggregate numeric statistics.
+    """
+    if non_null.empty:
+        return {
+            "mean": None,
+            "std": None,
+            "min": None,
+            "p25": None,
+            "p50": None,
+            "p75": None,
+            "max": None,
+        }
+
+    described = non_null.astype(float).describe(percentiles=[0.25, 0.5, 0.75])
+    return {
+        "mean": float(described.get("mean", 0.0)),
+        "std": float(described.get("std", 0.0))
+        if not np.isnan(described.get("std", np.nan))
+        else None,
+        "min": float(described.get("min", 0.0)),
+        "p25": float(described.get("25%", 0.0)),
+        "p50": float(described.get("50%", 0.0)),
+        "p75": float(described.get("75%", 0.0)),
+        "max": float(described.get("max", 0.0)),
+    }
+
+
+def summarize_dataframe_column(
+    dataframe: pd.DataFrame,
+    column_name: str,
+) -> dict[str, Any]:
+    """Return a privacy-safe summary for one dataframe column.
+
+    Args:
+        dataframe: Dataframe containing the column.
+        column_name: Column to summarize.
+
+    Returns:
+        Aggregate metadata for the requested column.
+    """
+    series = dataframe[column_name]
+    non_null = series.dropna()
+    column_summary: dict[str, Any] = {
+        "column": column_name,
+        "dtype": str(series.dtype),
+        "missing_count": int(series.isna().sum()),
+        "missing_rate": float(series.isna().mean()) if len(series) else 0.0,
+        "non_null_count": int(non_null.shape[0]),
+        "unique_count": int(non_null.nunique(dropna=True)),
+    }
+    if pd.api.types.is_numeric_dtype(series):
+        column_summary["numeric_summary"] = _summarize_numeric_non_null(non_null)
+    elif pd.api.types.is_datetime64_any_dtype(series):
+        if not non_null.empty:
+            column_summary["datetime_summary"] = {
+                "min": str(non_null.min()),
+                "max": str(non_null.max()),
+            }
+    else:
+        # Categorical/object columns only expose aggregate structure.
+        top_frequency = (
+            float(non_null.value_counts(normalize=True, dropna=True).iloc[0])
+            if not non_null.empty
+            else 0.0
+        )
+        column_summary["categorical_summary"] = {
+            "cardinality": int(non_null.nunique(dropna=True)),
+            "top_frequency": top_frequency,
+        }
+    return column_summary
+
+
 def summarize_dataframe(
     dataframe: pd.DataFrame,
-    *,
-    max_columns: int = _DEFAULT_MAX_COLUMNS,
 ) -> dict[str, Any]:
-    """Return a privacy-safe dataframe summary.
+    """Return a lightweight privacy-safe dataframe overview.
 
     Args:
         dataframe: Dataframe to summarize.
-        max_columns: Maximum number of column-level summaries to retain.
 
     Returns:
-        Aggregate dataframe metadata with schema and summary statistics only.
+        Aggregate dataframe metadata with schema-level counts and column names.
     """
     column_names = [str(column) for column in dataframe.columns]
-    included_columns = column_names[:max_columns]
-
-    column_summaries: list[dict[str, Any]] = []
-    for column_name in included_columns:
+    missing_counts = dataframe.isna().sum()
+    column_type_counts = {
+        "numeric": 0,
+        "datetime": 0,
+        "categorical": 0,
+        "other": 0,
+    }
+    for column_name in column_names:
         series = dataframe[column_name]
-        non_null = series.dropna()
-        column_summary: dict[str, Any] = {
-            "column": column_name,
-            "dtype": str(series.dtype),
-            "missing_count": int(series.isna().sum()),
-            "missing_rate": float(series.isna().mean()) if len(series) else 0.0,
-            "non_null_count": int(non_null.shape[0]),
-            "unique_count": int(non_null.nunique(dropna=True)),
-        }
         if pd.api.types.is_numeric_dtype(series):
-            described = non_null.astype(float).describe(percentiles=[0.25, 0.5, 0.75])
-            column_summary["numeric_summary"] = {
-                "mean": float(described.get("mean", 0.0)),
-                "std": float(described.get("std", 0.0))
-                if not np.isnan(described.get("std", np.nan))
-                else None,
-                "min": float(described.get("min", 0.0)),
-                "p25": float(described.get("25%", 0.0)),
-                "p50": float(described.get("50%", 0.0)),
-                "p75": float(described.get("75%", 0.0)),
-                "max": float(described.get("max", 0.0)),
-            }
+            column_type_counts["numeric"] += 1
         elif pd.api.types.is_datetime64_any_dtype(series):
-            if not non_null.empty:
-                column_summary["datetime_summary"] = {
-                    "min": str(non_null.min()),
-                    "max": str(non_null.max()),
-                }
+            column_type_counts["datetime"] += 1
+        elif pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(
+            series
+        ):
+            column_type_counts["categorical"] += 1
         else:
-            # Categorical/object columns only expose aggregate structure.
-            top_frequency = (
-                float(non_null.value_counts(normalize=True, dropna=True).iloc[0])
-                if not non_null.empty
-                else 0.0
-            )
-            column_summary["categorical_summary"] = {
-                "cardinality": int(non_null.nunique(dropna=True)),
-                "top_frequency": top_frequency,
-            }
-        column_summaries.append(column_summary)
+            column_type_counts["other"] += 1
 
     return {
         "type": "DataFrame",
         "shape": [int(dataframe.shape[0]), int(dataframe.shape[1])],
+        "row_count": int(dataframe.shape[0]),
+        "column_count": int(dataframe.shape[1]),
         "columns": column_names,
-        "column_summaries": column_summaries,
-        "truncated_column_summary": len(column_names) > max_columns,
+        "column_type_counts": column_type_counts,
+        "missingness": {
+            "total_missing_cells": int(missing_counts.sum()),
+            "columns_with_missing_values": int((missing_counts > 0).sum()),
+            "fully_non_null_columns": int((missing_counts == 0).sum()),
+            "max_column_missing_rate": (
+                float((missing_counts / len(dataframe)).max())
+                if len(dataframe)
+                else 0.0
+            ),
+        },
+        "usage_hint": (
+            "Use summarize_dataframe_columns(...) with a focused column list "
+            "when you need per-column detail."
+        ),
+    }
+
+
+def summarize_dataframe_columns(
+    dataframe: pd.DataFrame,
+    columns: list[str],
+) -> dict[str, Any]:
+    """Return privacy-safe details for a focused subset of dataframe columns.
+
+    Args:
+        dataframe: Dataframe to summarize.
+        columns: Requested columns to inspect in detail.
+
+    Returns:
+        Targeted per-column summary payload for the requested columns.
+    """
+    unique_columns: list[str] = []
+    for column in columns:
+        if column not in unique_columns:
+            unique_columns.append(column)
+
+    return {
+        "type": "DataFrameColumnDetails",
+        "shape": [int(dataframe.shape[0]), int(dataframe.shape[1])],
+        "requested_columns": unique_columns,
+        "column_summaries": [
+            summarize_dataframe_column(dataframe, column_name)
+            for column_name in unique_columns
+        ],
     }
 
 
@@ -216,7 +309,7 @@ def safe_json_value(
         return to_json_summary(max_items=max_items, max_chars=max_chars)
 
     if isinstance(value, pd.DataFrame):
-        return summarize_dataframe(value, max_columns=max_items)
+        return summarize_dataframe(value)
 
     if isinstance(value, pd.Series):
         return summarize_series(value)
@@ -254,6 +347,8 @@ __all__ = [
     "safe_json_value",
     "sanitize_exception",
     "summarize_dataframe",
+    "summarize_dataframe_column",
+    "summarize_dataframe_columns",
     "summarize_series",
     "summarize_stdout",
 ]

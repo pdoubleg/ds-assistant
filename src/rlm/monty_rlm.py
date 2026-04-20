@@ -186,7 +186,7 @@ MONTY_DEFAULT_EXAMPLES = """
 EXAMPLES — Strategies for large contexts:
 Sub-LLMs are powerful — they can fit ~250K characters in their context window. Analyze your input data size and structure first, then pick a strategy. \
 Often a few well-targeted sub-LLM calls are sufficient. If accuracy is important, favor chunking the document and using llm_query_batched to cover the entire document. \
-You can also use the allowed standard-library imports (`sys`, `os`, `typing`, `re`, `datetime`, `json`) when they help with parsing, chunking, or metadata inspection.
+You can also use the allowed standard-library imports (`sys`, `os`, `typing`, `re`, `datetime`, `json`, `dataclasses`, `math`) when they help with parsing, chunking, or metadata inspection.
 
 Example 1 — Simple chunking with llm_query:
 If the context is a long string, chunk it and query each piece:
@@ -313,6 +313,9 @@ You are tasked with producing the following outputs given the inputs {inputs}:
 
 You have access to a restricted Python sandbox (Monty). Write Python code and it will be executed. You will see the output, then write \
 more code based on what you learned. This is an iterative process, with each step building on the previous one.
+
+Monty is intentionally limited and contains only a subset of the standard library, e.g., `sys`, `os`, `typing`, `re`, `datetime`, `json`, \
+`dataclasses`, `math`. Favor f strings over `.format()`.
 
 Available:
 - Variables: {inputs} (your input data — re-injected every iteration)
@@ -475,7 +478,7 @@ class MontyRLM(Generic[OutputT]):
         *,
         sub_model: str | Model | None = None,
         instructions: str = "",
-        examples: str = MONTY_EXAMPLES_V1,
+        examples: str = MONTY_DEFAULT_EXAMPLES,
         max_iterations: int = 20,
         max_llm_calls: int = 50,
         max_output_chars: int = 100_000,

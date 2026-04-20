@@ -6,13 +6,16 @@ from ..base import SafeObjectStore
 from ..core.registry import FunctionRegistry
 from ..filesystem import HostWorkspaceOSAccess
 from .base import (
+    StoredDataframeReport,
+    StoredFeatureEngineeringPipeline,
     StoredFeatureSelectionReport,
-    StoredFreeformTransformerArtifact,
     StoredLightGBMModelArtifact,
     StoredLightGBMStudy,
 )
 from .data_access import DataAccessCollection, WorkspaceFileCollection
-from .feature_workbench import FeatureWorkbenchCollection
+from .eda import EDACollection
+from .feature_engineering import FeatureEngineeringCollection
+from .feature_workbench import FeatureSelectionCollection
 from .handles import HandleInspectionCollection
 from .modeling import ModelingCollection
 from .schema_views import SchemaViewCollection
@@ -39,15 +42,18 @@ def build_default_registry(
     registry.register_collection(WorkspaceFileCollection(os_access, object_store))
     registry.register_collection(HandleInspectionCollection(os_access, object_store))
     registry.register_collection(SchemaViewCollection(os_access, object_store))
+    registry.register_collection(EDACollection(os_access, object_store))
     registry.register_collection(VisualizationCollection(os_access, object_store))
-    registry.register_collection(FeatureWorkbenchCollection(os_access, object_store))
+    registry.register_collection(FeatureSelectionCollection(os_access, object_store))
+    registry.register_collection(FeatureEngineeringCollection(os_access, object_store))
     registry.register_collection(ModelingCollection(os_access, object_store))
     return registry
 
 
 __all__ = [
+    "StoredDataframeReport",
+    "StoredFeatureEngineeringPipeline",
     "StoredFeatureSelectionReport",
-    "StoredFreeformTransformerArtifact",
     "StoredLightGBMModelArtifact",
     "StoredLightGBMStudy",
     "build_default_registry",

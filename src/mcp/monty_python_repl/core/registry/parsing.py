@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -34,6 +35,53 @@ class ToolArgument:
             "default": self.default,
             "required": self.required,
         }
+
+    def render_signature_fragment(self) -> str:
+        """Render the argument as a Python-style signature fragment.
+
+        Returns:
+            str: Signature fragment suitable for a callable signature.
+        """
+
+        prefix = ""
+        if self.kind == "var_positional":
+            prefix = "*"
+        elif self.kind == "var_keyword":
+            prefix = "**"
+
+        parts = [f"{prefix}{self.name}"]
+        if self.annotation:
+            parts.append(f": {self.annotation}")
+        if not self.required:
+            parts.append(f" = {self._render_default_value()}")
+        return "".join(parts)
+
+    def render_argument_help(self) -> str:
+        """Render the argument as a human-readable help line.
+
+        Returns:
+            str: One formatted argument line for tool help output.
+        """
+
+        label_parts = [
+            self.annotation or "Any",
+            "required" if self.required else "optional",
+        ]
+        if not self.required:
+            label_parts.append(f"default={self._render_default_value()}")
+        description = self.description or "No description provided."
+        return f"- {self.name} ({', '.join(label_parts)}): {description}"
+
+    def _render_default_value(self) -> str:
+        """Render a stable default value representation.
+
+        Returns:
+            str: Python-like representation of the default value.
+        """
+
+        if isinstance(self.default, str):
+            return json.dumps(self.default)
+        return repr(self.default)
 
 
 @dataclass(slots=True)

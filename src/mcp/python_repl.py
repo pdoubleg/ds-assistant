@@ -84,9 +84,9 @@ async def python_repl(
         The standard output of the python code
 
     """
-    
+
     result = repl.run(code)
-    
+
     return result or "No output"
 
 

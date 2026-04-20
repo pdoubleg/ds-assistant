@@ -35,118 +35,37 @@ def run_execute(repl: MontyPythonREPL, code: str) -> dict[str, object]:
 
 
 def test_help_lists_default_collections_and_repl_notes(tmp_path: Path) -> None:
-    """The default help payload should advertise collections and usage notes."""
+    """The default help text should advertise collections and usage notes."""
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
     payload = repl.help()
 
-    assert payload["view"] == "overview"
-    assert "name" not in payload
-    collection_names = {item["name"] for item in payload["collections"]}
-    workspace_collection = next(
-        item for item in payload["collections"] if item["name"] == "workspace"
-    )
-    data_io_collection = next(
-        item for item in payload["collections"] if item["name"] == "data_io"
-    )
-    dataframe_collection = next(
-        item for item in payload["collections"] if item["name"] == "dataframe"
-    )
-    handles_collection = next(
-        item for item in payload["collections"] if item["name"] == "handles"
-    )
-    freeform_collection = next(
-        item for item in payload["collections"] if item["name"] == "freeform"
-    )
-    plotly_collection = next(
-        item for item in payload["collections"] if item["name"] == "plotly"
-    )
-    preprocessing_collection = next(
-        item for item in payload["collections"] if item["name"] == "preprocessing"
-    )
-    feature_engineering_collection = next(
-        item for item in payload["collections"] if item["name"] == "feature_engineering"
-    )
-    feature_selection_collection = next(
-        item for item in payload["collections"] if item["name"] == "feature_selection"
-    )
-    metrics_collection = next(
-        item for item in payload["collections"] if item["name"] == "metrics"
-    )
-    splitting_collection = next(
-        item for item in payload["collections"] if item["name"] == "splitting"
-    )
-    hpo_collection = next(
-        item for item in payload["collections"] if item["name"] == "hpo"
-    )
-
-    assert "functions" not in payload
-    assert "function" not in payload
-    assert {
-        "workspace",
-        "data_io",
-        "dataframe",
-        "handles",
-        "freeform",
-        "plotly",
-        "preprocessing",
-        "feature_engineering",
-        "feature_selection",
-        "metrics",
-        "splitting",
-        "hpo",
-    } <= collection_names
-    assert "list_workspace_files" in workspace_collection["tools"]
-    assert "read_workspace_text" in workspace_collection["tools"]
-    assert "write_workspace_json" in workspace_collection["tools"]
-    assert "load_csv" in data_io_collection["tools"]
-    assert "load_excel" in data_io_collection["tools"]
-    assert "save_csv" in data_io_collection["tools"]
-    assert "save_excel" in data_io_collection["tools"]
-    assert "dataframe_head" in dataframe_collection["tools"]
-    assert "groupby_aggregate" in dataframe_collection["tools"]
-    assert "inspect_handle" in handles_collection["tools"]
-    assert "list_object_handles" in handles_collection["tools"]
-    assert "run_dataframe_code" in freeform_collection["tools"]
-    assert "fit_freeform_transformer" in freeform_collection["tools"]
-    assert "transform_with_freeform_transformer" in freeform_collection["tools"]
-    assert "inspect_freeform_transformer" in freeform_collection["tools"]
-    assert "save_plotly_figure" in plotly_collection["tools"]
-    assert "create_bar_chart" in plotly_collection["tools"]
-    assert "build_preprocessing_spec" in preprocessing_collection["tools"]
-    assert "fit_preprocessor" in preprocessing_collection["tools"]
-    assert "transform_dataframe" in preprocessing_collection["tools"]
-    assert "inspect_preprocessor" in preprocessing_collection["tools"]
-    assert "build_feature_engineering_spec" in feature_engineering_collection["tools"]
-    assert "fit_feature_engineer" in feature_engineering_collection["tools"]
-    assert "transform_with_feature_engineer" in feature_engineering_collection["tools"]
-    assert "inspect_feature_engineer" in feature_engineering_collection["tools"]
-    assert "summarize_feature_candidates" in feature_selection_collection["tools"]
-    assert "compute_feature_target_metrics" in feature_selection_collection["tools"]
-    assert "evaluate_feature_subset" in feature_selection_collection["tools"]
-    assert "inspect_feature_selection_report" in feature_selection_collection["tools"]
-    assert "create_metric_scorer" in metrics_collection["tools"]
-    assert "create_ppv_scorer" in metrics_collection["tools"]
-    assert "evaluate_tuned_pipeline" in metrics_collection["tools"]
-    assert "create_repeated_stratified_kfold_splitter" in splitting_collection["tools"]
-    assert "train_validation_test_split" in splitting_collection["tools"]
-    assert "inspect_data_split" in splitting_collection["tools"]
-    assert "inspect_pipeline_tunable_params" in hpo_collection["tools"]
-    assert "create_hpo_study" in hpo_collection["tools"]
-    assert "run_hpo_iteration" in hpo_collection["tools"]
-    assert "save_tuned_pipeline" in hpo_collection["tools"]
-    assert "save_hpo_study_report" in hpo_collection["tools"]
-    assert "save_hpo_trials_table" in hpo_collection["tools"]
-    assert "save_hpo_parameter_importances_plot" in hpo_collection["tools"]
-    assert "save_tuned_pipeline_report" in hpo_collection["tools"]
-    assert "export_best_pipeline_python" in hpo_collection["tools"]
-    assert any("results tool returns and clears" in note for note in payload["notes"])
-    assert any("choose the right capability area" in note for note in payload["notes"])
-    assert payload["supported_native_imports"] == ["datetime", "json", "math", "re"]
-    assert any("does not support defining classes" in item for item in payload["limitations"])
-    assert payload["workflow"][0].startswith("Call help()")
-    assert "help('<collection-name>')" in payload["workflow"][1]
-    assert "help('<tool-name>')" in payload["workflow"][2]
+    assert isinstance(payload, str)
+    assert "Monty Sandbox Overview" in payload
+    assert "Purpose:" in payload
+    assert "[workspace] (5 tools)" in payload
+    assert "[data_io] (4 tools)" in payload
+    assert "[dataframe] (9 tools)" in payload
+    assert "[feature_engineering] (8 tools)" in payload
+    assert "[feature_selection] (9 tools)" in payload
+    assert "[freeform] (8 tools)" in payload
+    assert "[handles] (2 tools)" in payload
+    assert "[hpo] (16 tools)" in payload
+    assert "[metrics] (7 tools)" in payload
+    assert "[preprocessing] (8 tools)" in payload
+    assert "[splitting] (10 tools)" in payload
+    assert "[visualizations] (9 tools)" in payload
+    assert "Tools: list_workspace_files, read_workspace_json, read_workspace_text" in payload
+    assert "Tools: load_csv, load_excel, save_csv, save_excel" in payload
+    assert "Tools: dataframe_columns, dataframe_describe, dataframe_dtypes" in payload
+    assert "Tools: create_metric_scorer, create_ppv_scorer" in payload
+    assert "results() returns and clears accumulated outputs" in payload
+    assert "Call help() to explore collections." in payload
+    assert 'Call help("<collection>") to see available tools.' in payload
+    assert 'Call help("<tool>") before writing execute(...) code.' in payload
+    assert "Supported native imports:\ndataclasses, datetime, json, math, re" in payload
+    assert "No class definitions inside execute(...)" in payload
+    assert "Keep all files inside /workspace" in payload
 
 
 def test_safe_json_value_preserves_long_code_strings_and_mapping_contents() -> None:
@@ -191,91 +110,61 @@ def test_safe_json_value_preserves_all_dataframe_columns_but_truncates_preview_v
 
 
 def test_help_can_filter_by_collection_and_surface_arguments(tmp_path: Path) -> None:
-    """Collection help should expose tool metadata parsed from decorated docstrings."""
+    """Collection and tool help should expose formatted docstring-derived details."""
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
-    payload = repl.help("data_io")
-    function_names = {item["name"] for item in payload["functions"]}
-    load_csv_help = next(item for item in payload["functions"] if item["name"] == "load_csv")
-    single_tool_payload = repl.help("load_csv")
-    nrows_argument = next(
-        argument for argument in load_csv_help["arguments"] if argument["name"] == "nrows"
-    )
+    collection_help = repl.help("data_io")
+    single_tool_help = repl.help("load_csv")
 
-    assert payload["view"] == "collection"
-    assert payload["name"] == "data_io"
-    assert payload["collection"]["name"] == "data_io"
-    assert "load_csv" in function_names
-    assert "load_excel" in function_names
-    assert "save_excel" in function_names
-    assert load_csv_help["collection"] == "data_io"
-    assert load_csv_help["description"] == "Load a CSV file from `/workspace` and return a dataframe handle."
-    assert load_csv_help["usage_example"] == 'df_handle = load_csv("/workspace/input/data.csv")'
-    assert nrows_argument["annotation"] == "int | None"
-    assert nrows_argument["default"] is None
-    assert nrows_argument["required"] is False
-    assert nrows_argument["description"] == "Optional maximum row count to load."
-    assert single_tool_payload["view"] == "tool"
-    assert single_tool_payload["function"]["collection"] == "data_io"
-    assert (
-        single_tool_payload["function"]["collection_description"]
-        == "Load and save pandas dataframes as CSV and Excel files."
-    )
-    assert (
-        single_tool_payload["function"]["return_value"]["description"]
-        == "Handle for the stored dataframe."
-    )
-    assert "categories" not in single_tool_payload["function"]
-    assert any(
-        "Call this helper directly inside `execute(...)` code"
-        in note
-        for note in single_tool_payload["function"]["usage_guidance"]
-    )
+    assert "Collection: data_io" in collection_help
+    assert "Purpose:\nLoad and save pandas dataframes as CSV and Excel files." in collection_help
+    assert "load_csv(path: str, *, nrows: int | None = None) -> str" in collection_help
+    assert "load_excel(path: str, *, sheet_name: str | int = 0, nrows: int | None = None) -> str" in collection_help
+    assert "save_excel(dataframes: dict[str, str], path: str, *, index: bool = False) -> str" in collection_help
+    assert "Read or write" not in collection_help
+
+    assert "Tool: load_csv" in single_tool_help
+    assert "Collection: data_io" in single_tool_help
+    assert "Purpose: Load a CSV file from `/workspace` and return a dataframe handle." in single_tool_help
+    assert "Arguments:" in single_tool_help
+    assert "- nrows (int | None, optional, default=None): Optional maximum row count to load." in single_tool_help
+    assert "Returns:\n- str: Handle for the stored dataframe." in single_tool_help
+    assert 'df_handle = load_csv("/workspace/input/data.csv")' in single_tool_help
+    assert "Call this helper directly inside `execute(...)` code" in single_tool_help
 
 
 def test_help_can_describe_workspace_file_collection(tmp_path: Path) -> None:
-    """Workspace collection help should surface text and JSON file helpers."""
+    """Workspace collection help should surface formatted file helper guidance."""
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
     payload = repl.help("workspace")
-    function_names = {item["name"] for item in payload["functions"]}
-    read_text_help = next(
-        item for item in payload["functions"] if item["name"] == "read_workspace_text"
-    )
-    write_json_payload = repl.help("write_workspace_json")
-    read_json_payload = repl.help("read_workspace_json")
+    write_json_help = repl.help("write_workspace_json")
+    read_json_help = repl.help("read_workspace_json")
 
-    assert payload["view"] == "collection"
-    assert payload["name"] == "workspace"
-    assert payload["collection"]["name"] == "workspace"
-    assert "list_workspace_files" in function_names
-    assert "read_workspace_text" in function_names
-    assert "write_workspace_text" in function_names
-    assert "read_workspace_json" in function_names
-    assert "write_workspace_json" in function_names
-    assert (
-        read_text_help["description"]
-        == "Read a supported text file from `/workspace`."
-    )
-    assert read_text_help["collection"] == "workspace"
-    assert write_json_payload["function"]["collection"] == "workspace"
-    assert write_json_payload["function"]["collection_description"].startswith(
-        "Read and write common text files inside /workspace and inspect available workspace files."
-    )
-    assert '{"mode": "demo", "retries": 2' in write_json_payload["function"]["usage_example"]
-    assert '"features": {"beta": True}' in write_json_payload["function"]["usage_example"]
-    assert '"data": {' in read_json_payload["function"]["usage_example"]
+    assert "Collection: workspace" in payload
+    assert "Read and write common text files inside /workspace" in payload
+    assert "Supported file extensions:" in payload
+    assert "list_workspace_files(subdir: str = \".\") -> list[str]" in payload
+    assert "read_workspace_text(path: str, *, max_chars: int = 200000000) -> dict[str, Any]" in payload
+    assert "write_workspace_json(path: str, data: Any, *, overwrite: bool = True) -> dict[str, Any]" in payload
+
+    assert "Tool: write_workspace_json" in write_json_help
+    assert "Collection: workspace" in write_json_help
+    assert '{"mode": "demo", "retries": 2' in write_json_help
+    assert '"features": {"beta": True}' in write_json_help
+    assert "Tool: read_workspace_json" in read_json_help
+    assert '"data": {' in read_json_help
 
 
 def test_help_surfaces_structured_examples_for_dict_shaped_tools(tmp_path: Path) -> None:
     """Dict-shaped tool examples should show representative input and output structure."""
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
-    aggregate_help = repl.help("groupby_aggregate")["function"]
-    shape_help = repl.help("dataframe_shape")["function"]
+    aggregate_help = repl.help("groupby_aggregate")
+    shape_help = repl.help("dataframe_shape")
 
-    assert '{"loss": ["mean", "sum"], "premium": "mean"}' in aggregate_help["usage_example"]
-    assert '{"rows": 1000, "columns": 24}' in shape_help["usage_example"]
+    assert '{"loss": ["mean", "sum"], "premium": "mean"}' in aggregate_help
+    assert '{"rows": 1000, "columns": 24}' in shape_help
 
 
 def test_help_exposes_hpo_inspection_output_schema_guidance(tmp_path: Path) -> None:
@@ -283,15 +172,13 @@ def test_help_exposes_hpo_inspection_output_schema_guidance(tmp_path: Path) -> N
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
     payload = repl.help("inspect_pipeline_tunable_params")
-    return_description = payload["function"]["return_value"]["description"]
 
-    assert payload["view"] == "tool"
-    assert payload["function"]["collection"] == "hpo"
-    assert "pipeline_params" in return_description
-    assert "list[dict[str, Any]]" in return_description
-    assert "pipeline_params_by_path" in return_description
-    assert "return_schema" in return_description
-    assert "pipeline_params_by_path" in payload["function"]["usage_example"]
+    assert "Tool: inspect_pipeline_tunable_params" in payload
+    assert "Collection: hpo" in payload
+    assert "pipeline_params" in payload
+    assert "list[dict[str, Any]]" in payload
+    assert "pipeline_params_by_path" in payload
+    assert "return_schema" in payload
 
 
 def test_registry_can_be_customized_with_manual_registration(tmp_path: Path) -> None:
@@ -321,17 +208,12 @@ def test_registry_can_be_customized_with_manual_registration(tmp_path: Path) -> 
 
     repl = MontyPythonREPL(workspace_root=tmp_path, registry=registry)
     payload = repl.help("scale_value")
-    factor_argument = next(
-        argument for argument in payload["function"]["arguments"] if argument["name"] == "factor"
-    )
 
-    assert payload["view"] == "tool"
-    assert payload["function"]["signature"].startswith("scale_value(")
-    assert payload["function"]["collection"] == "math"
-    assert payload["function"]["usage_example"] == "print(scale_value(3, factor=4))"
-    assert "categories" not in payload["function"]
-    assert factor_argument["description"] == "Multiplier to apply."
-    assert factor_argument["default"] == 2
+    assert "Tool: scale_value" in payload
+    assert "Collection: math" in payload
+    assert "scale_value(" in payload
+    assert "print(scale_value(3, factor=4))" in payload
+    assert "- factor (int, optional, default=2): Multiplier to apply." in payload
 
 
 def test_registry_can_register_decorated_collections(tmp_path: Path) -> None:
@@ -364,23 +246,13 @@ def test_registry_can_register_decorated_collections(tmp_path: Path) -> None:
 
     repl = MontyPythonREPL(workspace_root=tmp_path, registry=registry)
     payload = repl.help("math")
-    function_help = payload["functions"][0]
-    factor_argument = next(
-        argument for argument in function_help["arguments"] if argument["name"] == "factor"
-    )
     execution = run_execute(repl, "print(scale_value(3, factor=4))")
     buffered = repl.results()
 
-    assert payload["view"] == "collection"
-    assert payload["collection"]["name"] == "math"
-    assert function_help["signature"].startswith("scale_value(")
-    assert function_help["description"] == "Scale an integer by the requested factor."
-    assert function_help["collection"] == "math"
-    assert function_help["usage_example"] == "print(scale_value(3, factor=4))"
-    assert "categories" not in function_help
-    assert factor_argument["annotation"] == "int"
-    assert factor_argument["default"] == 2
-    assert factor_argument["description"] == "Multiplier to apply."
+    assert "Collection: math" in payload
+    assert "scale_value(value: int, factor: int = 2) -> int" in payload
+    assert "Scale an integer by the requested factor." in payload
+    assert payload.index("scale_value(") < payload.index("Next Steps:")
     assert execution["status"] == "success"
     assert "12" in buffered["combined_output"]
 
@@ -519,7 +391,7 @@ def test_help_preserves_alphabetical_function_order_within_collection(
     repl = MontyPythonREPL(workspace_root=tmp_path, registry=registry)
     payload = repl.help("letters")
 
-    assert [item["name"] for item in payload["functions"]] == ["alpha_tool", "beta_tool"]
+    assert payload.index("alpha_tool() -> str") < payload.index("beta_tool() -> str")
 
 
 def test_help_returns_valid_names_for_unknown_lookup(tmp_path: Path) -> None:
@@ -528,11 +400,10 @@ def test_help_returns_valid_names_for_unknown_lookup(tmp_path: Path) -> None:
 
     payload = repl.help("not_a_real_name")
 
-    assert payload["view"] == "not_found"
-    assert payload["name"] == "not_a_real_name"
-    assert "No collection or function named" in payload["error"]
-    assert "data_io" in payload["available_collections"]
-    assert "load_csv" in payload["available_functions"]
+    assert "No collection or function named 'not_a_real_name' is registered." in payload
+    assert "Available collections:\n" in payload
+    assert "data_io" in payload
+    assert "load_csv" in payload
 
 
 def test_execute_persists_assigned_state_and_results_are_drained(tmp_path: Path) -> None:
@@ -743,22 +614,18 @@ def test_help_can_describe_the_freeform_dataframe_tool(tmp_path: Path) -> None:
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
     payload = repl.help("run_dataframe_code")
-    function_help = payload["function"]
-    code_argument = next(
-        argument for argument in function_help["arguments"] if argument["name"] == "code"
-    )
 
-    assert payload["view"] == "tool"
-    assert function_help["collection"] == "freeform"
-    assert "stored dataframe" in function_help["description"]
-    assert "Optuna" in function_help["description"]
-    assert "workspace path" in function_help["description"]
-    assert function_help["usage_example"].startswith('freeform_code = """')
-    assert "result = run_dataframe_code(df_handle, freeform_code)" in function_help["usage_example"]
-    assert code_argument["annotation"] == "str"
-    assert "final dataframe assigned back to ``df``" in function_help["detailed_description"]
-    assert "convert the virtual path first" in function_help["detailed_description"]
-    assert "prefer storing the freeform source in a named multiline" in function_help["detailed_description"]
+    assert "Tool: run_dataframe_code" in payload
+    assert "Collection: freeform" in payload
+    assert "stored dataframe" in payload
+    assert "Optuna" in payload
+    assert "workspace path" in payload
+    assert 'freeform_code = """' in payload
+    assert "result = run_dataframe_code(df_handle, freeform_code)" in payload
+    assert "- code (str, required): Python source that reads or mutates" in payload
+    assert "final dataframe assigned back to ``df``" in payload
+    assert "convert the virtual path first" in payload
+    assert "prefer storing the freeform source in a named multiline" in payload
 
 
 def test_freeform_dataframe_tool_can_create_a_new_dataframe_handle(
@@ -1716,6 +1583,96 @@ def test_feature_selection_helpers_can_generate_reports_and_metrics(
     assert inspected_summary["value"]["type"] == "StoredFeatureSelectionReport"
     assert (tmp_path / "output" / "fs_report.joblib").is_file()
     assert "/workspace/output/fs_report.joblib" in buffered["combined_output"]
+
+
+def test_visualizations_collection_can_plot_feature_importance_from_supported_handles(
+    tmp_path: Path,
+) -> None:
+    """Visualization helpers should accept both report and tuned-pipeline handles."""
+    repl = MontyPythonREPL(workspace_root=tmp_path)
+
+    report_handle = repl.object_store.put(
+        StoredFeatureSelectionReport(
+            report_type="importance",
+            method="lightgbm",
+            feature_columns=["signal_a", "signal_b"],
+            target_column="target",
+            findings=[
+                {"feature": "signal_a", "importance": 0.8},
+                {"feature": "signal_b", "importance": 0.2},
+            ],
+        ),
+        prefix="fs",
+    )
+
+    training_features = pd.DataFrame(
+        {
+            "signal_a": [0, 1, 0, 1, 0, 1],
+            "signal_b": [1, 0, 1, 0, 1, 0],
+        }
+    )
+    training_target = pd.Series([0, 1, 0, 1, 0, 1])
+    estimator = metrics_support.build_lightgbm_estimator(
+        task_type="classification",
+        class_count=2,
+        random_state=0,
+    )
+    estimator.fit(training_features, training_target)
+
+    tuned_handle = repl.object_store.put(
+        StoredTunedPipeline(
+            pipeline_config={"model": {"kind": "lightgbm"}},
+            fitted_model=estimator,
+            model_feature_columns=["signal_a", "signal_b"],
+            selected_features=["signal_a", "signal_b"],
+            evaluation_summary={"status": "ok"},
+        ),
+        prefix="tuned",
+    )
+    unsupported_handle = repl.object_store.put(
+        StoredTunedPipeline(
+            pipeline_config={"model": {"kind": "unsupported"}},
+            fitted_model=object(),
+            model_feature_columns=[],
+            selected_features=[],
+            evaluation_summary={"status": "unsupported"},
+        ),
+        prefix="tuned",
+    )
+
+    success = run_execute(
+        repl,
+        "\n".join(
+            [
+                f"report_plot = plot_feature_importance('{report_handle}', '/workspace/output/report_importance.png')",
+                f"tuned_plot = plot_feature_importance('{tuned_handle}', '/workspace/output/tuned_importance.png')",
+                "print(report_plot)",
+                "print(tuned_plot)",
+            ]
+        ),
+    )
+    failure = run_execute(
+        repl,
+        f"plot_feature_importance('{unsupported_handle}', '/workspace/output/unsupported.png')",
+    )
+    buffered = repl.results()
+
+    report_plot = repl.interpreter.state["report_plot"]
+    tuned_plot = repl.interpreter.state["tuned_plot"]
+
+    assert success["status"] == "success"
+    assert failure["status"] == "error"
+    assert report_plot["source_type"] == "feature_selection_report"
+    assert report_plot["importance_kind"] == "lightgbm"
+    assert report_plot["feature_count"] == 2
+    assert tuned_plot["source_type"] == "tuned_pipeline"
+    assert tuned_plot["feature_count"] == 2
+    assert tuned_plot["model_class"].startswith("LGBM")
+    assert (tmp_path / "output" / "report_importance.png").is_file()
+    assert (tmp_path / "output" / "tuned_importance.png").is_file()
+    assert "/workspace/output/report_importance.png" in buffered["combined_output"]
+    assert "/workspace/output/tuned_importance.png" in buffered["combined_output"]
+    assert "does not expose `feature_importances_`, `coef_`" in str(failure["error"])
 
 
 def test_metrics_and_splitting_helpers_create_reusable_handles(

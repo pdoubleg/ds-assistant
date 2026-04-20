@@ -1,4 +1,4 @@
-"""Hackathon Monty Python REPL capability implementation."""
+"""Minimal Monty Python REPL capability implementation."""
 
 from __future__ import annotations
 
@@ -17,12 +17,26 @@ CAPABILITY_SYSTEM_PROMPT = (
     "A minimal modeling REPL. Use `help` to discover safe collections, "
     "`execute` to run code in a persistent session, and `results` when you need "
     "buffered execution history. Prefer predefined helpers for inspection, "
-    "feature screening, and modeling, and use freeform code mainly to create "
-    "new dataframe handles from transformations or slices. The runtime is "
-    "restricted, so direct stdlib file IO, compilation, and introspection "
-    "operations may be limited; use workspace helpers for reads/writes and "
-    "model/report helpers for persistence. Never ask for or display raw training "
+    "wide-table EDA, feature selection, feature-engineering pipelines, scoring, "
+    "and modeling. Keep `execute(...)` short and orchestration-focused. The "
+    "runtime is restricted, so direct stdlib file IO, compilation, and "
+    "introspection operations may be limited. Only a small supported subset of "
+    "imports is available to caller code, such as `typing`, `json`, `math`, "
+    "`re`, `dataclasses`, and `datetime`. If registered helpers rely on external "
+    "packages like `pandas` or `sklearn`, the helper handles those imports "
+    "internally, so never execute code that starts with `import pandas as pd`. "
+    "Use workspace helpers for reads/writes and model/report helpers for "
+    "persistence. Never ask for or display raw training "
     "rows, categorical examples, raw file contents, or row-level chart payloads. "
+    "Stdout, including `print(...)`, is suppressed. `execute(...)` returns only "
+    "compact execution status; use `results()` for buffered helper summaries, "
+    "handles, and detailed execution output. Score dataframes with "
+    "`score_model_dataframe(...)`, summarize ranked slices with "
+    "`summarize_top_p_predictions(...)`, and inspect aggregate false-positive "
+    "patterns with `analyze_top_p_false_positives(...)`. When you want a "
+    "specific visible result, end `execute(...)` with a compact bare helper call "
+    "or dict/list expression instead of `print(...)`, because `results()` "
+    "exposes the last expression or helper summary rather than printed output. "
     "Prefer local CSV or partial parquet reads, schema summaries, aggregate "
     "plots, feature screening, LightGBM native categoricals, and Optuna tuning "
     "for PPV@5."
@@ -67,7 +81,7 @@ def _create_toolset(console: Console | None = None) -> FunctionToolset[Any]:
                 )
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Describe available safe modeling helpers."""
         return get_repl().help(name=name)
 
@@ -75,8 +89,8 @@ def _create_toolset(console: Console | None = None) -> FunctionToolset[Any]:
         name="execute",
         description=(
             "Run Python code in the persistent minimal Monty session. Use safe "
-            "helpers for data access, plotting, feature workbench steps, and "
-            "LightGBM modeling."
+            "helpers for data access, EDA, feature selection, feature pipelines, "
+            "and LightGBM modeling."
         ),
     )
     async def execute(
@@ -87,11 +101,21 @@ def _create_toolset(console: Console | None = None) -> FunctionToolset[Any]:
                     "Python code to execute inside the persistent Monty session. "
                     "This is a restricted Python runtime, so direct `open(...)`, "
                     "`Path.write_text(...)`, `Path.read_text(...)`, `compile(...)`, "
-                    "and similar stdlib operations may be limited. Prefer "
-                    "workspace helpers for file IO and supported save helpers for "
-                    "persistence. "
-                    "Execute returns privacy-safe helper summaries directly, while "
-                    "raw stdout remains suppressed."
+                    "and similar stdlib operations may be limited. Only a small "
+                    "supported subset of imports is available to caller code, such "
+                    "as `typing`, `json`, `math`, `re`, `dataclasses`, and "
+                    "`datetime`; if a helper relies on packages like `pandas` or "
+                    "`sklearn`, it handles those imports internally, so do not "
+                    "execute `import pandas as pd`. Prefer workspace helpers for "
+                    "file IO and supported save helpers for persistence. "
+                    "Execute returns only compact execution status, while stdout, "
+                    "including `print(...)`, remains suppressed. Call `results()` "
+                    "for accumulated helper summaries, handles, and buffered "
+                    "execution details. Prefer a compact bare final expression "
+                    "over `print(...)` when you want a specific visible result, "
+                    "and use that final expression deliberately because `results` "
+                    "exposes last-expression/helper summaries rather than printed "
+                    "output. Prefer helper composition over nested code strings."
                 )
             ),
         ],
@@ -101,10 +125,13 @@ def _create_toolset(console: Console | None = None) -> FunctionToolset[Any]:
 
     @toolset.tool_plain(
         name="results",
-        description="Retrieve and clear buffered privacy-safe execution history.",
+        description=(
+            "Retrieve and clear buffered detailed execution records whose visible "
+            "computed values come from last-expression and helper summaries."
+        ),
     )
     async def results() -> dict[str, Any]:
-        """Return and clear buffered execution output."""
+        """Return and clear buffered detailed execution records."""
         return get_repl().results()
 
     if console is not None:

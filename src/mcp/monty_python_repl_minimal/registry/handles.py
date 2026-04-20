@@ -25,9 +25,11 @@ class HandleInspectionCollection(WorkspaceToolCollection):
             list[str]: Active object handles in insertion order.
 
         Examples:
-            list_object_handles()
-            # Returns:
-            # ["df_123", "fs_456", "model_789"]
+            ```python
+            handles = list_object_handles()
+            # Returns
+            # ["df_abc123", "report_abc123", "study_abc123", "model_abc123"]
+            ```
         """
 
         return self._object_store.list_handles()
@@ -46,16 +48,19 @@ class HandleInspectionCollection(WorkspaceToolCollection):
             dict[str, Any]: Safe object summary for the requested handle.
 
         Examples:
-            details = inspect_handle(df_handle)  # Assign when you need to reuse it.
-            # Returns:
+            ```python
+            dataset = load_csv("/workspace/train.csv", nrows=2000)
+            details = inspect_handle(dataset["dataframe_handle"])
+            # Returns
             # {
-            #     "handle": "df_123",
+            #     "handle": "df_abc123",
             #     "value": {
-            #         "row_count": 10000,
-            #         "column_count": 12,
-            #         "columns": ["customer_id", "segment", "balance", "target"]
+            #         "type": "DataFrame",
+            #         "shape": [2000, 10],
+            #         "columns": ["customer_id", "balance", "target"],
             #     }
             # }
+            ```
         """
 
         return self._object_store.summary(handle)

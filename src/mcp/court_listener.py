@@ -16,7 +16,7 @@ from models import (
     Attorney,
     PersonSearchResults,
     RECAPSearchResults,
-    OralArgumentSearchResults,  
+    OralArgumentSearchResults,
     OralArgument,
 )
 from pydantic import Field
@@ -50,7 +50,8 @@ mcp = FastMCP(
         - Fetch tools: fetch_forward_citations
         Use the search tools to search for data, e.g., ID and metadata, and the get tools to retrieve data, e.g., opinion full text and excerpt(s), people, dockets, oral arguments.
         Use the fetch tools to fetch additional data that is not directly available from the search or get tools, e.g., forward citations.
-    """))
+    """),
+)
 
 
 @mcp.tool()
@@ -139,8 +140,8 @@ async def search_opinions(
             )
             response.raise_for_status()
             data = response.json()
-            data['results'] = data['results'][:limit]
-            
+            data["results"] = data["results"][:limit]
+
             if ctx:
                 await ctx.info(f"Found {data.get('count', 0)} opinions")
             else:
@@ -169,7 +170,9 @@ async def search_opinions(
 @mcp.tool()
 async def search_opinions_by_citation(
     citation: Annotated[str, Field(description="The citation to search for")],
-    limit: Annotated[int, Field(description="The maximum number of results to return", ge=1, le=100)] = 10,
+    limit: Annotated[
+        int, Field(description="The maximum number of results to return", ge=1, le=100)
+    ] = 10,
     ctx: Context | None = None,
 ) -> str:
     """Search for court opinions by citation string from CourtListener. Useful for finding the opinion ID of a given citation
@@ -214,7 +217,7 @@ async def search_opinions_by_citation(
             )
             response.raise_for_status()
             data = response.json()
-            data['results'] = data['results'][:limit]
+            data["results"] = data["results"][:limit]
             results = OpinionSearchResults(**data)
 
             if ctx:
@@ -573,8 +576,8 @@ async def search_people(
     ] = 10,
     ctx: Context | None = None,
 ) -> str:
-    """Search judges and related legal professionals in the CourtListener database. Note this tool is typically not useful for retrieving attorneys, 
-    but rather for retrieving judges and related legal professionals. 
+    """Search judges and related legal professionals in the CourtListener database. Note this tool is typically not useful for retrieving attorneys,
+    but rather for retrieving judges and related legal professionals.
 
     Args:
         q: Search query for judges and legal professionals.
@@ -644,7 +647,7 @@ async def search_people(
             else:
                 logger.info(f"Found {data.get('count', 0)} people")
 
-            data['results'] = data['results'][:limit]
+            data["results"] = data["results"][:limit]
             results = PersonSearchResults(**data)
 
             return results.to_xml()
@@ -738,11 +741,15 @@ async def search_dockets_by_firm_name(
     ] = None,
     date_filed_start: Annotated[
         str | None,
-        Field(description="Optional start date of the date range to search in (YYYY-MM-DD)"),
+        Field(
+            description="Optional start date of the date range to search in (YYYY-MM-DD)"
+        ),
     ] = None,
     date_filed_end: Annotated[
         str | None,
-        Field(description="Optional end date of the date range to search in (YYYY-MM-DD)"),
+        Field(
+            description="Optional end date of the date range to search in (YYYY-MM-DD)"
+        ),
     ] = None,
     order_by: Annotated[
         Literal["dateFiled desc", "dateFiled asc"],
@@ -898,22 +905,40 @@ async def get_docket(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @mcp.tool()
 async def search_recap_docs_by_attorney_name(
-    attorney_name: Annotated[str, Field(description="The name of the attorney to search for")],
-    max_results: Annotated[int, Field(description="The maximum number of results to return", ge=1, le=20)] = 5,
-    court_id: Annotated[str | None, Field(description="Optional ID of the court to search in")] = None,
-    date_filed_start: Annotated[str | None, Field(description="Optional start date of the date range to search in (YYYY-MM-DD)")] = None,
-    date_filed_end: Annotated[str | None, Field(description="Optional end date of the date range to search in (YYYY-MM-DD)")] = None,
+    attorney_name: Annotated[
+        str, Field(description="The name of the attorney to search for")
+    ],
+    max_results: Annotated[
+        int, Field(description="The maximum number of results to return", ge=1, le=20)
+    ] = 5,
+    court_id: Annotated[
+        str | None, Field(description="Optional ID of the court to search in")
+    ] = None,
+    date_filed_start: Annotated[
+        str | None,
+        Field(
+            description="Optional start date of the date range to search in (YYYY-MM-DD)"
+        ),
+    ] = None,
+    date_filed_end: Annotated[
+        str | None,
+        Field(
+            description="Optional end date of the date range to search in (YYYY-MM-DD)"
+        ),
+    ] = None,
     order_by: Annotated[
         Literal["dateFiled desc", "dateFiled asc"],
-        Field(description="Sort by 'dateFiled desc' or 'dateFiled asc'. Default is 'dateFiled desc'"),
+        Field(
+            description="Sort by 'dateFiled desc' or 'dateFiled asc'. Default is 'dateFiled desc'"
+        ),
     ] = "dateFiled desc",
     ctx: Context | None = None,
 ) -> str:
-    """Search for RECAP documents by attorney name from CourtListener. Useful retrieving documents by attorney name and the 
+    """Search for RECAP documents by attorney name from CourtListener. Useful retrieving documents by attorney name and the
     attorney ID for further querying.
 
     Args:
@@ -958,7 +983,7 @@ async def search_recap_docs_by_attorney_name(
             )
             response.raise_for_status()
             data = response.json()
-            data['results'] = data['results'][:max_results]
+            data["results"] = data["results"][:max_results]
             results = RECAPSearchResults(**data)
 
             if ctx:
@@ -986,8 +1011,8 @@ async def search_recap_docs_by_attorney_name(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @mcp.tool()
 async def get_attorney(
     attorney_id: Annotated[str, Field(description="The attorney ID to retrieve")],
@@ -1050,12 +1075,14 @@ async def get_attorney(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @mcp.tool()
 async def search_oral_arguments(
     q: Annotated[str, Field(description="Search query for oral arguments")],
-    limit: Annotated[int, Field(description="The maximum number of results to return", ge=1, le=100)] = 10,
+    limit: Annotated[
+        int, Field(description="The maximum number of results to return", ge=1, le=100)
+    ] = 10,
     ctx: Context | None = None,
 ) -> str:
     """Search for oral arguments from CourtListener.
@@ -1068,7 +1095,7 @@ async def search_oral_arguments(
     Returns:
         str: The oral argument search results as returned by the CourtListener API.
     """
-    
+
     if ctx:
         await ctx.info(f"Searching oral arguments with query: {q}")
     else:
@@ -1099,7 +1126,7 @@ async def search_oral_arguments(
             )
             response.raise_for_status()
             data = response.json()
-            data['results'] = data['results'][:limit]
+            data["results"] = data["results"][:limit]
             results = OralArgumentSearchResults(**data)
 
             if ctx:
@@ -1123,11 +1150,14 @@ async def search_oral_arguments(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
+
 @mcp.tool()
 async def get_oral_argument(
-    audio_id: Annotated[str, Field(description="The audio recording, i.e., oral argument, ID to retrieve")],
+    audio_id: Annotated[
+        str,
+        Field(description="The audio recording, i.e., oral argument, ID to retrieve"),
+    ],
     ctx: Context | None = None,
 ) -> str:
     """Get oral argument information by ID from CourtListener. Typically contains transcript text.
@@ -1190,8 +1220,7 @@ async def get_oral_argument(
         else:
             logger.error(error_msg)
         raise e
-    
-    
+
 
 if __name__ == "__main__":
     # Initialize and run the server

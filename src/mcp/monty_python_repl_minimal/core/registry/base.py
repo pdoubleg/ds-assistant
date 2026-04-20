@@ -38,10 +38,49 @@ class RegisteredFunction:
         """Return the Python signature for the registered callable."""
         return str(inspect.signature(self.func))
 
+    @property
+    def full_signature(self) -> str:
+        """Return the exported callable signature including the tool name."""
+        return self.render_signature(multiline=False)
+
+    @property
+    def usage_guidance(self) -> list[str]:
+        """Return user-facing usage guidance for the registered function."""
+        return self._build_usage_guidance()
+
+    def render_signature(self, *, multiline: bool = False, indent: str = "    ") -> str:
+        """Render a help-friendly callable signature.
+
+        Args:
+            multiline: Whether to render one argument per line.
+            indent: Indentation used for multiline argument lines.
+
+        Returns:
+            Formatted signature text.
+        """
+        parts: list[str] = []
+        inserted_kw_marker = False
+        for argument in self.arguments:
+            if argument.kind == "keyword_only" and not inserted_kw_marker:
+                parts.append("*")
+                inserted_kw_marker = True
+            parts.append(argument.render_signature_fragment())
+
+        suffix = f" -> {self.return_annotation}" if self.return_annotation else ""
+        if not multiline:
+            return f"{self.name}({', '.join(parts)}){suffix}"
+
+        if not parts:
+            return f"{self.name}(){suffix}"
+
+        rendered_arguments = ",\n".join(f"{indent}{part}" for part in parts)
+        return f"{self.name}(\n{rendered_arguments},\n){suffix}"
+
     def _build_usage_guidance(self) -> list[str]:
         """Build Monty-specific guidance for using a registered function."""
         guidance = [
             "Call this helper directly inside `execute(...)` code, not as a method on a dataframe or collection object.",
+            "Keep `execute(...)` focused on orchestrating registered helpers, assigning handle-bearing results, and inspecting structured summaries.",
             "The `execute(...)` runtime is sandboxed, so standard Python file, compilation, or introspection operations may be restricted and may fail with privacy-sanitized errors.",
         ]
         if self.collection:
@@ -66,7 +105,7 @@ class RegisteredFunction:
         """Render the function metadata for help responses."""
         payload = {
             "name": self.name,
-            "signature": f"{self.name}{self.signature}",
+            "signature": self.full_signature,
             "description": self.description,
             "collection": self.collection,
             "usage_example": self.usage_example,
@@ -83,7 +122,7 @@ class RegisteredFunction:
                         "annotation": self.return_annotation,
                         "description": self.return_description,
                     },
-                    "usage_guidance": self._build_usage_guidance(),
+                    "usage_guidance": self.usage_guidance,
                 }
             )
         return payload
@@ -103,8 +142,12 @@ class RegisteredCollection:
             "name": self.name,
             "description": self.description,
             "tool_count": len(self.tool_names),
-            "tools": sorted(self.tool_names),
+            "tools": self.sorted_tool_names(),
         }
+
+    def sorted_tool_names(self) -> list[str]:
+        """Return collection tool names in stable alphabetical order."""
+        return sorted(self.tool_names)
 
 
 _TOOL_METADATA_ATTR = "__monty_tool_metadata__"
