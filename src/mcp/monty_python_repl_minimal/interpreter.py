@@ -27,21 +27,28 @@ class _TopLevelNameCollector:
     def collect(
         self,
         code: str,
-        *,
-        safe_call_names: set[str],
     ) -> tuple[list[str], list[str]]:
-        """Parse code and return top-level assigned and deleted names."""
+        """Parse code and return top-level assigned and deleted names.
+
+        Args:
+            code: Source code to inspect.
+
+        Returns:
+            Sorted assigned-name and deleted-name lists.
+        """
         self.assigned_names = set()
         self.deleted_names = set()
         module = ast.parse(code)
         for statement in module.body:
-            self._visit_statement(statement, safe_call_names=safe_call_names)
+            self._visit_statement(statement)
         return sorted(self.assigned_names), sorted(self.deleted_names)
 
-    def _visit_statement(
-        self, statement: ast.stmt, *, safe_call_names: set[str]
-    ) -> None:
-        """Visit a statement that executes in module scope."""
+    def _visit_statement(self, statement: ast.stmt) -> None:
+        """Visit a statement that executes in module scope.
+
+        Args:
+            statement: Statement node to inspect.
+        """
         if isinstance(statement, ast.Assign):
             for target in statement.targets:
                 self._record_target(target, assigned=True)
@@ -54,42 +61,45 @@ class _TopLevelNameCollector:
             self._record_target(statement.target, assigned=True)
             return
         if isinstance(statement, (ast.For, ast.AsyncFor)):
-            self._visit_block(statement.body, safe_call_names=safe_call_names)
-            self._visit_block(statement.orelse, safe_call_names=safe_call_names)
+            self._visit_block(statement.body)
+            self._visit_block(statement.orelse)
             return
         if isinstance(statement, (ast.With, ast.AsyncWith)):
-            self._visit_block(statement.body, safe_call_names=safe_call_names)
+            self._visit_block(statement.body)
             return
         if isinstance(statement, ast.If):
-            self._visit_block(statement.body, safe_call_names=safe_call_names)
-            self._visit_block(statement.orelse, safe_call_names=safe_call_names)
+            self._visit_block(statement.body)
+            self._visit_block(statement.orelse)
             return
         if isinstance(statement, ast.While):
-            self._visit_block(statement.body, safe_call_names=safe_call_names)
-            self._visit_block(statement.orelse, safe_call_names=safe_call_names)
+            self._visit_block(statement.body)
+            self._visit_block(statement.orelse)
             return
         if isinstance(statement, ast.Try):
-            self._visit_block(statement.body, safe_call_names=safe_call_names)
-            self._visit_block(statement.orelse, safe_call_names=safe_call_names)
-            self._visit_block(statement.finalbody, safe_call_names=safe_call_names)
+            self._visit_block(statement.body)
+            self._visit_block(statement.orelse)
+            self._visit_block(statement.finalbody)
             for handler in statement.handlers:
-                self._visit_block(handler.body, safe_call_names=safe_call_names)
+                self._visit_block(handler.body)
             return
         if isinstance(statement, ast.Match):
             for case in statement.cases:
                 if case.pattern is not None:
                     self._record_pattern(case.pattern)
-                self._visit_block(case.body, safe_call_names=safe_call_names)
+                self._visit_block(case.body)
             return
         if isinstance(statement, ast.Delete):
             for target in statement.targets:
                 self._record_target(target, assigned=False)
 
-    def _visit_block(
-        self, statements: list[ast.stmt], *, safe_call_names: set[str]
-    ) -> None:
+    def _visit_block(self, statements: list[ast.stmt]) -> None:
+        """Visit a sequence of module-scope statements.
+
+        Args:
+            statements: Statement nodes to inspect.
+        """
         for statement in statements:
-            self._visit_statement(statement, safe_call_names=safe_call_names)
+            self._visit_statement(statement)
 
     def _record_pattern(self, pattern: ast.pattern) -> None:
         """Record names bound by a `match` pattern."""
@@ -148,25 +158,6 @@ class MontyReplInterpreter:
         self._state: dict[str, Any] = {}
         self._name_collector = _TopLevelNameCollector()
 
-    @staticmethod
-    def _matches_monty_exception(
-        exc: BaseException,
-        exception_name: str,
-    ) -> bool:
-        """Return whether *exc* matches a Monty exception by export or name.
-
-        Args:
-            exc: Raised exception to inspect.
-            exception_name: Expected Monty exception class name.
-
-        Returns:
-            True when the exception matches the requested Monty exception type.
-        """
-        exported_type = getattr(pydantic_monty, exception_name, None)
-        if isinstance(exported_type, type) and issubclass(exported_type, BaseException):
-            return isinstance(exc, exported_type)
-        return type(exc).__name__ == exception_name
-
     def _raise_known_monty_error(
         self,
         exc: BaseException,
@@ -182,11 +173,11 @@ class MontyReplInterpreter:
             SyntaxError: When Monty reports a syntax error.
             CodeExecutionError: When Monty reports a typing or runtime error.
         """
-        if self._matches_monty_exception(exc, "MontySyntaxError"):
+        if isinstance(exc, pydantic_monty.MontySyntaxError):
             error = SyntaxError(str(exc))
-        elif self._matches_monty_exception(exc, "MontyTypingError"):
+        elif isinstance(exc, pydantic_monty.MontyTypingError):
             error = CodeExecutionError(str(exc))
-        elif self._matches_monty_exception(exc, "MontyRuntimeError"):
+        elif isinstance(exc, pydantic_monty.MontyRuntimeError):
             error = CodeExecutionError(str(exc))
         else:
             raise exc.with_traceback(traceback)
@@ -308,26 +299,23 @@ class MontyReplInterpreter:
         | pydantic_monty.FutureSnapshot
         | pydantic_monty.MontyComplete
     ):
-        """Start Monty execution across nearby API versions."""
-        start_kwargs: dict[str, Any] = {
-            "inputs": merged_vars or None,
-            "limits": self._limits,
-            "print_callback": print_callback,
-        }
-        if self._os_access is not None:
-            start_kwargs["os"] = self._os_access
+        """Start Monty execution with the Monty v0.0.16 API surface.
 
+        Args:
+            monty: Prepared Monty instance.
+            merged_vars: Persisted variables injected into the sandbox.
+            print_callback: Callback used to capture stdout.
+
+        Returns:
+            Initial Monty progress snapshot or a completion result.
+        """
         try:
-            return monty.start(**start_kwargs)
-        except TypeError as exc:
-            if self._os_access is None or "os" not in str(exc):
-                raise
-            start_kwargs.pop("os", None)
-            try:
-                return monty.start(**start_kwargs)
-            except Exception as retry_exc:
-                self._raise_known_monty_error(retry_exc, retry_exc.__traceback__)
-                raise
+            return monty.start(
+                inputs=merged_vars or None,
+                limits=self._limits,
+                print_callback=print_callback,
+                os=self._os_access,
+            )
         except Exception as exc:
             self._raise_known_monty_error(exc, exc.__traceback__)
             raise
@@ -342,34 +330,79 @@ class MontyReplInterpreter:
         | pydantic_monty.FutureSnapshot
         | pydantic_monty.MontyComplete
     ):
-        """Resume a function snapshot across old and new Monty APIs."""
-        resume_kwargs: dict[str, Any] = {}
-        if self._os_access is not None:
-            resume_kwargs["os"] = self._os_access
+        """Resume a function snapshot with the Monty v0.0.16 API surface.
 
+        Args:
+            snapshot: Paused function snapshot.
+            result: External result payload to return to Monty.
+
+        Returns:
+            Next Monty progress snapshot or a completion result.
+        """
         try:
-            return snapshot.resume(result, **resume_kwargs)
-        except TypeError:
-            if not result or len(result) != 1:
-                raise
-            key, value = next(iter(result.items()))
-            if key not in {"return_value", "exception", "future"}:
-                raise
-            try:
-                return snapshot.resume(**{key: value})
-            except Exception as retry_exc:
-                self._raise_known_monty_error(retry_exc, retry_exc.__traceback__)
-                raise
+            return snapshot.resume(result, os=self._os_access)
+        except Exception as exc:
+            self._raise_known_monty_error(exc, exc.__traceback__)
+            raise
+
+    def _resume_name_lookup_snapshot(
+        self,
+        snapshot: pydantic_monty.NameLookupSnapshot,
+        *,
+        value: Any | None = None,
+        has_value: bool = False,
+    ) -> (
+        pydantic_monty.FunctionSnapshot
+        | pydantic_monty.NameLookupSnapshot
+        | pydantic_monty.FutureSnapshot
+        | pydantic_monty.MontyComplete
+    ):
+        """Resume a name lookup snapshot using the current Monty API.
+
+        Args:
+            snapshot: Paused name lookup snapshot.
+            value: Resolved value for the requested variable name.
+            has_value: Whether a value should be provided to Monty.
+
+        Returns:
+            Next Monty progress snapshot or a completion result.
+        """
+        try:
+            if has_value:
+                return snapshot.resume(value=value, os=self._os_access)
+            return snapshot.resume(os=self._os_access)
+        except Exception as exc:
+            self._raise_known_monty_error(exc, exc.__traceback__)
+            raise
+
+    def _resume_future_snapshot(
+        self,
+        snapshot: pydantic_monty.FutureSnapshot,
+        results: dict[int, pydantic_monty.ExternalResult],
+    ) -> (
+        pydantic_monty.FunctionSnapshot
+        | pydantic_monty.NameLookupSnapshot
+        | pydantic_monty.FutureSnapshot
+        | pydantic_monty.MontyComplete
+    ):
+        """Resume a future snapshot using the current Monty API.
+
+        Args:
+            snapshot: Paused future snapshot.
+            results: Completed future results keyed by Monty call id.
+
+        Returns:
+            Next Monty progress snapshot or a completion result.
+        """
+        try:
+            return snapshot.resume(results, os=self._os_access)
         except Exception as exc:
             self._raise_known_monty_error(exc, exc.__traceback__)
             raise
 
     async def execute(self, code: str) -> InterpreterRunResult:
         """Execute code and persist supported top-level variables."""
-        assigned_names, deleted_names = self._name_collector.collect(
-            code,
-            safe_call_names=set(self._tools),
-        )
+        assigned_names, deleted_names = self._name_collector.collect(code)
         rewritten_code, capture_last_expression = self._rewrite_final_expression(code)
         wrapped_code = self._wrap_code(
             rewritten_code,
@@ -447,9 +480,13 @@ class MontyReplInterpreter:
                 if isinstance(progress, pydantic_monty.NameLookupSnapshot):
                     resolved_name = all_tools.get(progress.variable_name)
                     if resolved_name is not None:
-                        progress = progress.resume(value=resolved_name)
+                        progress = self._resume_name_lookup_snapshot(
+                            progress,
+                            value=resolved_name,
+                            has_value=True,
+                        )
                     else:
-                        progress = progress.resume()
+                        progress = self._resume_name_lookup_snapshot(progress)
                     continue
 
                 if isinstance(progress, pydantic_monty.FunctionSnapshot):
@@ -518,7 +555,7 @@ class MontyReplInterpreter:
                         call_id, ext_result = task.result()
                         results[call_id] = ext_result
                         pending_tasks.pop(call_id, None)
-                    progress = progress.resume(results)
+                    progress = self._resume_future_snapshot(progress, results)
                     continue
 
                 raise CodeExecutionError(

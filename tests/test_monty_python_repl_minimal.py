@@ -9,11 +9,23 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+_exceptions_module = importlib.import_module(
+    "src.mcp.monty_python_repl_minimal.exceptions"
+)
+CodeExecutionError = _exceptions_module.CodeExecutionError
+_interpreter_module = importlib.import_module(
+    "src.mcp.monty_python_repl_minimal.interpreter"
+)
+MontyReplInterpreter = _interpreter_module.MontyReplInterpreter
+_privacy_module = importlib.import_module("src.mcp.monty_python_repl_minimal.privacy")
+MONTY_HINTS = _privacy_module.MONTY_HINTS
+sanitize_exception = _privacy_module.sanitize_exception
 _repl_module = importlib.import_module("src.mcp.monty_python_repl_minimal.repl")
 MinimalMontyPythonREPL = _repl_module.MinimalMontyPythonREPL
 _parsing_module = importlib.import_module(
@@ -55,6 +67,221 @@ def _make_training_frame() -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def test_interpreter_uses_monty_v0016_start_signature() -> None:
+    """The interpreter should call `Monty.start()` with the current API.
+
+    Returns:
+        None
+    """
+
+    observed_kwargs: dict[str, Any] = {}
+    os_access = object()
+    interpreter = MontyReplInterpreter(os_access=os_access)
+
+    class FakeMonty:
+        """Capture `Monty.start()` kwargs for assertions."""
+
+        def start(self, **kwargs: Any) -> str:
+            """Record the provided start kwargs.
+
+            Args:
+                **kwargs: Start kwargs captured from the interpreter.
+
+            Returns:
+                Fixed sentinel result.
+            """
+
+            observed_kwargs.update(kwargs)
+            return "started"
+
+    result = interpreter._start_monty(  # pyright: ignore[reportPrivateUsage]
+        FakeMonty(),
+        {"answer": 42},
+        lambda _stream, _text: None,
+    )
+
+    assert result == "started"
+    assert observed_kwargs["inputs"] == {"answer": 42}
+    assert observed_kwargs["limits"] is None
+    assert callable(observed_kwargs["print_callback"])
+    assert observed_kwargs["os"] is os_access
+
+
+def test_interpreter_resume_helpers_pass_os_access_to_all_snapshots() -> None:
+    """All snapshot resume helpers should thread `os_access` through resumes.
+
+    Returns:
+        None
+    """
+
+    os_access = object()
+    interpreter = MontyReplInterpreter(os_access=os_access)
+    call_log: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+
+    class FakeFunctionSnapshot:
+        """Capture function snapshot resumes."""
+
+        def resume(self, *args: Any, **kwargs: Any) -> str:
+            """Record the resume payload.
+
+            Args:
+                *args: Positional resume args.
+                **kwargs: Keyword resume args.
+
+            Returns:
+                Fixed sentinel result.
+            """
+
+            call_log.append(("function", args, kwargs))
+            return "function"
+
+    class FakeNameLookupSnapshot:
+        """Capture name lookup snapshot resumes."""
+
+        def resume(self, *args: Any, **kwargs: Any) -> str:
+            """Record the resume payload.
+
+            Args:
+                *args: Positional resume args.
+                **kwargs: Keyword resume args.
+
+            Returns:
+                Fixed sentinel result.
+            """
+
+            call_log.append(("name_lookup", args, kwargs))
+            return "name_lookup"
+
+    class FakeFutureSnapshot:
+        """Capture future snapshot resumes."""
+
+        def resume(self, *args: Any, **kwargs: Any) -> str:
+            """Record the resume payload.
+
+            Args:
+                *args: Positional resume args.
+                **kwargs: Keyword resume args.
+
+            Returns:
+                Fixed sentinel result.
+            """
+
+            call_log.append(("future", args, kwargs))
+            return "future"
+
+    function_result = interpreter._resume_function_snapshot(  # pyright: ignore[reportPrivateUsage]
+        FakeFunctionSnapshot(),
+        {"return_value": 7},
+    )
+    name_lookup_value_result = interpreter._resume_name_lookup_snapshot(  # pyright: ignore[reportPrivateUsage]
+        FakeNameLookupSnapshot(),
+        value="resolved",
+        has_value=True,
+    )
+    name_lookup_missing_result = interpreter._resume_name_lookup_snapshot(  # pyright: ignore[reportPrivateUsage]
+        FakeNameLookupSnapshot(),
+    )
+    future_result = interpreter._resume_future_snapshot(  # pyright: ignore[reportPrivateUsage]
+        FakeFutureSnapshot(),
+        {1: {"return_value": "done"}},
+    )
+
+    assert function_result == "function"
+    assert name_lookup_value_result == "name_lookup"
+    assert name_lookup_missing_result == "name_lookup"
+    assert future_result == "future"
+    assert call_log == [
+        ("function", ({"return_value": 7},), {"os": os_access}),
+        ("name_lookup", (), {"value": "resolved", "os": os_access}),
+        ("name_lookup", (), {"os": os_access}),
+        ("future", ({1: {"return_value": "done"}},), {"os": os_access}),
+    ]
+
+
+def test_interpreter_translates_syntax_type_and_runtime_errors() -> None:
+    """Monty syntax, typing, and runtime failures should map locally.
+
+    Returns:
+        None
+    """
+
+    syntax_interpreter = MontyReplInterpreter()
+    with pytest.raises(SyntaxError):
+        asyncio.run(syntax_interpreter.execute("if True print('broken')"))
+
+    type_check_interpreter = MontyReplInterpreter(type_check=True)
+    with pytest.raises(CodeExecutionError):
+        asyncio.run(type_check_interpreter.execute("value: int = 'not an int'"))
+
+    runtime_interpreter = MontyReplInterpreter()
+    with pytest.raises(CodeExecutionError):
+        asyncio.run(runtime_interpreter.execute("1 / 0"))
+
+
+def test_sanitize_exception_uses_static_safe_hints() -> None:
+    """Sanitized errors should expose deterministic exception hints.
+
+    Returns:
+        None
+    """
+
+    permission_payload = sanitize_exception(PermissionError())
+    assert permission_payload["hint"] == MONTY_HINTS["PermissionError"]
+    assert MONTY_HINTS["PermissionError"] in permission_payload["message"]
+
+    wrapped_import_error = CodeExecutionError(
+        "ModuleNotFoundError: No module named 'pandas'"
+    )
+    wrapped_import_error.__cause__ = ModuleNotFoundError("pandas")
+    wrapped_import_payload = sanitize_exception(wrapped_import_error)
+    assert wrapped_import_payload["hint"] == MONTY_HINTS["ImportError"]
+    assert MONTY_HINTS["ImportError"] in wrapped_import_payload["message"]
+
+    file_payload = sanitize_exception(FileNotFoundError())
+    assert file_payload["hint"] == MONTY_HINTS["FileNotFoundError"]
+    assert MONTY_HINTS["FileNotFoundError"] in file_payload["message"]
+
+
+def test_execute_surfaces_static_safe_hints_for_wrapped_errors(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """REPL execute payloads should include static safe hints for errors.
+
+    Args:
+        tmp_path: Pytest-managed temporary workspace root.
+        monkeypatch: Pytest fixture for temporary module patching.
+    """
+
+    repl = MinimalMontyPythonREPL(workspace_root=tmp_path)
+
+    async def _raise_wrapped_import_error(_code: str) -> Any:
+        """Raise a wrapped import-style failure.
+
+        Args:
+            _code: Ignored execute payload.
+
+        Returns:
+            Never returns.
+
+        Raises:
+            CodeExecutionError: Always raised for the test.
+        """
+
+        error = CodeExecutionError("Suppressed sandbox details")
+        error.__cause__ = ImportError("blocked")
+        raise error
+
+    monkeypatch.setattr(repl.interpreter, "execute", _raise_wrapped_import_error)
+
+    execution = _run_execute(repl, "import pandas")
+
+    assert execution["status"] == "error"
+    assert execution["error"]["error_type"] == "CodeExecutionError"
+    assert execution["error"]["hint"] == MONTY_HINTS["ImportError"]
+    assert MONTY_HINTS["ImportError"] in execution["error"]["message"]
 
 
 def test_help_highlights_restricted_runtime_and_workspace_helpers(tmp_path: Path) -> None:

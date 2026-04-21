@@ -13,6 +13,86 @@ import pandas as pd
 _DEFAULT_MAX_ITEMS = 200
 _DEFAULT_MAX_CHARS = 500
 _SANDBOX_LINE_PATTERN = re.compile(r"<[^>]+>.*?line (\d+)")
+MONTY_HINTS: dict[str, str] = {
+    "ModuleNotFoundError": (
+        "This module is not available in the sandboxed REPL. "
+        "Use the provided tools for external operations."
+    ),
+    "FileNotFoundError": (
+        "Direct file access is not available. Use the provided workspace tools instead."
+    ),
+    "PermissionError": (
+        "The REPL is sandboxed. Use the workspace tools and stay within /workspace."
+    ),
+    "ImportError": (
+        "Import statements are not available in the sandboxed REPL. "
+        "Use the provided tools instead. Available modules include typing, "
+        "datetime, json, math, and re."
+    ),
+    "OSError": (
+        "OS operations are not available in the sandbox. Use the provided tools instead."
+    ),
+}
+_IMPORT_ERROR_TEXT_PATTERNS = (
+    "No module named",
+    "cannot import",
+)
+
+
+def _iter_exception_chain(error: BaseException) -> list[BaseException]:
+    """Return the exception chain for an error without looping forever.
+
+    Args:
+        error: Error to inspect.
+
+    Returns:
+        Ordered exception chain starting with ``error``.
+    """
+    chain: list[BaseException] = []
+    seen_ids: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen_ids:
+        chain.append(current)
+        seen_ids.add(id(current))
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _resolve_hint_key(error: BaseException) -> str | None:
+    """Resolve the most specific static hint key for an error.
+
+    Args:
+        error: Error to inspect.
+
+    Returns:
+        Matching exception class name, if any.
+    """
+    error_chain = _iter_exception_chain(error)
+
+    # Monty currently surfaces unsupported imports as wrapped
+    # `ModuleNotFoundError: No module named ...` runtime failures. Prefer the
+    # import-specific guidance for those user-facing cases.
+    for current in error_chain:
+        if isinstance(current, ImportError):
+            return "ImportError"
+        if any(pattern in str(current) for pattern in _IMPORT_ERROR_TEXT_PATTERNS):
+            return "ImportError"
+
+    # Prefer direct exception types when possible.
+    for current in error_chain:
+        error_type = type(current).__name__
+        if error_type in MONTY_HINTS:
+            return error_type
+
+    # Monty runtime errors are wrapped before they reach the privacy layer, so
+    # we inspect the suppressed message text only to choose a fixed safe hint.
+    for current in error_chain:
+        error_text = str(current)
+        for error_type in MONTY_HINTS:
+            if error_type in error_text:
+                return error_type
+
+    return None
 
 
 def _truncate_string(value: str, *, max_chars: int) -> str:
@@ -72,13 +152,20 @@ def sanitize_exception(
         if match:
             line_number = int(match.group(1))
 
+    hint_key = _resolve_hint_key(error)
+    hint = MONTY_HINTS.get(hint_key)
+    message = (
+        f"{type(error).__name__} raised during execution. "
+        "Raw exception details were suppressed for privacy."
+    )
+    if hint is not None:
+        message = f"{message} {hint}"
+
     return {
         "error_type": type(error).__name__,
         "line_number": line_number,
-        "message": (
-            f"{type(error).__name__} raised during execution. "
-            "Raw exception details were suppressed for privacy."
-        ),
+        "message": message,
+        "hint": hint,
     }
 
 
@@ -344,6 +431,7 @@ def safe_json_value(
 
 
 __all__ = [
+    "MONTY_HINTS",
     "safe_json_value",
     "sanitize_exception",
     "summarize_dataframe",
