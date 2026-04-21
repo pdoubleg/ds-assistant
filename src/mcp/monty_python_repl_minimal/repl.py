@@ -123,7 +123,7 @@ class MinimalMontyPythonREPL:
         )
         notes = (
             "This REPL never returns raw training rows or categorical examples.",
-            "Use schema summaries, safe plots, feature screening, and model artifacts instead of row previews.",
+            "Use data-view summaries, safe plots, feature screening, and model artifacts instead of row previews.",
             "Relative paths resolve under /workspace.",
             "Execute runs in a restricted Python runtime, so standard builtins, filesystem calls, compilation, and introspection behaviors may differ from a local interpreter.",
             "Call registered helpers directly inside execute(...) instead of treating them like dataframe or collection methods.",

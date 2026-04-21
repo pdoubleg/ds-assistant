@@ -884,8 +884,8 @@ def test_feature_pipeline_expression_summary_stays_privacy_safe(tmp_path: Path) 
     assert "hidden_city" not in rendered_buffered
 
 
-def test_wide_table_eda_helpers_plan_feature_subsets(tmp_path: Path) -> None:
-    """Wide-table EDA helpers should recommend deterministic feature batching.
+def test_wide_table_data_view_helpers_plan_feature_subsets(tmp_path: Path) -> None:
+    """Wide-table data-view helpers should return deterministic feature batching.
 
     Args:
         tmp_path: Pytest-managed temporary workspace root.
@@ -907,13 +907,7 @@ def test_wide_table_eda_helpers_plan_feature_subsets(tmp_path: Path) -> None:
             [
                 "dataset = load_csv('/workspace/wide.csv')",
                 "df_handle = dataset['dataframe_handle']",
-                "triage = triage_dataframe(",
-                "    df_handle,",
-                "    target_column='target',",
-                "    id_columns=['customer_id'],",
-                "    max_columns_before_batching=5,",
-                "    recommended_batch_size=4,",
-                ")",
+                "overview = summarize_dataframe(df_handle)",
                 "plan_feature_subsets(",
                 "    df_handle,",
                 "    target_column='target',",
@@ -925,11 +919,11 @@ def test_wide_table_eda_helpers_plan_feature_subsets(tmp_path: Path) -> None:
     )
 
     assert execution["status"] == "success"
-    triage = repl.interpreter.state["triage"]
-    assert triage["wide_table"] is True
-    assert triage["subset_count"] == 3
     buffered = repl.results()
-    assert buffered["executions"][0]["last_expression_summary"]["report_handle"] == "report_2"
+    overview = buffered["executions"][0]["persisted_value_summaries"]["overview"]
+    assert overview["column_count"] == 14
+    assert overview["shape"] == [2, 14]
+    assert buffered["executions"][0]["last_expression_summary"]["report_handle"] == "report_1"
     assert buffered["executions"][0]["last_expression_summary"]["subset_count"] == 3
     assert len(buffered["executions"][0]["last_expression_summary"]["feature_subsets"]) == 3
 

@@ -1,6 +1,6 @@
 # `monty_python_repl_minimal`
 
-`monty_python_repl_minimal` is a modeling-focused MCP server that exposes a safe, persistent Python REPL for tabular workflows. It is designed for exploratory analysis, feature work, and LightGBM-based modeling without exposing raw training rows, raw workspace text, or row-level chart payloads.
+`monty_python_repl_minimal` is a modeling-focused MCP server that exposes a safe, persistent Python REPL for tabular workflows. It is designed for handle-based data inspection, feature work, and LightGBM-based modeling without exposing raw training rows, raw workspace text, or row-level chart payloads.
 
 The server is implemented as a FastMCP tool surface in `server.py` and can be started over stdio with:
 
@@ -69,7 +69,7 @@ A few important runtime rules:
 
 ## Collections
 
-The default registry is organized into nine collections.
+The default registry is organized into eight collections.
 
 ### `data_access`
 
@@ -96,9 +96,9 @@ Inspect objects already stored in Monty's in-memory object store.
 - `list_object_handles()`: List active handles currently available in memory.
 - `inspect_handle(...)`: Return a privacy-safe summary for any stored handle.
 
-### `schema_views`
+### `data_views`
 
-Inspect dataframe shape, columns, dtypes, and aggregate column summaries without exposing raw row values.
+Inspect dataframe handles with lightweight schema helpers, targeted summaries, and wide-table planning without exposing raw row values.
 
 - `dataframe_shape(...)`: Return row and column counts.
 - `dataframe_columns(...)`: Return the dataframe's column names.
@@ -106,14 +106,7 @@ Inspect dataframe shape, columns, dtypes, and aggregate column summaries without
 - `summarize_dataframe(...)`: Return a lightweight dataframe overview.
 - `summarize_dataframe_columns(...)`: Return focused summaries for a selected set of columns.
 - `summarize_target(...)`: Return aggregate statistics for a target column.
-
-### `eda`
-
-Support privacy-safe exploratory work on wide tables.
-
-- `triage_dataframe(...)`: Assess dataset size and recommend an EDA workflow.
 - `plan_feature_subsets(...)`: Split a wide dataframe into deterministic feature batches.
-- `summarize_feature_subset(...)`: Summarize a chosen batch of feature columns.
 
 ### `visualizations`
 

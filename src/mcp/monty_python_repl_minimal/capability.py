@@ -16,8 +16,8 @@ from .logging import LoggingToolset
 CAPABILITY_SYSTEM_PROMPT = (
     "A minimal modeling REPL. Use `help` to discover safe collections, "
     "`execute` to run code in a persistent session, and `results` when you need "
-    "buffered execution history. Prefer predefined helpers for inspection, "
-    "wide-table EDA, feature selection, feature-engineering pipelines, scoring, "
+    "buffered execution history. Prefer predefined helpers for data inspection, "
+    "wide-table feature batching, feature selection, feature-engineering pipelines, scoring, "
     "and modeling. Keep `execute(...)` short and orchestration-focused. The "
     "runtime is restricted, so direct stdlib file IO, compilation, and "
     "introspection operations may be limited. Only a small supported subset of "
@@ -37,7 +37,7 @@ CAPABILITY_SYSTEM_PROMPT = (
     "specific visible result, end `execute(...)` with a compact bare helper call "
     "or dict/list expression instead of `print(...)`, because `results()` "
     "exposes the last expression or helper summary rather than printed output. "
-    "Prefer local CSV or partial parquet reads, schema summaries, aggregate "
+    "Prefer local CSV or partial parquet reads, data-view summaries, aggregate "
     "plots, feature screening, LightGBM native categoricals, and Optuna tuning "
     "for PPV@5."
 )
@@ -89,7 +89,7 @@ def _create_toolset(console: Console | None = None) -> FunctionToolset[Any]:
         name="execute",
         description=(
             "Run Python code in the persistent minimal Monty session. Use safe "
-            "helpers for data access, EDA, feature selection, feature pipelines, "
+            "helpers for data access, data inspection, feature selection, feature pipelines, "
             "and LightGBM modeling."
         ),
     )

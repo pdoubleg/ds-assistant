@@ -13,12 +13,11 @@ from .base import (
     StoredLightGBMStudy,
 )
 from .data_access import DataAccessCollection, WorkspaceFileCollection
-from .eda import EDACollection
+from .data_views import DataViewCollection
 from .feature_engineering import FeatureEngineeringCollection
 from .feature_workbench import FeatureSelectionCollection
 from .handles import HandleInspectionCollection
 from .modeling import ModelingCollection
-from .schema_views import SchemaViewCollection
 from .utils import ppv_at_top_p
 from .visualizations import VisualizationCollection
 
@@ -41,8 +40,7 @@ def build_default_registry(
     registry.register_collection(DataAccessCollection(os_access, object_store))
     registry.register_collection(WorkspaceFileCollection(os_access, object_store))
     registry.register_collection(HandleInspectionCollection(os_access, object_store))
-    registry.register_collection(SchemaViewCollection(os_access, object_store))
-    registry.register_collection(EDACollection(os_access, object_store))
+    registry.register_collection(DataViewCollection(os_access, object_store))
     registry.register_collection(VisualizationCollection(os_access, object_store))
     registry.register_collection(FeatureSelectionCollection(os_access, object_store))
     registry.register_collection(FeatureEngineeringCollection(os_access, object_store))
