@@ -357,7 +357,7 @@ class MontyReplInterpreter:
         | pydantic_monty.FutureSnapshot
         | pydantic_monty.MontyComplete
     ):
-        """Resume a name lookup snapshot using the current Monty API.
+        """Resume a name lookup snapshot.
 
         Args:
             snapshot: Paused name lookup snapshot.
@@ -385,7 +385,7 @@ class MontyReplInterpreter:
         | pydantic_monty.FutureSnapshot
         | pydantic_monty.MontyComplete
     ):
-        """Resume a future snapshot using the current Monty API.
+        """Resume a future snapshot.
 
         Args:
             snapshot: Paused future snapshot.
