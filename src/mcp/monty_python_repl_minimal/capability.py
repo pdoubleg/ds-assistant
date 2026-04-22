@@ -13,34 +13,26 @@ from rich.console import Console
 from .repl import MinimalMontyPythonREPL
 from .logging import LoggingToolset
 
-CAPABILITY_SYSTEM_PROMPT = (
-    "A minimal modeling REPL. Use `help` to discover safe collections, "
-    "`execute` to run code in a persistent session, and `results` when you need "
-    "buffered execution history. Prefer predefined helpers for data inspection, "
-    "wide-table feature batching, feature selection, feature-engineering pipelines, scoring, "
-    "and modeling. Keep `execute(...)` short and orchestration-focused. The "
-    "runtime is restricted, so direct stdlib file IO, compilation, and "
-    "introspection operations may be limited. Only a small supported subset of "
-    "imports is available to caller code, such as `typing`, `json`, `math`, "
-    "`re`, and `datetime`. If registered helpers rely on external "
-    "packages like `pandas` or `sklearn`, the helper handles those imports "
-    "internally, so never execute code that starts with `import pandas as pd`. "
-    "Use workspace helpers for reads/writes and model/report helpers for "
-    "persistence. Never ask for or display raw training "
-    "rows, categorical examples, raw file contents, or row-level chart payloads. "
-    "Stdout, including `print(...)`, is suppressed. `execute(...)` returns only "
-    "compact execution status; use `results()` for buffered helper summaries, "
-    "handles, and detailed execution output. Score dataframes with "
-    "`score_model_dataframe(...)`, summarize ranked slices with "
-    "`summarize_top_p_predictions(...)`, and inspect aggregate false-positive "
-    "patterns with `analyze_top_p_false_positives(...)`. When you want a "
-    "specific visible result, end `execute(...)` with a compact bare helper call "
-    "or dict/list expression instead of `print(...)`, because `results()` "
-    "exposes the last expression or helper summary rather than printed output. "
-    "Prefer local CSV or partial parquet reads, data-view summaries, aggregate "
-    "plots, feature screening, LightGBM native categoricals, and Optuna tuning "
-    "for PPV@5."
-)
+CAPABILITY_SYSTEM_PROMPT = """\
+A minimal modeling REPL. Use `help` to discover safe collections, `execute` to run code in a persistent \
+session, and `results` when you need buffered execution history. Prefer predefined helpers for data \
+inspection, wide-table feature batching, feature selection, feature-engineering pipelines, scoring, and \
+modeling. Keep `execute(...)` short and orchestration-focused. The runtime is restricted, so direct stdlib \
+file IO, compilation, and introspection operations may be limited. Only a small supported subset of imports \
+is available to caller code, such as `typing`, `json`, `math`, `re`, and `datetime`. If registered helpers \
+rely on external packages like `pandas` or `sklearn`, the helper handles those imports internally, so never \
+execute code that starts with `import pandas as pd`. Use workspace helpers for reads/writes and model/report \
+helpers for persistence. Never ask for or display raw training rows, categorical examples, raw file contents, \
+or row-level chart payloads. Stdout, including `print(...)`, is suppressed. `execute(...)` returns only \
+compact execution status; use `results()` for buffered helper summaries, handles, and detailed execution \
+output.
+
+When you want a specific visible result, end `execute(...)` with a \
+compact bare helper call or dict/list expression instead of `print(...)`, because `results()` exposes the \
+last expression or helper summary rather than printed output. Prefer local CSV or partial parquet reads, \
+data-view summaries, aggregate plots, feature screening, LightGBM native categoricals, and Optuna tuning \
+for PPV@5.
+"""
 
 _repl: MinimalMontyPythonREPL | None = None
 
