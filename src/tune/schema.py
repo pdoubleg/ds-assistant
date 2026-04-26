@@ -68,7 +68,6 @@ class AutoMLDependencies:
     direction: str = "maximize"
 
 
-
 @dataclass
 class AutoTunerConfig:
     """Configuration class for AutoTuner."""
@@ -118,7 +117,6 @@ class AutoTunerConfig:
     max_table_rows: int = 20
     decimal_precision: int = 4
 
-
     # File logging settings
     enable_file_logging: bool = True
     output_directory: str = "tunning_logs"
@@ -154,13 +152,15 @@ class AutoTunerConfig:
             flat_config["random_state"] = general_config.get("random_state", 42)
             flat_config["verbose"] = general_config.get("verbose", 1)
             flat_config["n_jobs"] = general_config.get("n_jobs", -1)
-            
+
         # ML Model settings
         if "ml_model" in config_dict:
             ml_model_config = config_dict["ml_model"]
             flat_config["task_type"] = ml_model_config.get("task_type", "auto")
             flat_config["metric"] = ml_model_config.get("metric", "accuracy")
-            flat_config["estimator_type"] = ml_model_config.get("estimator_type", "xgboost")
+            flat_config["estimator_type"] = ml_model_config.get(
+                "estimator_type", "xgboost"
+            )
 
         # Cross-validation settings
         if "cross_validation" in config_dict:
@@ -207,24 +207,38 @@ class AutoTunerConfig:
         # File logging settings
         if "file_logging" in config_dict:
             file_logging_config = config_dict["file_logging"]
-            flat_config["enable_file_logging"] = file_logging_config.get("enable_file_logging", False)
-            flat_config["output_directory"] = file_logging_config.get("output_directory", "tunning_logs")
+            flat_config["enable_file_logging"] = file_logging_config.get(
+                "enable_file_logging", False
+            )
+            flat_config["output_directory"] = file_logging_config.get(
+                "output_directory", "tunning_logs"
+            )
             flat_config["export_json"] = file_logging_config.get("export_json", False)
             flat_config["export_yaml"] = file_logging_config.get("export_yaml", False)
-            flat_config["save_tuning_summary"] = file_logging_config.get("save_tuning_summary", False)
-            
+            flat_config["save_tuning_summary"] = file_logging_config.get(
+                "save_tuning_summary", False
+            )
+
         # MLflow settings
         if "mlflow" in config_dict:
             mlflow_config = config_dict["mlflow"]
             flat_config["enable_mlflow"] = mlflow_config.get("enable_mlflow", True)
-            flat_config["experiment_name"] = mlflow_config.get("experiment_name", "autotuner_optimization")
-            flat_config["log_agent_iterations"] = mlflow_config.get("log_agent_iterations", True)
-            flat_config["log_trial_details"] = mlflow_config.get("log_trial_details", False)
-            flat_config["artifact_logging"] = mlflow_config.get("artifact_logging", True)
+            flat_config["experiment_name"] = mlflow_config.get(
+                "experiment_name", "autotuner_optimization"
+            )
+            flat_config["log_agent_iterations"] = mlflow_config.get(
+                "log_agent_iterations", True
+            )
+            flat_config["log_trial_details"] = mlflow_config.get(
+                "log_trial_details", False
+            )
+            flat_config["artifact_logging"] = mlflow_config.get(
+                "artifact_logging", True
+            )
 
         return cls(**flat_config)
-    
-    
+
+
 @dataclass
 class HPOProfile:
     # Basic shape
@@ -239,14 +253,20 @@ class HPOProfile:
 
     # Global rates
     frac_missing_overall: float
-    frac_zero_overall_numeric: float | None  # mean zero rate over numeric cols, None if no numeric
+    frac_zero_overall_numeric: (
+        float | None
+    )  # mean zero rate over numeric cols, None if no numeric
 
     # Sparsity proxy & categorical rarity
-    sparsity_proxy: float                # higher => sparser (combines numeric density & rare-category rate)
-    rare_category_rate_mean: float       # average fraction of rare categories across categorical cols (<1% freq)
+    sparsity_proxy: (
+        float  # higher => sparser (combines numeric density & rare-category rate)
+    )
+    rare_category_rate_mean: (
+        float  # average fraction of rare categories across categorical cols (<1% freq)
+    )
 
     # Correlation snapshot (numeric only)
-    corr_num_used: int                   # number of numeric columns used for corr
+    corr_num_used: int  # number of numeric columns used for corr
     corr_median_abs: float | None
     corr_q90_abs: float | None
     corr_max_abs: float | None
@@ -258,7 +278,9 @@ class HPOProfile:
     # Cardinality (categorical)
     categorical_cardinality: dict[str, int]
     avg_categorical_cardinality: float | None
-    high_cardinality_columns: list[str]  # heuristic: cardinality > min(100, 0.1 * n_samples)
+    high_cardinality_columns: list[
+        str
+    ]  # heuristic: cardinality > min(100, 0.1 * n_samples)
 
     # Missingness by column (top-N)
     top_missing_columns: list[tuple[str, float]]
@@ -279,14 +301,22 @@ class HPOProfile:
         lines.append("## **Shape & Types**")
         lines.append(f"- Samples: {self.n_samples:,}")
         lines.append(f"- Features: {self.n_features:,}")
-        lines.append(f"- Numeric: {self.num_numeric} | Categorical: {self.num_categorical} | Boolean: {self.num_boolean} | Datetime: {self.num_datetime}")
+        lines.append(
+            f"- Numeric: {self.num_numeric} | Categorical: {self.num_categorical} | Boolean: {self.num_boolean} | Datetime: {self.num_datetime}"
+        )
         lines.append("")
         lines.append("## **Missingness & Sparsity**")
         lines.append(f"- Overall missing fraction: {self.frac_missing_overall:.4f}")
         if self.frac_zero_overall_numeric is not None:
-            lines.append(f"- Mean zero fraction (numeric columns): {self.frac_zero_overall_numeric:.4f}")
-        lines.append(f"- Sparsity proxy (0 dense → 1 sparse): {self.sparsity_proxy:.3f}")
-        lines.append(f"- Mean rare-category rate (<1% freq across categoricals): {self.rare_category_rate_mean:.4f}")
+            lines.append(
+                f"- Mean zero fraction (numeric columns): {self.frac_zero_overall_numeric:.4f}"
+            )
+        lines.append(
+            f"- Sparsity proxy (0 dense → 1 sparse): {self.sparsity_proxy:.3f}"
+        )
+        lines.append(
+            f"- Mean rare-category rate (<1% freq across categoricals): {self.rare_category_rate_mean:.4f}"
+        )
         if self.top_missing_columns:
             lines.append("- Top columns by missing fraction:")
             for col, rate in self.top_missing_columns[:max_list_items]:
@@ -305,21 +335,31 @@ class HPOProfile:
         if self.corr_top_pairs:
             lines.append("- Top correlated pairs (|corr|):")
             for row in self.corr_top_pairs[:max_list_items]:
-                lines.append(f"  - {row['feature_a']} ↔ {row['feature_b']}: {row['abs_corr']:.4f}")
+                lines.append(
+                    f"  - {row['feature_a']} ↔ {row['feature_b']}: {row['abs_corr']:.4f}"
+                )
         lines.append("")
         lines.append("## **Feature Scale Dispersion (numeric)**")
-        lines.append(f"- CoV of per-feature std (higher = more varied scales): {self.feature_scale_cov:.4f}")
+        lines.append(
+            f"- CoV of per-feature std (higher = more varied scales): {self.feature_scale_cov:.4f}"
+        )
         lines.append("")
         lines.append("## **Categorical Cardinality**")
-        lines.append(f"- Average cardinality: {self.avg_categorical_cardinality if self.avg_categorical_cardinality is not None else 'NA'}")
+        lines.append(
+            f"- Average cardinality: {self.avg_categorical_cardinality if self.avg_categorical_cardinality is not None else 'NA'}"
+        )
         if self.categorical_cardinality:
             # show top-k highest
-            top_card = sorted(self.categorical_cardinality.items(), key=lambda kv: kv[1], reverse=True)[:max_list_items]
+            top_card = sorted(
+                self.categorical_cardinality.items(), key=lambda kv: kv[1], reverse=True
+            )[:max_list_items]
             lines.append("- Highest-cardinality categorical columns:")
             for col, k in top_card:
                 lines.append(f"  - {col}: {k}")
         if self.high_cardinality_columns:
-            lines.append(f"- High-cardinality columns (cardinality > min(100, 0.1*n_samples)): {len(self.high_cardinality_columns)}")
+            lines.append(
+                f"- High-cardinality columns (cardinality > min(100, 0.1*n_samples)): {len(self.high_cardinality_columns)}"
+            )
             for col in self.high_cardinality_columns[:max_list_items]:
                 lines.append(f"  - {col}")
         lines.append("")
@@ -328,17 +368,33 @@ class HPOProfile:
         if self.target_binary_multiclass is not None:
             t = self.target_binary_multiclass
             lines.append(f"- Classes: {t.get('num_classes')}")
-            lines.append("- Class counts: " + ", ".join([f"{k}={v}" for k, v in t.get("class_frequencies", {}).items()]))
-            lines.append("- Class probabilities: " + ", ".join([f"{k}={v:.4f}" for k, v in t.get("class_probs", {}).items()]))
-            lines.append(f"- Minority class fraction: {t.get('minority_class_fraction'):.4f}")
+            lines.append(
+                "- Class counts: "
+                + ", ".join(
+                    [f"{k}={v}" for k, v in t.get("class_frequencies", {}).items()]
+                )
+            )
+            lines.append(
+                "- Class probabilities: "
+                + ", ".join(
+                    [f"{k}={v:.4f}" for k, v in t.get("class_probs", {}).items()]
+                )
+            )
+            lines.append(
+                f"- Minority class fraction: {t.get('minority_class_fraction'):.4f}"
+            )
             if t.get("target_entropy_bits") is not None:
                 lines.append(f"- Target entropy (bits): {t['target_entropy_bits']:.4f}")
         if self.target_regression is not None:
             t = self.target_regression
             lines.append(f"- Non-null count: {t['count_non_null']}")
-            lines.append(f"- Mean={t['mean']:.6f} | Std={t['std']:.6f} | Skew={t['skew']:.6f} | Kurtosis={t['kurtosis']:.6f}")
+            lines.append(
+                f"- Mean={t['mean']:.6f} | Std={t['std']:.6f} | Skew={t['skew']:.6f} | Kurtosis={t['kurtosis']:.6f}"
+            )
             lines.append(f"- Outlier rate (|z|>3): {t['outlier_rate_std_gt_3']:.4f}")
-            lines.append(f"- Percentiles: p01={t['p01']:.6f}, p05={t['p05']:.6f}, p50={t['p50']:.6f}, p95={t['p95']:.6f}, p99={t['p99']:.6f}")
+            lines.append(
+                f"- Percentiles: p01={t['p01']:.6f}, p05={t['p05']:.6f}, p50={t['p50']:.6f}, p95={t['p95']:.6f}, p99={t['p99']:.6f}"
+            )
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:

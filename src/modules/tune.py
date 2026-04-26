@@ -578,7 +578,7 @@ class AutoTuneLLM:
         top_n_configs: int = 5,
         max_consecutive_no_improvement: int = 3,
         n_candidates: int = 500,
-        min_resources: str | int= "smallest",
+        min_resources: str | int = "smallest",
         random_state: int = 42,
         n_jobs: int = -1,
         cv: int = 5,
@@ -653,8 +653,10 @@ class AutoTuneLLM:
             bool: True if this config is better than the previous best, False otherwise
         """
         # Store the previous best score before adding the new entry
-        previous_best_score = self.best_configs[0]["score"] if self.best_configs else float("-inf")
-        
+        previous_best_score = (
+            self.best_configs[0]["score"] if self.best_configs else float("-inf")
+        )
+
         new_entry = {"score": score, "config": config.copy(), "iteration": iteration}
 
         # Add the new entry

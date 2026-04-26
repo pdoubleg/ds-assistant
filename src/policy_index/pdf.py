@@ -180,7 +180,11 @@ def group_pages_by_tokens(
     tagged_texts: list[str] = []
     token_lengths: list[int] = []
     for page in pages:
-        idx = page.page_number if start_index == 1 else start_index + (page.page_number - pages[0].page_number)
+        idx = (
+            page.page_number
+            if start_index == 1
+            else start_index + (page.page_number - pages[0].page_number)
+        )
         tagged = f"<physical_index_{idx}>\n{page.text}\n<physical_index_{idx}>\n\n"
         tagged_texts.append(tagged)
         token_lengths.append(count_tokens(tagged, "gpt-4.1-mini"))

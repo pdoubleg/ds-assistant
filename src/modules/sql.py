@@ -55,10 +55,10 @@ def get_async_openai_client_cortex() -> AsyncOpenAI:
 @asynccontextmanager
 async def database_connect(db_path: str) -> AsyncGenerator[Any, None]:
     """Async context manager for database connections.
-    
+
     Args:
         db_path (str): Path to the SQLite database file.
-        
+
     Yields:
         aiosqlite.Connection: The database connection.
     """
@@ -74,14 +74,14 @@ async def database_connect(db_path: str) -> AsyncGenerator[Any, None]:
 
 async def run_sql_query(sql_query: str, conn: aiosqlite.Connection) -> pd.DataFrame:
     """Executes an SQL query and returns a pandas DataFrame.
-    
+
     Args:
         sql_query (str): The SQL query to execute.
         conn (aiosqlite.Connection): The database connection.
-        
+
     Returns:
         pd.DataFrame: The query results as a DataFrame.
-        
+
     Raises:
         Exception: If the query execution fails.
     """
@@ -108,11 +108,12 @@ async def run_sql_query(sql_query: str, conn: aiosqlite.Connection) -> pd.DataFr
 @dataclass
 class SQLDependencies:
     """Dependencies for the SQL agent.
-    
+
     Attributes:
         conn (aiosqlite.Connection): The database connection.
         df (Optional[pd.DataFrame]): Optional DataFrame for storing results.
     """
+
     conn: aiosqlite.Connection
     df: Optional[pd.DataFrame] = None
 
@@ -122,12 +123,13 @@ class SQLDependencies:
 
 class FinalSQLQuery(BaseModel):
     """Response when the ideal SQL could be successfully generated.
-    
+
     Attributes:
         sql_query (str): The validated SQL query.
         explanation (str): Explanation of the SQL query in markdown format.
         file_name (str): Filename for saving query results (snake_case, no extension).
     """
+
     sql_query: Annotated[str, MinLen(1)]
     explanation: str = Field(
         ...,
@@ -141,11 +143,12 @@ class FinalSQLQuery(BaseModel):
 
 class FollowUp(BaseModel):
     """Response when the ideal SQL could not be generated.
-    
+
     Attributes:
         next_step (str): Next step to take if the query is not perfect.
         follow_up_question (str): A follow-up question for the user.
     """
+
     next_step: str = Field(
         ...,
         description="Next step to take if the query is not perfect",
@@ -186,11 +189,11 @@ today's date = {date.today()}
 
 def get_agent(model: str, retries: int) -> Agent:
     """Creates and configures the SQL agent with tools and validators.
-    
+
     Args:
         model (str): The OpenAI model to use.
         retries (int): Number of retries for each API call.
-        
+
     Returns:
         Agent: The configured SQL agent.
     """
@@ -277,6 +280,7 @@ def get_agent(model: str, retries: int) -> Agent:
         Returns:
             str: A string containing the sample rows from the table.
         """
+
         def truncate_string(value: any, max_length: int) -> any:
             """Truncates string values to a maximum length."""
             if isinstance(value, str) and len(value) > max_length:
@@ -311,14 +315,14 @@ def get_agent(model: str, retries: int) -> Agent:
         ctx: RunContext[SQLDependencies], result: Response
     ) -> Response:
         """Validates the agent's response and SQL query.
-        
+
         Args:
             ctx (RunContext[SQLDependencies]): The runtime context.
             result (Response): The agent's response to validate.
-            
+
         Returns:
             Response: The validated response.
-            
+
         Raises:
             ModelRetry: If the query is invalid or not a SELECT statement.
         """

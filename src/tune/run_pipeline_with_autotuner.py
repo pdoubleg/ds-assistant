@@ -25,9 +25,19 @@ try:
 except ImportError:
     mlflow = None
 
-from databricks.mlflow.utils import add_group_to_experiment, add_group_to_registered_model, check_dependencies, log_standard_tags # type: ignore
-from databricks.mlflow.utils import split_data_on_indexes, get_split_indexes, get_feature_pipeline, get_model_pipeline # type: ignore
-from databricks.mlflow.utils import evaluation_metrics # type: ignore
+from databricks.mlflow.utils import (
+    add_group_to_experiment,
+    add_group_to_registered_model,
+    check_dependencies,
+    log_standard_tags,
+)  # type: ignore
+from databricks.mlflow.utils import (
+    split_data_on_indexes,
+    get_split_indexes,
+    get_feature_pipeline,
+    get_model_pipeline,
+)  # type: ignore
+from databricks.mlflow.utils import evaluation_metrics  # type: ignore
 
 # Import our MLflow AutoTuner
 from .tuner import MLflowAutoTuner, run_mlflow_tuning
@@ -52,7 +62,7 @@ def train_and_log_model_with_best_params(
 ) -> dict:
     """
     Train and log model using the best hyperparameters from AutoTuner.
-    
+
     Args:
         X (pd.DataFrame): Preprocessed data ready for training.
         y (pd.Series): Target variable for training.
@@ -86,7 +96,7 @@ def train_and_log_model_with_best_params(
             features = get_feature_pipeline(feature_hyperparameters)
             if not isinstance(features, BaseEstimator):
                 features = FunctionTransformer(features)
-            
+
             model = get_model_pipeline(**model_hyperparameters)
 
             pipeline = Pipeline(
@@ -120,86 +130,89 @@ def train_and_log_model_with_best_params(
 
 
 def run_autotuner_optimization(
-    X: pd.DataFrame, 
+    X: pd.DataFrame,
     y: pd.Series,
     config_path: str = "src/tune/config.yml",
     metric: str = "f1",
 ) -> dict:
     """
     Run AutoTuner optimization to find best hyperparameters.
-    
+
     Args:
         X (pd.DataFrame): Features for training.
         y (pd.Series): Target variable.
         config_path (str): Path to AutoTuner configuration file.
         metric (str): Optimization metric.
-        
+
     Returns:
         dict: Best hyperparameters found by AutoTuner.
     """
     # Create dataset for AutoTuner
     dataset = X.copy()
-    dataset['target'] = y
-    
+    dataset["target"] = y
+
     # Run MLflow AutoTuner
     logger.info("Starting AutoTuner hyperparameter optimization...")
-    
+
     tuner = MLflowAutoTuner(
         config_path=config_path,
         dataset=dataset,
         metric=metric,
-        experiment_name=os.getenv("DATABRICKS_EXPERIMENT_NAME")
+        experiment_name=os.getenv("DATABRICKS_EXPERIMENT_NAME"),
     )
-    
+
     # Run tuning - this will log everything to MLflow
     tuning_results = tuner.tune()
-    
+
     # Extract best hyperparameters
     best_config = tuner.get_best_config()
-    
+
     if best_config is None:
         logger.warning("No valid configuration found, using defaults")
         return {}
-    
-    logger.info(f"AutoTuner found best configuration with score: {tuning_results['best_score']:.4f}")
+
+    logger.info(
+        f"AutoTuner found best configuration with score: {tuning_results['best_score']:.4f}"
+    )
     logger.info(f"Best hyperparameters: {best_config}")
-    
+
     return best_config
 
 
 def run_pipeline_with_autotuner() -> None:
     """
     Enhanced pipeline that uses AutoTuner for hyperparameter optimization.
-    
+
     This replaces the manual Optuna optimization with LLM-guided AutoTuner,
     providing more intelligent hyperparameter search and better MLflow integration.
     """
     mlflow.set_experiment(experiment_name=os.getenv("DATABRICKS_EXPERIMENT_NAME"))
-    
+
     with mlflow.start_run(run_name="autotuner_pipeline"):
         log_standard_tags()
-        
+
         # Load data
         logger.info("Loading data...")
         X, y = load_data()
-        
+
         # Run AutoTuner optimization
         logger.info("Running AutoTuner hyperparameter optimization...")
         best_hyperparameters = run_autotuner_optimization(
-            X, y,
+            X,
+            y,
             config_path="src/tune/config.yml",
-            metric="f1"  # Optimization metric
+            metric="f1",  # Optimization metric
         )
-        
+
         # Log the best hyperparameters from AutoTuner
         mlflow.log_params(best_hyperparameters)
-        
+
         # Feature and split hyperparameters (from your existing pipeline)
         feature_hyperparameters = {
             "feature_param1": True  # Example feature parameter
         }
         split_hyperparameters = {"cross_validate_flag": False}
-        
+
         # Train final model with best hyperparameters
         logger.info("Training final model with optimized hyperparameters...")
         final_metrics = train_and_log_model_with_best_params(
@@ -209,46 +222,49 @@ def run_pipeline_with_autotuner() -> None:
             feature_hyperparameters=feature_hyperparameters,
             split_hyperparameters=split_hyperparameters,
         )
-        
+
         # Log final metrics at the top level
         mlflow.log_metrics(final_metrics)
-        
-        logger.info(f"Pipeline completed successfully. Final F1 score: {final_metrics.get('f1', 'N/A')}")
+
+        logger.info(
+            f"Pipeline completed successfully. Final F1 score: {final_metrics.get('f1', 'N/A')}"
+        )
 
 
 def run_pipeline_simple_integration() -> None:
     """
     Simplified integration example using the convenience function.
-    
+
     This shows the most straightforward way to integrate AutoTuner
     into an existing pipeline with minimal code changes.
     """
     mlflow.set_experiment(experiment_name=os.getenv("DATABRICKS_EXPERIMENT_NAME"))
-    
+
     with mlflow.start_run(run_name="simple_autotuner_integration"):
         log_standard_tags()
-        
+
         # Load data
         X, y = load_data()
-        
+
         # Create dataset for AutoTuner
         dataset = X.copy()
-        dataset['target'] = y
-        
+        dataset["target"] = y
+
         # Run tuning with convenience function
         tuning_results = run_mlflow_tuning(
             dataset=dataset,
             config_path="src/tune/config.yml",
             metric="f1",
-            experiment_name=os.getenv("DATABRICKS_EXPERIMENT_NAME")
+            experiment_name=os.getenv("DATABRICKS_EXPERIMENT_NAME"),
         )
-        
+
         # Extract best parameters and train final model
-        best_params = tuning_results.get('best_config', {})
-        
+        best_params = tuning_results.get("best_config", {})
+
         if best_params:
             final_metrics = train_and_log_model_with_best_params(
-                X, y,
+                X,
+                y,
                 model_hyperparameters=best_params,
                 feature_hyperparameters={"feature_param1": True},
                 split_hyperparameters={"cross_validate_flag": False},
@@ -257,10 +273,9 @@ def run_pipeline_simple_integration() -> None:
             logger.info(f"Final model F1 score: {final_metrics.get('f1', 'N/A')}")
 
 
-
 if __name__ == "__main__":
     logger.info("Running enhanced pipeline with AutoTuner...")
-    
+
     # Choose which version to run:
     # run_pipeline_with_autotuner()  # Full integration
     run_pipeline_simple_integration()  # Simple integration

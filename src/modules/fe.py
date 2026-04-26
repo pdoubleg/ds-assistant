@@ -44,9 +44,7 @@ logger.setLevel(logging.INFO)
 
 
 def metric_ppv(
-    y_true: Union[list, pd.Series], 
-    y_pred: Union[list, pd.Series], 
-    top_p: float
+    y_true: Union[list, pd.Series], y_pred: Union[list, pd.Series], top_p: float
 ) -> float:
     """
     Computes PPV (Positive Predictive Value) at the top p% predicted probability scores.
@@ -79,10 +77,12 @@ def metric_ppv(
 
     top_num = max(1, math.ceil(len(y_true) * top_p))
 
-    ranked = pd.DataFrame({
-        "label": pd.Series(y_true).values,
-        "predicted_prob": pd.Series(y_pred).values,
-    })
+    ranked = pd.DataFrame(
+        {
+            "label": pd.Series(y_true).values,
+            "predicted_prob": pd.Series(y_pred).values,
+        }
+    )
 
     top_ranked = ranked.sort_values("predicted_prob", ascending=False).head(top_num)
     ppv = top_ranked["label"].value_counts(normalize=True).get(1, 0.0)
@@ -611,7 +611,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
     A scikit-learn–compatible transformer that uses an LLM (e.g. GPT-4o)
     to iteratively generate new features (CAAFE algorithm), evaluating each batch
     via RepeatedKFold and keeping only those that show improvement.
-    
+
     Supports:
 
     - Logging (no direct prints/displays)
@@ -747,11 +747,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         self.dataset_description = dataset_description or ""
         self.max_features = max_features
         self.optimization_metric = optimization_metric.lower()
-        
+
         # Validate optimization metric
         if self.optimization_metric not in ["accuracy", "auc", "ppv"]:
-            raise ValueError("optimization_metric must be one of: 'accuracy', 'auc', 'ppv'")
-            
+            raise ValueError(
+                "optimization_metric must be one of: 'accuracy', 'auc', 'ppv'"
+            )
+
         self.iterations = iterations
         self.llm_model = llm_model
         self.n_splits = n_splits
@@ -814,7 +816,6 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
 
         # Cost tracking
         self.usages: List[Usage] = []
-        
 
     def fit(
         self,
@@ -914,9 +915,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                 )
                 return self
             except Exception as e:
-                self.logger.error(
-                    f"Failed to load code from {load_code_path}: {e}"
-                )
+                self.logger.error(f"Failed to load code from {load_code_path}: {e}")
                 raise IOError(f"Failed to load code from {load_code_path}: {e}")
 
         # Otherwise, run full iterative feature-engineering process
@@ -956,7 +955,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
             self.baseline_auc
             if self.optimization_metric == "auc"
             else self.baseline_acc
-            if self.optimization_metric == "accuracy" 
+            if self.optimization_metric == "accuracy"
             else self.baseline_ppv
         )
         self.logger.info(
@@ -1091,11 +1090,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                     improvement_ppv = np.nanmean(new_results["ppv"]) - np.nanmean(
                         old_results["ppv"]
                     )
-                    
+
                     # Determine significance based on the primary optimization metric
                     primary_improvement = (
-                        improvement_roc if self.optimization_metric == "auc"
-                        else improvement_acc if self.optimization_metric == "accuracy"
+                        improvement_roc
+                        if self.optimization_metric == "auc"
+                        else improvement_acc
+                        if self.optimization_metric == "accuracy"
                         else improvement_ppv
                     )
                     is_significant = primary_improvement > 0
@@ -1170,7 +1171,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                         if auc_improvement > 0:
                             self.logger.info(f"\nROC AUC +{auc_improvement:.4}")
                         if ppv_improvement > 0:
-                            self.logger.info(f"\nPPV@{self.top_p:.1%} +{ppv_improvement:.4}")
+                            self.logger.info(
+                                f"\nPPV@{self.top_p:.1%} +{ppv_improvement:.4}"
+                            )
 
                         # Update our accumulated feature code
                         self.full_code += code
@@ -1278,7 +1281,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         self._is_fitted = True
         return self
 
-    def transform(self, X: pd.DataFrame, convert_categorical_to_integer: bool = False) -> pd.DataFrame:
+    def transform(
+        self, X: pd.DataFrame, convert_categorical_to_integer: bool = False
+    ) -> pd.DataFrame:
         """
         Apply the LLM‐generated feature code (self.full_code) to a new DataFrame X.
 
@@ -1310,7 +1315,11 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         # Make a copy so we don't overwrite the user's X
         df_in = X.copy()
         try:
-            df_out = run_llm_code(self.full_code, df_in, convert_categorical_to_integer=convert_categorical_to_integer)
+            df_out = run_llm_code(
+                self.full_code,
+                df_in,
+                convert_categorical_to_integer=convert_categorical_to_integer,
+            )
         except Exception as e:
             self.logger.error(
                 f"Error applying self.full_code in transform: {type(e).__name__}: {e}"
@@ -1431,13 +1440,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
     ):
         """Evaluates model performance on train and test datasets.
 
-        This method takes training and test dataframes, preprocesses them by converting categorical 
+        This method takes training and test dataframes, preprocesses them by converting categorical
         features to numeric, trains the base classifier, and evaluates performance using accuracy
         and AUC metrics.
 
         Args:
             df_train (pd.DataFrame): Training data including features and target
-            df_test (pd.DataFrame): Test data including features and target  
+            df_test (pd.DataFrame): Test data including features and target
             target_name (str): Name of target column in dataframes
 
         Returns:
@@ -1469,13 +1478,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         probs = self.base_classifier.predict_proba(test_x)
         acc = float(accuracy_metric(test_y, probs))
         auc = float(auc_metric(test_y, probs))
-        
+
         # Compute PPV at top_p% - extract positive class probabilities
         if probs.shape[1] == 2:  # Binary classification
             positive_probs = probs[:, 1]  # Probabilities for positive class
         else:  # Single class (should not happen in binary classification)
             positive_probs = probs.flatten()
-            
+
         ppv = float(metric_ppv(test_y, positive_probs, top_p=self.top_p))
 
         return {"accuracy": acc, "auc": auc, "ppv": ppv}

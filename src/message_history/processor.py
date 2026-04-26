@@ -75,7 +75,9 @@ _DEFAULT_TRIM_TOKEN_LIMIT = 4000
 _SEARCH_RANGE_FOR_TOOL_PAIRS = 5
 
 
-def count_tokens_approximately(messages: Sequence[ModelMessage]) -> int:  # pragma: no branch
+def count_tokens_approximately(
+    messages: Sequence[ModelMessage],
+) -> int:  # pragma: no branch
     """Approximate token count based on character length.
 
     This is a simple heuristic: ~4 characters per token on average.
@@ -123,7 +125,9 @@ def count_tokens_approximately(messages: Sequence[ModelMessage]) -> int:  # prag
     return total_chars // 4
 
 
-def count_tokens_tiktoken(messages: Sequence[ModelMessage], model: str = "gpt-5.4") -> int:
+def count_tokens_tiktoken(
+    messages: Sequence[ModelMessage], model: str = "gpt-5.4"
+) -> int:
     """Count tokens using tiktoken for accurate token counting.
 
     This function uses the tiktoken library to provide accurate token counts
@@ -170,7 +174,9 @@ def count_tokens_tiktoken(messages: Sequence[ModelMessage], model: str = "gpt-5.
                         # List of content parts
                         for item in part.content:
                             if isinstance(item, dict) and "text" in item:
-                                total_tokens += len(encoding.encode(str(item.get("text", ""))))
+                                total_tokens += len(
+                                    encoding.encode(str(item.get("text", "")))
+                                )
                 elif isinstance(part, SystemPromptPart):
                     total_tokens += len(encoding.encode(part.content))
                 elif isinstance(part, ToolReturnPart):
@@ -184,7 +190,7 @@ def count_tokens_tiktoken(messages: Sequence[ModelMessage], model: str = "gpt-5.
                     total_tokens += len(encoding.encode(str(response_part.args)))
 
     return total_tokens
-                                
+
 
 def _format_request_parts(msg: ModelRequest) -> list[str]:  # pragma: no branch
     """Format request message parts."""
@@ -225,7 +231,9 @@ def _format_response_parts(msg: ModelResponse) -> list[str]:  # pragma: no branc
     return lines
 
 
-def format_messages_for_summary(messages: Sequence[ModelMessage]) -> str:  # pragma: no branch
+def format_messages_for_summary(
+    messages: Sequence[ModelMessage],
+) -> str:  # pragma: no branch
     """Format messages into a readable string for summarization.
 
     This function converts a sequence of ModelMessage objects into a
@@ -342,11 +350,15 @@ class SummarizationProcessor:
             self.trigger, self.keep, self.max_input_tokens
         )
 
-    def _validate_context_size(self, context: ContextSize, parameter_name: str) -> ContextSize:
+    def _validate_context_size(
+        self, context: ContextSize, parameter_name: str
+    ) -> ContextSize:
         """Validate context configuration tuples."""
         return _validate_ctx(context, parameter_name)
 
-    def _should_summarize(self, messages: list[ModelMessage], total_tokens: int) -> bool:
+    def _should_summarize(
+        self, messages: list[ModelMessage], total_tokens: int
+    ) -> bool:
         """Determine whether summarization should run."""
         return _should_trigger(
             self._trigger_conditions, messages, total_tokens, self.max_input_tokens
@@ -368,11 +380,15 @@ class SummarizationProcessor:
         """Find cutoff index based on target token retention."""
         return _find_token(messages, target_token_count, self.token_counter)
 
-    def _find_safe_cutoff(self, messages: list[ModelMessage], messages_to_keep: int) -> int:
+    def _find_safe_cutoff(
+        self, messages: list[ModelMessage], messages_to_keep: int
+    ) -> int:
         """Find safe cutoff point that preserves AI/Tool message pairs."""
         return _find_safe(messages, messages_to_keep)
 
-    def _is_safe_cutoff_point(self, messages: list[ModelMessage], cutoff_index: int) -> bool:
+    def _is_safe_cutoff_point(
+        self, messages: list[ModelMessage], cutoff_index: int
+    ) -> bool:
         """Check if cutting at index would separate AI/Tool message pairs."""
         return _is_safe(messages, cutoff_index)
 
@@ -398,7 +414,10 @@ class SummarizationProcessor:
         formatted = format_messages_for_summary(messages_to_summarize)
 
         # Trim if needed
-        if self.trim_tokens_to_summarize and len(formatted) > self.trim_tokens_to_summarize * 4:
+        if (
+            self.trim_tokens_to_summarize
+            and len(formatted) > self.trim_tokens_to_summarize * 4
+        ):
             formatted = formatted[-(self.trim_tokens_to_summarize * 4) :]
 
         prompt = self.summary_prompt.format(messages=formatted)
@@ -440,7 +459,9 @@ class SummarizationProcessor:
         # Create a summary message
         summary_message = ModelRequest(  # pragma: no cover
             parts=[
-                SystemPromptPart(content=f"Summary of previous conversation:\n\n{summary}"),
+                SystemPromptPart(
+                    content=f"Summary of previous conversation:\n\n{summary}"
+                ),
             ]
         )
 
@@ -449,7 +470,10 @@ class SummarizationProcessor:
 
 def create_summarization_processor(
     model: ModelType = "openai:gpt-4.1",
-    trigger: ContextSize | list[ContextSize] | None = ("tokens", _DEFAULT_TRIGGER_TOKENS),
+    trigger: ContextSize | list[ContextSize] | None = (
+        "tokens",
+        _DEFAULT_TRIGGER_TOKENS,
+    ),
     keep: ContextSize = ("messages", _DEFAULT_MESSAGES_TO_KEEP),
     max_input_tokens: int | None = None,
     token_counter: TokenCounter | None = None,

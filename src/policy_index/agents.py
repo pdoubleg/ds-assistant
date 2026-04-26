@@ -45,7 +45,9 @@ _TOC_DETECTOR_INSTRUCTIONS = (
 )
 
 
-def create_toc_detector_agent(model: str = "gpt-4.1-mini") -> Agent[None, TocDetectionResult]:
+def create_toc_detector_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, TocDetectionResult]:
     """Create an agent that determines whether a single page is a TOC page.
 
     Args:
@@ -82,12 +84,12 @@ def toc_detector_prompt(page_text: str) -> str:
 # 2. Page-Index Detection Agent
 # ---------------------------------------------------------------------------
 
-_PAGE_INDEX_DETECTION_INSTRUCTIONS = (
-    "You determine whether a table of contents contains explicit page numbers or indices."
-)
+_PAGE_INDEX_DETECTION_INSTRUCTIONS = "You determine whether a table of contents contains explicit page numbers or indices."
 
 
-def create_page_index_detector_agent(model: str = "gpt-4.1-mini") -> Agent[None, PageIndexDetectionResult]:
+def create_page_index_detector_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, PageIndexDetectionResult]:
     """Create an agent that checks if a TOC contains page numbers.
 
     Args:
@@ -132,7 +134,9 @@ _TOC_TRANSFORM_INSTRUCTIONS = (
 )
 
 
-def create_toc_transform_agent(model: str = "gpt-4.1-mini") -> Agent[None, TocTransformResult]:
+def create_toc_transform_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, TocTransformResult]:
     """Create an agent that transforms raw TOC text into structured entries.
 
     Args:
@@ -149,10 +153,14 @@ def create_toc_transform_agent(model: str = "gpt-4.1-mini") -> Agent[None, TocTr
     )
 
     @agent.output_validator
-    def _check_non_empty(ctx: RunContext, result: TocTransformResult) -> TocTransformResult:
+    def _check_non_empty(
+        ctx: RunContext, result: TocTransformResult
+    ) -> TocTransformResult:
         """Ensure at least one entry was extracted."""
         if not result.table_of_contents:
-            raise ModelRetry("The table of contents is empty. Please extract all entries.")
+            raise ModelRetry(
+                "The table of contents is empty. Please extract all entries."
+            )
         return result
 
     return agent
@@ -167,7 +175,9 @@ def toc_transform_prompt(toc_text: str) -> str:
     Returns:
         Formatted prompt string.
     """
-    return f"Transform the following table of contents into structured JSON.\n\n{toc_text}"
+    return (
+        f"Transform the following table of contents into structured JSON.\n\n{toc_text}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +190,9 @@ _TITLE_APPEARANCE_INSTRUCTIONS = (
 )
 
 
-def create_title_checker_agent(model: str = "gpt-4.1-mini") -> Agent[None, TitleAppearanceResult]:
+def create_title_checker_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, TitleAppearanceResult]:
     """Create an agent that checks if a section title appears on a page.
 
     Args:
@@ -227,7 +239,9 @@ _TITLE_START_INSTRUCTIONS = (
 )
 
 
-def create_title_start_checker_agent(model: str = "gpt-4.1-mini") -> Agent[None, TitleStartResult]:
+def create_title_start_checker_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, TitleStartResult]:
     """Create an agent that checks if a section starts at the beginning of a page.
 
     Args:
@@ -316,7 +330,9 @@ _DESCRIPTION_INSTRUCTIONS = (
 )
 
 
-def create_description_agent(model: str = "gpt-4.1-mini") -> Agent[None, DocDescription]:
+def create_description_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, DocDescription]:
     """Create an agent that generates a one-sentence document description.
 
     Args:
@@ -364,7 +380,9 @@ _TOC_INDEX_EXTRACTOR_INSTRUCTIONS = (
 )
 
 
-def create_toc_index_extractor_agent(model: str = "gpt-4.1-mini") -> Agent[None, list[PageIndexEntry]]:
+def create_toc_index_extractor_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, list[PageIndexEntry]]:
     """Create an agent that maps TOC entries to physical page indices.
 
     Args:
@@ -381,7 +399,9 @@ def create_toc_index_extractor_agent(model: str = "gpt-4.1-mini") -> Agent[None,
     )
 
     @agent.output_validator
-    def _check_monotonic_indices(ctx: RunContext, result: list[PageIndexEntry]) -> list[PageIndexEntry]:
+    def _check_monotonic_indices(
+        ctx: RunContext, result: list[PageIndexEntry]
+    ) -> list[PageIndexEntry]:
         """Ensure physical_index values are monotonically non-decreasing."""
         prev_idx: int | None = None
         for entry in result:
@@ -399,7 +419,9 @@ def create_toc_index_extractor_agent(model: str = "gpt-4.1-mini") -> Agent[None,
     return agent
 
 
-def toc_index_extractor_prompt(toc_json: list[dict[str, object]], page_content: str) -> str:
+def toc_index_extractor_prompt(
+    toc_json: list[dict[str, object]], page_content: str
+) -> str:
     """Build the user prompt for TOC index extraction.
 
     Args:
@@ -430,7 +452,9 @@ _TOC_GENERATOR_INIT_INSTRUCTIONS = (
 )
 
 
-def create_toc_generator_init_agent(model: str = "gpt-4.1-mini") -> Agent[None, list[TocGeneratorEntry]]:
+def create_toc_generator_init_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, list[TocGeneratorEntry]]:
     """Create an agent that generates an initial TOC from page text.
 
     Args:
@@ -447,14 +471,20 @@ def create_toc_generator_init_agent(model: str = "gpt-4.1-mini") -> Agent[None, 
     )
 
     @agent.output_validator
-    def _check_non_empty(ctx: RunContext, result: list[TocGeneratorEntry]) -> list[TocGeneratorEntry]:
+    def _check_non_empty(
+        ctx: RunContext, result: list[TocGeneratorEntry]
+    ) -> list[TocGeneratorEntry]:
         """Ensure at least one entry was generated."""
         if not result:
-            raise ModelRetry("No TOC entries were generated. Please extract the document structure.")
+            raise ModelRetry(
+                "No TOC entries were generated. Please extract the document structure."
+            )
         return result
 
     @agent.output_validator
-    def _check_monotonic_indices(ctx: RunContext, result: list[TocGeneratorEntry]) -> list[TocGeneratorEntry]:
+    def _check_monotonic_indices(
+        ctx: RunContext, result: list[TocGeneratorEntry]
+    ) -> list[TocGeneratorEntry]:
         """Ensure physical_index values are monotonically non-decreasing.
 
         When the LLM produces out-of-order page indices, we ask it to
@@ -505,7 +535,9 @@ _TOC_GENERATOR_CONTINUE_INSTRUCTIONS = (
 )
 
 
-def create_toc_generator_continue_agent(model: str = "gpt-4.1-mini") -> Agent[None, list[TocGeneratorEntry]]:
+def create_toc_generator_continue_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, list[TocGeneratorEntry]]:
     """Create an agent that continues TOC generation from additional pages.
 
     Args:
@@ -522,7 +554,9 @@ def create_toc_generator_continue_agent(model: str = "gpt-4.1-mini") -> Agent[No
     )
 
     @agent.output_validator
-    def _check_monotonic_indices(ctx: RunContext, result: list[TocGeneratorEntry]) -> list[TocGeneratorEntry]:
+    def _check_monotonic_indices(
+        ctx: RunContext, result: list[TocGeneratorEntry]
+    ) -> list[TocGeneratorEntry]:
         """Ensure physical_index values are monotonically non-decreasing."""
         prev_idx: int | None = None
         for entry in result:
@@ -540,7 +574,9 @@ def create_toc_generator_continue_agent(model: str = "gpt-4.1-mini") -> Agent[No
     return agent
 
 
-def toc_generator_continue_prompt(page_text: str, previous_toc: list[dict[str, object]]) -> str:
+def toc_generator_continue_prompt(
+    page_text: str, previous_toc: list[dict[str, object]]
+) -> str:
     """Build the user prompt for continuing TOC generation.
 
     Args:
@@ -569,7 +605,9 @@ _SINGLE_ITEM_FIXER_INSTRUCTIONS = (
 )
 
 
-def create_single_item_fixer_agent(model: str = "gpt-4.1-mini") -> Agent[None, SingleItemFixResult]:
+def create_single_item_fixer_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, SingleItemFixResult]:
     """Create an agent that fixes the page index for a single TOC entry.
 
     Args:
@@ -614,7 +652,9 @@ _COMPLETENESS_INSTRUCTIONS = (
 )
 
 
-def create_completeness_checker_agent(model: str = "gpt-4.1-mini") -> Agent[None, CompletenessCheckResult]:
+def create_completeness_checker_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, CompletenessCheckResult]:
     """Create an agent that checks TOC transformation completeness.
 
     Args:
@@ -663,7 +703,9 @@ _PAGE_NUMBER_ADDER_INSTRUCTIONS = (
 )
 
 
-def create_page_number_adder_agent(model: str = "gpt-4.1-mini") -> Agent[None, list[PageIndexEntry]]:
+def create_page_number_adder_agent(
+    model: str = "gpt-4.1-mini",
+) -> Agent[None, list[PageIndexEntry]]:
     """Create an agent that adds page numbers to TOC entries without them.
 
     Args:
@@ -680,7 +722,9 @@ def create_page_number_adder_agent(model: str = "gpt-4.1-mini") -> Agent[None, l
     )
 
     @agent.output_validator
-    def _check_monotonic_indices(ctx: RunContext, result: list[PageIndexEntry]) -> list[PageIndexEntry]:
+    def _check_monotonic_indices(
+        ctx: RunContext, result: list[PageIndexEntry]
+    ) -> list[PageIndexEntry]:
         """Ensure physical_index values are monotonically non-decreasing."""
         prev_idx: int | None = None
         for entry in result:
@@ -698,7 +742,9 @@ def create_page_number_adder_agent(model: str = "gpt-4.1-mini") -> Agent[None, l
     return agent
 
 
-def page_number_adder_prompt(page_text: str, structure_json: list[dict[str, object]]) -> str:
+def page_number_adder_prompt(
+    page_text: str, structure_json: list[dict[str, object]]
+) -> str:
     """Build the user prompt for page-number addition.
 
     Args:

@@ -64,7 +64,9 @@ class CourtListenerAgentDeps:
         if not self.api_key:
             self.api_key = os.getenv("COURT_LISTENER_API_KEY")
             if not self.api_key:
-                raise ValueError("COURT_LISTENER_API_KEY not found in environment variables")
+                raise ValueError(
+                    "COURT_LISTENER_API_KEY not found in environment variables"
+                )
 
     def get_headers(self):
         return {"Authorization": f"Token {self.api_key}"}

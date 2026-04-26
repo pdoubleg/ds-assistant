@@ -345,14 +345,13 @@ class PolicyIndex:
         flat_items = await self._check_title_starts_concurrent(flat_items, pages)
 
         # Step 5: Filter valid items and build tree
-        valid_items = [item for item in flat_items if item.get("physical_index") is not None]
+        valid_items = [
+            item for item in flat_items if item.get("physical_index") is not None
+        ]
         root_nodes = post_process_to_tree(valid_items, len(pages))
 
         # Step 6: Recursively split large nodes
-        tasks = [
-            self._process_large_node(node, pages)
-            for node in root_nodes
-        ]
+        tasks = [self._process_large_node(node, pages) for node in root_nodes]
         await asyncio.gather(*tasks)
 
         # Step 7: Propagate page ranges bottom-up so parents span their children
@@ -379,7 +378,11 @@ class PolicyIndex:
 
         if not toc_page_list:
             logger.info("No TOC found")
-            return {"toc_content": None, "toc_page_list": [], "page_index_given_in_toc": False}
+            return {
+                "toc_content": None,
+                "toc_page_list": [],
+                "page_index_given_in_toc": False,
+            }
 
         logger.info("TOC pages found: %s", toc_page_list)
         toc_result = await self._extract_and_detect_toc(pages, toc_page_list)
@@ -394,10 +397,14 @@ class PolicyIndex:
         # Search for additional TOC sections with page numbers
         current_start = toc_page_list[-1] + 1
         while current_start < len(pages) and current_start < cfg.toc_check_pages:
-            additional_pages = await self._find_toc_pages(pages, start_index=current_start)
+            additional_pages = await self._find_toc_pages(
+                pages, start_index=current_start
+            )
             if not additional_pages:
                 break
-            additional_result = await self._extract_and_detect_toc(pages, additional_pages)
+            additional_result = await self._extract_and_detect_toc(
+                pages, additional_pages
+            )
             if additional_result["page_index_given_in_toc"]:
                 return {
                     "toc_content": additional_result["toc_content"],
@@ -540,7 +547,11 @@ class PolicyIndex:
 
         # Verify accuracy
         accuracy, incorrect = await self._verify_toc(pages, items, start_index)
-        logger.info("Verification accuracy: %.2f%%, %d incorrect", accuracy * 100, len(incorrect))
+        logger.info(
+            "Verification accuracy: %.2f%%, %d incorrect",
+            accuracy * 100,
+            len(incorrect),
+        )
 
         # --- Perfect accuracy: return immediately ---
         if accuracy == 1.0 and not incorrect:
@@ -558,7 +569,8 @@ class PolicyIndex:
             )
             logger.info(
                 "Post-fix verification: %.2f%% accuracy, %d incorrect",
-                post_accuracy * 100, len(post_incorrect),
+                post_accuracy * 100,
+                len(post_incorrect),
             )
 
             # If remaining issues were found in re-verify, log them
@@ -586,16 +598,15 @@ class PolicyIndex:
                 pages, items, start_index
             )
             logger.info(
-                "Post-fix verification (single pass): %.2f%% accuracy, "
-                "%d incorrect",
-                post_accuracy * 100, len(post_incorrect),
+                "Post-fix verification (single pass): %.2f%% accuracy, %d incorrect",
+                post_accuracy * 100,
+                len(post_incorrect),
             )
 
             # If accuracy improved enough, keep the result
             if post_accuracy > 0.6:
                 logger.info(
-                    "Single fix pass raised accuracy above threshold. "
-                    "Keeping result."
+                    "Single fix pass raised accuracy above threshold. Keeping result."
                 )
                 return items
 
@@ -607,13 +618,17 @@ class PolicyIndex:
         # --- Fall back to simpler modes ---
         if mode == "process_toc_with_page_numbers":
             return await self._meta_processor(
-                pages, "process_toc_no_page_numbers",
-                toc_content=toc_content, toc_page_list=toc_page_list,
+                pages,
+                "process_toc_no_page_numbers",
+                toc_content=toc_content,
+                toc_page_list=toc_page_list,
                 start_index=start_index,
             )
         elif mode == "process_toc_no_page_numbers":
             return await self._meta_processor(
-                pages, "process_no_toc", start_index=start_index,
+                pages,
+                "process_no_toc",
+                start_index=start_index,
             )
 
         # --- All modes exhausted: graceful degradation ---
@@ -653,7 +668,9 @@ class PolicyIndex:
         # Generate initial TOC from first group
         init_agent = create_toc_generator_init_agent(cfg.model)
         async with self._sem:
-            init_result = await init_agent.run(toc_generator_init_prompt(group_texts[0]))
+            init_result = await init_agent.run(
+                toc_generator_init_prompt(group_texts[0])
+            )
 
         toc_items = [entry.model_dump() for entry in init_result.output]
 
@@ -698,8 +715,12 @@ class PolicyIndex:
         # Transform TOC to structured entries
         transform_agent = create_toc_transform_agent(cfg.model)
         async with self._sem:
-            transform_result = await transform_agent.run(toc_transform_prompt(toc_content))
-        toc_entries = [e.model_dump() for e in transform_result.output.table_of_contents]
+            transform_result = await transform_agent.run(
+                toc_transform_prompt(toc_content)
+            )
+        toc_entries = [
+            e.model_dump() for e in transform_result.output.table_of_contents
+        ]
 
         # Verify the transformation captured all sections from the raw TOC.
         # If incomplete, retry once before proceeding.
@@ -710,8 +731,12 @@ class PolicyIndex:
                 len(toc_entries),
             )
             async with self._sem:
-                retry_result = await transform_agent.run(toc_transform_prompt(toc_content))
-            retry_entries = [e.model_dump() for e in retry_result.output.table_of_contents]
+                retry_result = await transform_agent.run(
+                    toc_transform_prompt(toc_content)
+                )
+            retry_entries = [
+                e.model_dump() for e in retry_result.output.table_of_contents
+            ]
             # Accept the retry if it produced more entries
             if len(retry_entries) >= len(toc_entries):
                 toc_entries = retry_entries
@@ -722,7 +747,8 @@ class PolicyIndex:
                 logger.warning(
                     "TOC transformation retry produced fewer entries (%d vs %d). "
                     "Keeping original result.",
-                    len(retry_entries), len(toc_entries),
+                    len(retry_entries),
+                    len(toc_entries),
                 )
 
         # Prepare a version without page numbers for physical-index extraction
@@ -749,7 +775,9 @@ class PolicyIndex:
         physical_entries = [e.model_dump() for e in extract_result.output]
 
         # Calculate page offset from matching pairs
-        pairs = self._extract_matching_pairs(toc_entries, physical_entries, content_start + 1)
+        pairs = self._extract_matching_pairs(
+            toc_entries, physical_entries, content_start + 1
+        )
         offset = self._calculate_page_offset(pairs)
 
         if offset is not None:
@@ -763,12 +791,16 @@ class PolicyIndex:
             for entry in toc_entries:
                 # Try to match by title
                 for pe in physical_entries:
-                    if pe.get("title") == entry.get("title") and pe.get("physical_index"):
+                    if pe.get("title") == entry.get("title") and pe.get(
+                        "physical_index"
+                    ):
                         entry["physical_index"] = pe["physical_index"]
                         break
 
         # Fix entries that still don't have a physical_index
-        toc_entries = await self._fill_missing_page_numbers(toc_entries, pages, start_index)
+        toc_entries = await self._fill_missing_page_numbers(
+            toc_entries, pages, start_index
+        )
 
         return toc_entries
 
@@ -802,8 +834,12 @@ class PolicyIndex:
         # Transform TOC to structured entries
         transform_agent = create_toc_transform_agent(cfg.model)
         async with self._sem:
-            transform_result = await transform_agent.run(toc_transform_prompt(toc_content))
-        toc_entries = [e.model_dump() for e in transform_result.output.table_of_contents]
+            transform_result = await transform_agent.run(
+                toc_transform_prompt(toc_content)
+            )
+        toc_entries = [
+            e.model_dump() for e in transform_result.output.table_of_contents
+        ]
 
         # Verify the transformation captured all sections from the raw TOC.
         # If incomplete, retry once before proceeding.
@@ -815,8 +851,12 @@ class PolicyIndex:
                 len(toc_entries),
             )
             async with self._sem:
-                retry_result = await transform_agent.run(toc_transform_prompt(toc_content))
-            retry_entries = [e.model_dump() for e in retry_result.output.table_of_contents]
+                retry_result = await transform_agent.run(
+                    toc_transform_prompt(toc_content)
+                )
+            retry_entries = [
+                e.model_dump() for e in retry_result.output.table_of_contents
+            ]
             # Accept the retry if it produced more entries
             if len(retry_entries) >= len(toc_entries):
                 toc_entries = retry_entries
@@ -827,7 +867,8 @@ class PolicyIndex:
                 logger.warning(
                     "TOC transformation retry produced fewer entries (%d vs %d). "
                     "Keeping original result.",
-                    len(retry_entries), len(toc_entries),
+                    len(retry_entries),
+                    len(toc_entries),
                 )
 
         # Group pages for page-number addition
@@ -883,7 +924,8 @@ class PolicyIndex:
 
         # Select items to check
         valid_items = [
-            (i, item) for i, item in enumerate(items)
+            (i, item)
+            for i, item in enumerate(items)
             if item.get("physical_index") is not None
         ]
 
@@ -898,7 +940,12 @@ class PolicyIndex:
             page_num = item["physical_index"]
             page_idx = page_num - start_index
             if page_idx < 0 or page_idx >= len(pages):
-                return {"list_index": list_idx, "answer": "no", "title": item["title"], "page_number": page_num}
+                return {
+                    "list_index": list_idx,
+                    "answer": "no",
+                    "title": item["title"],
+                    "page_number": page_num,
+                }
 
             async with self._sem:
                 result = await checker_agent.run(
@@ -968,7 +1015,9 @@ class PolicyIndex:
                 break
             logger.info(
                 "Fix attempt %d/%d: %d items to fix",
-                attempt + 1, max_attempts, len(current_incorrect),
+                attempt + 1,
+                max_attempts,
+                len(current_incorrect),
             )
             current_items, current_incorrect = await self._fix_incorrect_toc(
                 current_items, pages, current_incorrect, start_index
@@ -982,7 +1031,8 @@ class PolicyIndex:
             logger.warning(
                 "Maximum fix attempts (%d) reached. %d items remain incorrect "
                 "and will be excluded from the final tree.",
-                max_attempts, len(current_incorrect),
+                max_attempts,
+                len(current_incorrect),
             )
             # Build a set of list indices that are still wrong
             unfixable_indices = {r["list_index"] for r in current_incorrect}
@@ -1070,7 +1120,9 @@ class PolicyIndex:
                 if 0 <= page_list_idx < len(pages):
                     async with self._sem:
                         check = await checker_agent.run(
-                            title_appearance_prompt(inc_item["title"], pages[page_list_idx].text)
+                            title_appearance_prompt(
+                                inc_item["title"], pages[page_list_idx].text
+                            )
                         )
                     is_valid = check.output.answer == "yes"
 
@@ -1094,11 +1146,13 @@ class PolicyIndex:
                 if 0 <= idx < len(items):
                     items[idx]["physical_index"] = r["physical_index"]
             else:
-                still_incorrect.append({
-                    "list_index": r["list_index"],
-                    "title": r["title"],
-                    "physical_index": r["physical_index"],
-                })
+                still_incorrect.append(
+                    {
+                        "list_index": r["list_index"],
+                        "title": r["title"],
+                        "physical_index": r["physical_index"],
+                    }
+                )
 
         return items, still_incorrect
 
@@ -1131,8 +1185,7 @@ class PolicyIndex:
                 item["appear_start"] = "no"
 
         valid_items = [
-            item for item in flat_items
-            if item.get("physical_index") is not None
+            item for item in flat_items if item.get("physical_index") is not None
         ]
 
         async def _check(item: dict[str, Any]) -> tuple[dict[str, Any], str]:
@@ -1181,10 +1234,16 @@ class PolicyIndex:
         token_count = sum(p.token_count for p in node_pages)
 
         page_span = node.end_page - node.start_page
-        if page_span > cfg.max_pages_per_node and token_count >= cfg.max_tokens_per_node:
+        if (
+            page_span > cfg.max_pages_per_node
+            and token_count >= cfg.max_tokens_per_node
+        ):
             logger.info(
                 "Splitting large node '%s' (pages %d-%d, %d tokens)",
-                node.title, node.start_page, node.end_page, token_count,
+                node.title,
+                node.start_page,
+                node.end_page,
+                token_count,
             )
 
             # Generate sub-structure for this node
@@ -1201,7 +1260,9 @@ class PolicyIndex:
                 if valid_sub[0]["title"].strip() == node.title.strip():
                     child_nodes = post_process_to_tree(valid_sub[1:], node.end_page)
                     if len(valid_sub) > 1:
-                        node.end_page = valid_sub[1].get("physical_index", node.end_page)  # type: ignore[assignment]
+                        node.end_page = valid_sub[1].get(
+                            "physical_index", node.end_page
+                        )  # type: ignore[assignment]
                 else:
                     child_nodes = post_process_to_tree(valid_sub, node.end_page)
                     node.end_page = valid_sub[0].get("physical_index", node.end_page)  # type: ignore[assignment]
@@ -1310,11 +1371,14 @@ class PolicyIndex:
             return items
         first_idx = items[0].get("physical_index")
         if first_idx is not None and first_idx > 1:
-            items.insert(0, {
-                "structure": "0",
-                "title": "Preface",
-                "physical_index": 1,
-            })
+            items.insert(
+                0,
+                {
+                    "structure": "0",
+                    "title": "Preface",
+                    "physical_index": 1,
+                },
+            )
         return items
 
     @staticmethod
@@ -1339,7 +1403,9 @@ class PolicyIndex:
             if idx is not None and idx > max_allowed:
                 logger.warning(
                     "Removed out-of-bounds index for '%s' (was %d, max %d)",
-                    item.get("title", "?"), idx, max_allowed,
+                    item.get("title", "?"),
+                    idx,
+                    max_allowed,
                 )
                 item["physical_index"] = None
         return items
@@ -1366,11 +1432,13 @@ class PolicyIndex:
                 if pe.get("title") == te.get("title"):
                     pi = pe.get("physical_index")
                     if pi is not None and int(pi) >= min_page:
-                        pairs.append({
-                            "title": pe["title"],
-                            "page": te.get("page"),
-                            "physical_index": pi,
-                        })
+                        pairs.append(
+                            {
+                                "title": pe["title"],
+                                "page": te.get("page"),
+                                "physical_index": pi,
+                            }
+                        )
         return pairs
 
     @staticmethod
@@ -1445,7 +1513,10 @@ class PolicyIndex:
                         f"<physical_index_{page_num}>\n\n"
                     )
 
-            item_for_lookup = {"structure": item.get("structure"), "title": item["title"]}
+            item_for_lookup = {
+                "structure": item.get("structure"),
+                "title": item["title"],
+            }
             async with self._sem:
                 result = await adder_agent.run(
                     page_number_adder_prompt("".join(content_parts), [item_for_lookup])
@@ -1458,7 +1529,9 @@ class PolicyIndex:
         return items
 
     @staticmethod
-    def _clean_structure_for_description(nodes: list[IndexNode]) -> list[dict[str, Any]]:
+    def _clean_structure_for_description(
+        nodes: list[IndexNode],
+    ) -> list[dict[str, Any]]:
         """Build a lightweight structure dict for description generation.
 
         Args:
@@ -1475,7 +1548,9 @@ class PolicyIndex:
             if node.summary:
                 entry["summary"] = node.summary
             if node.children:
-                entry["children"] = PolicyIndex._clean_structure_for_description(node.children)
+                entry["children"] = PolicyIndex._clean_structure_for_description(
+                    node.children
+                )
             result.append(entry)
         return result
 

@@ -215,7 +215,7 @@ class PythonCode(BaseModel):
             return v
         except Exception as e:
             raise ValueError(f"Code is not executable: {e}")
-        
+
     @property
     def code_markdown(self) -> str:
         return f"```python\n{self.code}\n```"
@@ -594,7 +594,7 @@ class AutoTuneLLM:
     Example:
         >>> import pandas as pd
         >>> from sklearn.ensemble import RandomForestClassifier
-        >>> 
+        >>>
         >>> # Create a tuner for XGBoost
         >>> tuner = AutoTuneLLM(
         ...     dataset=df,
@@ -602,7 +602,7 @@ class AutoTuneLLM:
         ...     estimator_type="xgboost",
         ...     scoring="roc_auc"
         ... )
-        >>> 
+        >>>
         >>> # Create a tuner for a custom estimator
         >>> custom_tuner = AutoTuneLLM(
         ...     dataset=df,
@@ -612,6 +612,7 @@ class AutoTuneLLM:
         ...     scoring="accuracy"
         ... )
     """
+
     def __init__(
         self,
         use_dataset_analysis: bool = True,
@@ -668,34 +669,34 @@ class AutoTuneLLM:
     def _update_best(self, value: float, params: dict, it: int) -> bool:
         """
         Update the list of best configurations with a new score and config.
-        
+
         Args:
             value (float): The score achieved by this configuration
-            params (dict): The hyperparameter configuration 
+            params (dict): The hyperparameter configuration
             it (int): The iteration number when this config was found
-            
+
         Returns:
             bool: True if this config is better than the previous best, False otherwise
         """
         # Store the previous best score before adding the new entry
-        previous_best_score = self.best_configs[0]["score"] if self.best_configs else float("-inf")
-        
+        previous_best_score = (
+            self.best_configs[0]["score"] if self.best_configs else float("-inf")
+        )
+
         entry = {"score": value, "config": params.copy(), "iteration": it}
         self.best_configs.append(entry)
         self.best_configs.sort(key=lambda x: x["score"], reverse=True)
         self.best_configs = self.best_configs[: self.top_n_configs]
-        
+
         # Return True only if this score is actually better than the previous best
         return value > previous_best_score
 
     def tune(
-        self, 
-        max_iterations: int = 5, 
-        user_description: Optional[str] = None
+        self, max_iterations: int = 5, user_description: Optional[str] = None
     ) -> None:
         """
         Tune the model using Optuna optimization with LLM-guided search space refinement.
-        
+
         Args:
             max_iterations (int): Maximum number of tuning iterations to perform.
                 Each iteration refines the search space based on previous results.
@@ -704,28 +705,28 @@ class AutoTuneLLM:
                 that will be used instead of the default task description. If None,
                 uses the task_description provided during initialization or performs
                 automated dataset analysis based on use_dataset_analysis setting.
-                
+
         Raises:
             ValueError: If dataset or target are not provided. Needed for Optuna trials.
-            
+
         Example:
             >>> tuner = AutoTuneLLM(dataset=df, target="target_col")
             >>> # Use default analysis
             >>> tuner.tune(max_iterations=3)
-            >>> 
+            >>>
             >>> # Use custom description
             >>> tuner.tune(
-            ...     max_iterations=5, 
+            ...     max_iterations=5,
             ...     user_description="Predict customer churn for telecom company"
             ... )
         """
         if self.dataset is None or self.target is None:
             raise ValueError("Dataset and target are required for tuning")
-            
+
         # Update task description if provided
         if user_description is not None:
             self.task_description = user_description
-            
+
         self._run_loop(max_iterations)
 
     def _run_loop(self, max_iters: int) -> None:
@@ -753,7 +754,7 @@ class AutoTuneLLM:
 
         # Store baseline metrics for comparison later
         self.baseline_metrics = metrics.copy()
-        
+
         # Access CV metrics with standard deviations
         print("Baseline metrics:")
         print(
@@ -877,33 +878,45 @@ class AutoTuneLLM:
             n_splits=5,  # Number of CV folds
             n_repeats=2,  # Number of CV repetitions
         )
-        
+
         # Store final metrics for later access
         self.final_metrics = final_results.copy()
-        
+
         # Print final metrics in same format as baseline
         print("\nFinal tuned model metrics:")
         print(
             f"CV Accuracy: {final_results['cv_accuracy']:.3f} (±{final_results['cv_accuracy_std']:.3f})"
         )
-        print(f"CV AUC: {final_results['cv_auc']:.3f} (±{final_results['cv_auc_std']:.3f})")
-        print(f"CV PPV: {final_results['cv_ppv']:.3f} (±{final_results['cv_ppv_std']:.3f})")
-        
+        print(
+            f"CV AUC: {final_results['cv_auc']:.3f} (±{final_results['cv_auc_std']:.3f})"
+        )
+        print(
+            f"CV PPV: {final_results['cv_ppv']:.3f} (±{final_results['cv_ppv_std']:.3f})"
+        )
+
         # Test set metrics
         print(f"Test Accuracy: {final_results['test_accuracy']:.3f}")
         print(f"Test AUC: {final_results['test_auc']:.3f}")
         print(f"Test PPV: {final_results['test_ppv']:.3f}")
-        
+
         # Print improvement comparison
         print("\n=== Improvement Summary ===")
-        cv_acc_improvement = final_results['cv_accuracy'] - self.baseline_metrics['cv_accuracy']
-        cv_auc_improvement = final_results['cv_auc'] - self.baseline_metrics['cv_auc']
-        cv_ppv_improvement = final_results['cv_ppv'] - self.baseline_metrics['cv_ppv']
-        
-        test_acc_improvement = final_results['test_accuracy'] - self.baseline_metrics['test_accuracy']
-        test_auc_improvement = final_results['test_auc'] - self.baseline_metrics['test_auc']
-        test_ppv_improvement = final_results['test_ppv'] - self.baseline_metrics['test_ppv']
-        
+        cv_acc_improvement = (
+            final_results["cv_accuracy"] - self.baseline_metrics["cv_accuracy"]
+        )
+        cv_auc_improvement = final_results["cv_auc"] - self.baseline_metrics["cv_auc"]
+        cv_ppv_improvement = final_results["cv_ppv"] - self.baseline_metrics["cv_ppv"]
+
+        test_acc_improvement = (
+            final_results["test_accuracy"] - self.baseline_metrics["test_accuracy"]
+        )
+        test_auc_improvement = (
+            final_results["test_auc"] - self.baseline_metrics["test_auc"]
+        )
+        test_ppv_improvement = (
+            final_results["test_ppv"] - self.baseline_metrics["test_ppv"]
+        )
+
         print(f"CV Accuracy improvement: {cv_acc_improvement:+.3f}")
         print(f"CV AUC improvement: {cv_auc_improvement:+.3f}")
         print(f"CV PPV improvement: {cv_ppv_improvement:+.3f}")
@@ -920,7 +933,7 @@ class AutoTuneLLM:
     def get_tuning_summary(self) -> dict:
         """
         Get a comprehensive summary of the tuning process and results.
-        
+
         Returns:
             dict: Dictionary containing tuning results, baseline/final metrics,
                  and improvement calculations.
@@ -931,18 +944,31 @@ class AutoTuneLLM:
             "top_configs": self.best_configs.copy(),
             "iterations": len(self.last_values),
             "progression": self.last_values.copy(),
-            "baseline_metrics": self.baseline_metrics.copy() if self.baseline_metrics else None,
+            "baseline_metrics": self.baseline_metrics.copy()
+            if self.baseline_metrics
+            else None,
             "final_metrics": self.final_metrics.copy() if self.final_metrics else None,
         }
-        
+
         # Calculate improvements if both baseline and final metrics are available
         if self.baseline_metrics and self.final_metrics:
             improvements = {}
-            for metric_name in ['cv_accuracy', 'cv_auc', 'cv_ppv', 'test_accuracy', 'test_auc', 'test_ppv']:
-                if metric_name in self.baseline_metrics and metric_name in self.final_metrics:
+            for metric_name in [
+                "cv_accuracy",
+                "cv_auc",
+                "cv_ppv",
+                "test_accuracy",
+                "test_auc",
+                "test_ppv",
+            ]:
+                if (
+                    metric_name in self.baseline_metrics
+                    and metric_name in self.final_metrics
+                ):
                     improvements[f"{metric_name}_improvement"] = (
-                        self.final_metrics[metric_name] - self.baseline_metrics[metric_name]
+                        self.final_metrics[metric_name]
+                        - self.baseline_metrics[metric_name]
                     )
             summary["improvements"] = improvements
-            
+
         return summary

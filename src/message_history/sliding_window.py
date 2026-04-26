@@ -108,7 +108,9 @@ class SlidingWindowProcessor:
             self.trigger, self.keep, self.max_input_tokens
         )
 
-    def _validate_context_size(self, context: ContextSize, parameter_name: str) -> ContextSize:
+    def _validate_context_size(
+        self, context: ContextSize, parameter_name: str
+    ) -> ContextSize:
         """Validate context configuration tuples."""
         return _validate_ctx(context, parameter_name)
 
@@ -134,11 +136,15 @@ class SlidingWindowProcessor:
         """Find cutoff index based on target token retention."""
         return _find_token(messages, target_token_count, self.token_counter)
 
-    def _find_safe_cutoff(self, messages: list[ModelMessage], messages_to_keep: int) -> int:
+    def _find_safe_cutoff(
+        self, messages: list[ModelMessage], messages_to_keep: int
+    ) -> int:
         """Find safe cutoff point that preserves tool call/response pairs."""
         return _find_safe(messages, messages_to_keep)
 
-    def _is_safe_cutoff_point(self, messages: list[ModelMessage], cutoff_index: int) -> bool:
+    def _is_safe_cutoff_point(
+        self, messages: list[ModelMessage], cutoff_index: int
+    ) -> bool:
         """Check if cutting at index would separate tool call/response pairs."""
         return _is_safe(messages, cutoff_index)
 
@@ -168,7 +174,10 @@ class SlidingWindowProcessor:
 
 
 def create_sliding_window_processor(
-    trigger: ContextSize | list[ContextSize] | None = ("messages", _DEFAULT_TRIGGER_MESSAGES),
+    trigger: ContextSize | list[ContextSize] | None = (
+        "messages",
+        _DEFAULT_TRIGGER_MESSAGES,
+    ),
     keep: ContextSize = ("messages", _DEFAULT_WINDOW_SIZE),
     max_input_tokens: int | None = None,
     token_counter: TokenCounter | None = None,

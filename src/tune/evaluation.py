@@ -18,7 +18,9 @@ from sklearn.metrics import get_scorer, make_scorer
 from sklearn.model_selection import RepeatedStratifiedKFold, RepeatedKFold
 
 
-def get_cv(task_type: str, cv_folds: int, n_repeats: int, stratify: bool,random_state: int) -> RepeatedStratifiedKFold | RepeatedKFold:
+def get_cv(
+    task_type: str, cv_folds: int, n_repeats: int, stratify: bool, random_state: int
+) -> RepeatedStratifiedKFold | RepeatedKFold:
     if task_type == "classification" and stratify:
         return RepeatedStratifiedKFold(
             n_splits=cv_folds,
@@ -64,8 +66,8 @@ def get_scorer_from_string(metric_name: str, task_type: str) -> Callable:
                 return make_scorer(r2_score)
 
         raise ValueError(f"Unsupported metric: {metric_name}")
-    
-    
+
+
 def get_default_metric(task_type: str) -> str:
     """Get default metric for a task type.
 
@@ -79,8 +81,8 @@ def get_default_metric(task_type: str) -> str:
         return "f1"  # More informative than accuracy for most cases
     else:  # regression
         return "r2"
-    
-    
+
+
 def get_scorer_smart(metric: Union[str, Callable, None], task_type: str) -> Callable:
     """Get scorer function with 'smart' defaults.
 
@@ -99,7 +101,7 @@ def get_scorer_smart(metric: Union[str, Callable, None], task_type: str) -> Call
         # Use better defaults than just accuracy/r2
         default_metric = get_default_metric(task_type)
         return get_scorer_from_string(default_metric, task_type)
-    
+
 
 def get_comprehensive_metrics(
     y_true, y_pred, y_pred_proba=None, task_type="classification"
@@ -120,9 +122,7 @@ def get_comprehensive_metrics(
     if task_type == "classification":
         # Core classification metrics
         metrics["accuracy"] = float(accuracy_score(y_true, y_pred))
-        metrics["balanced_accuracy"] = float(
-            balanced_accuracy_score(y_true, y_pred)
-        )
+        metrics["balanced_accuracy"] = float(balanced_accuracy_score(y_true, y_pred))
 
         # Handle multiclass vs binary
         average_method = "binary" if len(np.unique(y_true)) == 2 else "weighted"

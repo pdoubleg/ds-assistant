@@ -592,7 +592,7 @@ def exploratory_data_analysis(
         >>> results = exploratory_data_analysis(df, 'target_column')
         >>> summary = format_eda_for_llm(results)
         >>> print(summary)
-        >>> 
+        >>>
         >>> # Without target column (unsupervised analysis)
         >>> results = exploratory_data_analysis(df)
         >>> summary = format_eda_for_llm(results)
@@ -772,7 +772,7 @@ def exploratory_data_analysis(
     target_is_binary = False
     target_is_numeric = False
     target_is_categorical = False
-    
+
     if target is not None:
         target_is_binary = target in binary_cols
         target_is_numeric = target in numeric_cols
@@ -819,8 +819,12 @@ def exploratory_data_analysis(
             # Calculate mutual info for numeric features
             if numeric_cols:
                 clean_numeric = df[numeric_cols].fillna(0)
-                mi_numeric = mutual_info_classif(clean_numeric, y, discrete_features=False)
-                feature_target_scores.update(dict(zip(numeric_cols, mi_numeric.tolist())))
+                mi_numeric = mutual_info_classif(
+                    clean_numeric, y, discrete_features=False
+                )
+                feature_target_scores.update(
+                    dict(zip(numeric_cols, mi_numeric.tolist()))
+                )
 
             # Calculate mutual info for binary features (excluding target)
             binary_features = [c for c in binary_cols if c != target]
@@ -829,8 +833,12 @@ def exploratory_data_analysis(
                 clean_binary = df[binary_features].fillna(-1)
                 # Convert to numeric codes for mutual info
                 binary_encoded = clean_binary.apply(lambda x: pd.Categorical(x).codes)
-                mi_binary = mutual_info_classif(binary_encoded, y, discrete_features=True)
-                feature_target_scores.update(dict(zip(binary_features, mi_binary.tolist())))
+                mi_binary = mutual_info_classif(
+                    binary_encoded, y, discrete_features=True
+                )
+                feature_target_scores.update(
+                    dict(zip(binary_features, mi_binary.tolist()))
+                )
 
             feature_target = {
                 "method": "mutual_info_classification",
@@ -844,7 +852,11 @@ def exploratory_data_analysis(
             # Pearson correlation for numeric features
             if numeric_cols:
                 corr_with_target = (
-                    df[numeric_cols + [target]].corr()[target].drop(target).abs().to_dict()
+                    df[numeric_cols + [target]]
+                    .corr()[target]
+                    .drop(target)
+                    .abs()
+                    .to_dict()
                 )
                 feature_target_scores.update(corr_with_target)
 
@@ -967,7 +979,7 @@ def format_eda_for_llm(
         f"Dataset: {info['rows']}×{info['columns']} ({info['memory_usage_mb']} MB)"
     )
     lines.append("Columns: " + ", ".join(info["column_names"]))
-    if eda['target_column'] is not None:
+    if eda["target_column"] is not None:
         lines.append(f"Target: {eda['target_column']}")
     else:
         lines.append("Target: None (unsupervised analysis)")
@@ -1077,14 +1089,18 @@ def format_eda_for_llm(
         if ts["type"] == "binary":
             values_info = "; ".join(
                 f"{val}: {count} ({prop}%)"
-                for val, count, prop in zip(ts["values"], ts["counts"], ts["proportions"])
+                for val, count, prop in zip(
+                    ts["values"], ts["counts"], ts["proportions"]
+                )
             )
             balance_status = (
                 "balanced"
                 if ts["is_balanced"]
                 else f"imbalanced (ratio: {ts['balance_ratio']:.3f})"
             )
-            lines.append(f"Target (binary) distribution: {values_info} - {balance_status}")
+            lines.append(
+                f"Target (binary) distribution: {values_info} - {balance_status}"
+            )
         elif ts["type"] == "numeric":
             s = ts["summary"]
             lines.append(
@@ -1561,27 +1577,30 @@ def make_dataset_numeric(
     target_column: str | None = None,
     categorical_cols: list[str] | None = None,
     return_encoder: bool = False,
-) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[pd.DataFrame, pd.DataFrame, OrdinalEncoder]:
+) -> (
+    tuple[pd.DataFrame, pd.DataFrame]
+    | tuple[pd.DataFrame, pd.DataFrame, OrdinalEncoder]
+):
     """
     Convert categorical columns in train/test datasets to numeric values.
-    
+
     This function automatically handles:
     - Pandas categorical columns
     - Object/string columns
     - Missing values
     - Unknown categories in test set
-    
+
     Args:
         df_train (pd.DataFrame): Training dataset
         df_test (Optional[pd.DataFrame]): Test dataset (optional)
         target_column (Optional[str]): Target column name to exclude from encoding
         categorical_cols (Optional[List[str]]): Specific columns to encode
         return_encoder (bool): Whether to return the fitted encoder
-        
+
     Returns:
         Union[Tuple[pd.DataFrame, pd.DataFrame], Tuple[pd.DataFrame, pd.DataFrame, OrdinalEncoder]]:
             Processed training and test datasets, optionally with encoder
-            
+
     Example:
         >>> train = pd.DataFrame({'cat': ['A', 'B'], 'num': [1, 2], 'target': [0, 1]})
         >>> test = pd.DataFrame({'cat': ['A', 'C'], 'num': [3, 4], 'target': [1, 0]})
@@ -1592,60 +1611,72 @@ def make_dataset_numeric(
     # Create copies to avoid modifying original dataframes
     df_train_processed = df_train.copy()
     df_test_processed = df_test.copy() if df_test is not None else None
-    
+
     # Identify categorical columns if not provided
     if categorical_cols is None:
-        categorical_cols = df_train_processed.select_dtypes(include=['object', 'category']).columns.tolist()
+        categorical_cols = df_train_processed.select_dtypes(
+            include=["object", "category"]
+        ).columns.tolist()
         if target_column and target_column in categorical_cols:
             categorical_cols.remove(target_column)
-    
+
     if not categorical_cols:
         if return_encoder:
             return df_train_processed, df_test_processed, None
         return df_train_processed, df_test_processed
-    
+
     # Initialize encoder
     encoder = OrdinalEncoder(
-        handle_unknown='use_encoded_value',
-        unknown_value=-1,
-        dtype=np.int32
+        handle_unknown="use_encoded_value", unknown_value=-1, dtype=np.int32
     )
-    
+
     # Process categorical columns
     for col in categorical_cols:
         # Handle pandas categorical columns
         if pd.api.types.is_categorical_dtype(df_train_processed[col]):
             # Add 'missing' category if not present
-            if 'missing' not in df_train_processed[col].cat.categories:
-                df_train_processed[col] = df_train_processed[col].cat.add_categories('missing')
+            if "missing" not in df_train_processed[col].cat.categories:
+                df_train_processed[col] = df_train_processed[col].cat.add_categories(
+                    "missing"
+                )
             # Fill missing values
-            df_train_processed[col] = df_train_processed[col].fillna('missing')
-            
+            df_train_processed[col] = df_train_processed[col].fillna("missing")
+
             if df_test_processed is not None:
                 # Ensure test set has same categories as train set
                 test_categories = set(df_test_processed[col].cat.categories)
                 train_categories = set(df_train_processed[col].cat.categories)
                 missing_categories = train_categories - test_categories
-                
+
                 if missing_categories:
-                    df_test_processed[col] = df_test_processed[col].cat.add_categories(list(missing_categories))
-                df_test_processed[col] = df_test_processed[col].fillna('missing')
-        
+                    df_test_processed[col] = df_test_processed[col].cat.add_categories(
+                        list(missing_categories)
+                    )
+                df_test_processed[col] = df_test_processed[col].fillna("missing")
+
         # Handle object/string columns
         else:
             # Convert to string and fill missing values
-            df_train_processed[col] = df_train_processed[col].astype(str).fillna('missing')
+            df_train_processed[col] = (
+                df_train_processed[col].astype(str).fillna("missing")
+            )
             if df_test_processed is not None:
-                df_test_processed[col] = df_test_processed[col].astype(str).fillna('missing')
-    
+                df_test_processed[col] = (
+                    df_test_processed[col].astype(str).fillna("missing")
+                )
+
     # Fit encoder on training data
     encoder.fit(df_train_processed[categorical_cols])
-    
+
     # Transform both datasets
-    df_train_processed[categorical_cols] = encoder.transform(df_train_processed[categorical_cols])
+    df_train_processed[categorical_cols] = encoder.transform(
+        df_train_processed[categorical_cols]
+    )
     if df_test_processed is not None:
-        df_test_processed[categorical_cols] = encoder.transform(df_test_processed[categorical_cols])
-    
+        df_test_processed[categorical_cols] = encoder.transform(
+            df_test_processed[categorical_cols]
+        )
+
     if return_encoder:
         return df_train_processed, df_test_processed, encoder
     return df_train_processed, df_test_processed
@@ -1684,9 +1715,7 @@ def accuracy_metric(target, pred):
 
 
 def metric_ppv(
-    y_true: list | pd.Series, 
-    y_pred: list | pd.Series, 
-    top_p: float
+    y_true: list | pd.Series, y_pred: list | pd.Series, top_p: float
 ) -> float:
     """
     Computes PPV (Positive Predictive Value) at the top p% predicted probability scores.
@@ -1719,13 +1748,14 @@ def metric_ppv(
 
     top_num = max(1, math.ceil(len(y_true) * top_p))
 
-    ranked = pd.DataFrame({
-        "label": pd.Series(y_true).values,
-        "predicted_prob": pd.Series(y_pred).values,
-    })
+    ranked = pd.DataFrame(
+        {
+            "label": pd.Series(y_true).values,
+            "predicted_prob": pd.Series(y_pred).values,
+        }
+    )
 
     top_ranked = ranked.sort_values("predicted_prob", ascending=False).head(top_num)
     ppv = top_ranked["label"].value_counts(normalize=True).get(1, 0.0)
 
     return ppv
-

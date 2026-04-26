@@ -58,7 +58,12 @@ from .utils import (
     extract_logs_from_study,
     get_model_pipeline,
 )
-from .evaluation import get_comprehensive_metrics, get_default_metric, get_scorer_smart, get_cv
+from .evaluation import (
+    get_comprehensive_metrics,
+    get_default_metric,
+    get_scorer_smart,
+    get_cv,
+)
 from .logging import BaseTuningLogger, MLflowLogger, LocalFileLogger, NoOpLogger
 
 # Removes warnings in the current job
@@ -562,11 +567,12 @@ class MLflowAutoTuner:
             self._print_final_summary(final_results)
 
         return final_results
-    
-    
-    def generate_search_space_from_code(self, code: str) -> Callable[[optuna.trial.Trial], dict]:
+
+    def generate_search_space_from_code(
+        self, code: str
+    ) -> Callable[[optuna.trial.Trial], dict]:
         """Execute LLM code and return the define_search_space function."""
-        
+
         local_ns: dict[str, Any] = {"optuna": optuna, "np": np}
         exec(code, local_ns)
         return local_ns["define_search_space"]
@@ -1038,7 +1044,7 @@ class MLflowAutoTuner:
 
     def _save_results_via_logger(self):
         """Save results using the pluggable logger system."""
-        
+
         if not self.best_configs:
             return
 

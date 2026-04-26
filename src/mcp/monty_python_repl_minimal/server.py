@@ -46,6 +46,7 @@ def get_repl() -> MinimalMontyPythonREPL:
         _repl = MinimalMontyPythonREPL()
     return _repl
 
+
 @mcp.tool(name="help")
 async def help(
     name: Annotated[
@@ -60,6 +61,7 @@ async def help(
 ) -> str:
     """Describe available safe modeling helpers."""
     return get_repl().help(name=name)
+
 
 @mcp.tool(name="execute")
 async def execute(

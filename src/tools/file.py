@@ -1,4 +1,3 @@
-
 import re
 from pathlib import Path
 from typing import Union
@@ -7,10 +6,9 @@ from pydantic_ai.toolsets import FunctionToolset
 from pydantic_ai import ModelRetry
 
 
-
 def resolve_path(path_input: Union[str, Path]) -> Path:
     """Resolve a path to an absolute, normalized Path."""
-    
+
     p = Path(path_input)
     return p.resolve() if p.is_absolute() else (Path.cwd() / p).resolve()
 
@@ -163,9 +161,7 @@ def inspect_directory(directory: str = ".") -> str:
                             f"{emoji} {item.name} ({size_str}) - Path: {exact_path}"
                         )
                     except Exception as _:
-                        result.append(
-                            f"{item.name} - Path: {exact_path}"
-                        )
+                        result.append(f"{item.name} - Path: {exact_path}")
 
             if len(result) == 1:  # Only the directory header
                 result.append("empty directory")
@@ -311,7 +307,9 @@ def edit_file(file_path: str, old_str: str, new_str: str) -> str:
         raise ModelRetry(error_msg)
 
 
-def grep_a(file_path: str, pattern: str, after_lines: int = 20, before_lines: int = 0) -> str:
+def grep_a(
+    file_path: str, pattern: str, after_lines: int = 20, before_lines: int = 0
+) -> str:
     """
     Grep a file for a pattern and return the lines before and after the match.
 
@@ -347,4 +345,7 @@ def grep_a(file_path: str, pattern: str, after_lines: int = 20, before_lines: in
 
     return "\n".join(match_lines)
 
-file_tools = FunctionToolset(tools=[inspect_directory, write_file, read_file], max_retries=5)
+
+file_tools = FunctionToolset(
+    tools=[inspect_directory, write_file, read_file], max_retries=5
+)

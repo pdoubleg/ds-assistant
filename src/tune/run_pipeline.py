@@ -10,12 +10,23 @@ from sklearn.model_selection import cross_val_score
 from logging import getLogger
 import optuna
 
-from databricks.mlflow.utils import add_group_to_experiment, add_group_to_registered_model, check_dependencies, log_standard_tags # type: ignore
-from databricks.mlflow.utils import split_data_on_indexes, get_split_indexes, get_feature_pipeline, get_model_pipeline # type: ignore
-from databricks.mlflow.utils import evaluation_metrics # type: ignore
+from databricks.mlflow.utils import (
+    add_group_to_experiment,
+    add_group_to_registered_model,
+    check_dependencies,
+    log_standard_tags,
+)  # type: ignore
+from databricks.mlflow.utils import (
+    split_data_on_indexes,
+    get_split_indexes,
+    get_feature_pipeline,
+    get_model_pipeline,
+)  # type: ignore
+from databricks.mlflow.utils import evaluation_metrics  # type: ignore
 
 
 logger = getLogger(__name__)
+
 
 def load_data():
     """Load the data from the CSV file."""
@@ -31,9 +42,9 @@ def train_and_log_model(
     model_hyperparameters: dict[str] = None,
     feature_hyperparameters: dict[str] = None,
     split_hyperparameters: dict[str] = None,
-) -> dict: 
+) -> dict:
     """Run an ML Flow experiment and log to Databricks using the args sent in.
-    
+
     Args:
         X (pd.DataFrame): Preprocessed data ready for training.
         y (pd.Series): Target variable for training.
@@ -99,7 +110,6 @@ def train_and_log_model(
             mlflow.log_metrics(metrics)  # Log all metrics
             return metrics  # Return all metrics
 
- 
 
 def objective(trial):
     """Objective function for Optuna to optimize."""
@@ -140,7 +150,6 @@ def objective(trial):
 
     return metrics["f1"]  # Return F1 score for Optuna optimization
 
- 
 
 def run_pipeline() -> None:
     """Train and log the model to MLFlow with Optuna hyperparameter tuning."""
@@ -156,7 +165,7 @@ def run_pipeline() -> None:
         mlflow.log_params(trial.params)
         log_standard_tags()
 
- 
+
 if __name__ == "__main__":
     logger.info("Running training...")
     run_pipeline()

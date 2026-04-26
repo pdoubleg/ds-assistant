@@ -113,11 +113,11 @@ def get_refine_search_space_prompt(
         all_time_best_configs (str | None): Top configurations across all runs (optional)
         iteration (int | None): Current iteration number (optional)
         max_iterations (int | None): Maximum number of iterations (optional)
-        
+
     Returns:
         str: The formatted prompt for search space refinement
     """
-    
+
     if iteration is not None and max_iterations is not None:
         prompt_parts = [
             f"--- Iteration {iteration + 1}/{max_iterations} ---",
@@ -312,10 +312,9 @@ def tune_xgb_model(search_space: dict, X: pd.DataFrame, y: pd.Series) -> BaseEst
     #     factor=2,
     #     verbose=0,
     # ).fit(X, y)
-    
 
     precision_scorer = make_scorer(precision_score, pos_label=1)
-    
+
     search = HalvingRandomSearchCV(
         clf,
         search_space,
@@ -440,8 +439,10 @@ class XGBoostTuner:
             bool: True if this config is better than the previous best, False otherwise
         """
         # Store the previous best score before adding the new entry
-        previous_best_score = self.best_configs[0]["score"] if self.best_configs else float("-inf")
-        
+        previous_best_score = (
+            self.best_configs[0]["score"] if self.best_configs else float("-inf")
+        )
+
         new_entry = {"score": score, "config": config.copy(), "iteration": iteration}
 
         # Add the new entry

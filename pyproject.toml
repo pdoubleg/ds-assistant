@@ -60,4 +60,5 @@ dependencies = [
     "griffe>=2.0",
     "pytest>=9.0.3",
     "shap>=0.51.0",
+    "h3>=4.4.2",
 ]

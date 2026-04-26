@@ -177,7 +177,9 @@ def render_tree_markdown(nodes: list[IndexNode], indent: int = 0) -> str:
     prefix = "  " * indent + "- "
     for node in nodes:
         id_part = f"**[{node.node_id}]** " if node.node_id else ""
-        lines.append(f"{prefix}{id_part}{node.title} (pp. {node.start_page}-{node.end_page})")
+        lines.append(
+            f"{prefix}{id_part}{node.title} (pp. {node.start_page}-{node.end_page})"
+        )
         if node.children:
             lines.append(render_tree_markdown(node.children, indent + 1))
     return "\n".join(lines)

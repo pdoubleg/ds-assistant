@@ -45,13 +45,23 @@ class IndexConfig(BaseModel):
 
     model: str = Field(default="gpt-4.1-mini", description="OpenAI model name")
     toc_check_pages: int = Field(default=1, gt=0, description="Pages to scan for TOC")
-    max_pages_per_node: int = Field(default=5, gt=0, description="Max pages per node before splitting")
-    max_tokens_per_node: int = Field(default=12_000, gt=0, description="Max tokens per node before splitting")
+    max_pages_per_node: int = Field(
+        default=5, gt=0, description="Max pages per node before splitting"
+    )
+    max_tokens_per_node: int = Field(
+        default=12_000, gt=0, description="Max tokens per node before splitting"
+    )
     add_node_ids: bool = Field(default=True, description="Assign sequential node IDs")
-    add_summaries: bool = Field(default=True, description="Generate per-node LLM summaries")
-    add_descriptions: bool = Field(default=True, description="Generate document description")
+    add_summaries: bool = Field(
+        default=True, description="Generate per-node LLM summaries"
+    )
+    add_descriptions: bool = Field(
+        default=True, description="Generate document description"
+    )
     add_text: bool = Field(default=True, description="Attach extracted text to nodes")
-    max_concurrent_llm_calls: int = Field(default=10, gt=0, description="Semaphore limit for concurrent LLM calls")
+    max_concurrent_llm_calls: int = Field(
+        default=10, gt=0, description="Semaphore limit for concurrent LLM calls"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +143,12 @@ class DocumentIndex(BaseModel):
     """
 
     doc_name: str = Field(description="Document file name")
-    doc_description: str | None = Field(default=None, description="One-sentence document description")
-    root_nodes: list[IndexNode] = Field(default_factory=list, description="Top-level tree nodes")
+    doc_description: str | None = Field(
+        default=None, description="One-sentence document description"
+    )
+    root_nodes: list[IndexNode] = Field(
+        default_factory=list, description="Top-level tree nodes"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +165,9 @@ class TocDetectionResult(BaseModel):
     """
 
     reasoning: str = Field(description="Why the page is or is not a TOC page")
-    is_toc_page: bool = Field(description="True if the page contains a table of contents")
+    is_toc_page: bool = Field(
+        description="True if the page contains a table of contents"
+    )
 
 
 class TocEntry(BaseModel):
@@ -165,7 +181,9 @@ class TocEntry(BaseModel):
 
     structure: str = Field(description="Hierarchical numbering (e.g. '1.2.3')")
     title: str = Field(description="Section title")
-    page: int | None = Field(default=None, description="Page number from TOC (if present)")
+    page: int | None = Field(
+        default=None, description="Page number from TOC (if present)"
+    )
 
 
 class TocTransformResult(BaseModel):
@@ -187,7 +205,9 @@ class TitleAppearanceResult(BaseModel):
     """
 
     thinking: str = Field(description="Reasoning about title appearance")
-    answer: Literal["yes", "no"] = Field(description="Whether the title appears on the page")
+    answer: Literal["yes", "no"] = Field(
+        description="Whether the title appears on the page"
+    )
 
 
 class TitleStartResult(BaseModel):
@@ -235,7 +255,9 @@ class PageIndexEntry(BaseModel):
 
     structure: str | None = Field(default=None, description="Hierarchical numbering")
     title: str = Field(description="Section title")
-    physical_index: int | None = Field(default=None, ge=1, description="1-based physical page index")
+    physical_index: int | None = Field(
+        default=None, ge=1, description="1-based physical page index"
+    )
 
 
 class TocGeneratorEntry(BaseModel):
@@ -249,7 +271,9 @@ class TocGeneratorEntry(BaseModel):
 
     structure: str = Field(description="Hierarchical numbering (e.g. '1.2.3')")
     title: str = Field(description="Section title")
-    physical_index: int | None = Field(default=None, ge=1, description="Physical page index")
+    physical_index: int | None = Field(
+        default=None, ge=1, description="Physical page index"
+    )
 
 
 class SingleItemFixResult(BaseModel):
@@ -261,7 +285,9 @@ class SingleItemFixResult(BaseModel):
     """
 
     thinking: str = Field(description="Reasoning for the corrected page index")
-    physical_index: int | None = Field(default=None, ge=1, description="Corrected physical page index")
+    physical_index: int | None = Field(
+        default=None, ge=1, description="Corrected physical page index"
+    )
 
 
 class PageIndexDetectionResult(BaseModel):
@@ -273,7 +299,9 @@ class PageIndexDetectionResult(BaseModel):
     """
 
     thinking: str = Field(description="Reasoning about page index presence")
-    page_index_given_in_toc: bool = Field(description="True if the TOC contains page numbers")
+    page_index_given_in_toc: bool = Field(
+        description="True if the TOC contains page numbers"
+    )
 
 
 class CompletenessCheckResult(BaseModel):

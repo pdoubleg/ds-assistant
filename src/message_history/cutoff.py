@@ -25,7 +25,9 @@ from pydantic_ai.messages import (
 from .types import ContextSize, TokenCounter
 
 
-async def async_count_tokens(token_counter: TokenCounter, messages: Sequence[ModelMessage]) -> int:
+async def async_count_tokens(
+    token_counter: TokenCounter, messages: Sequence[ModelMessage]
+) -> int:
     """Call a token counter, awaiting if it returns an awaitable.
 
     Args:
@@ -66,7 +68,9 @@ def validate_context_size(context: ContextSize, parameter_name: str) -> ContextS
             )
     elif kind in {"tokens", "messages"}:
         if value < 0:
-            raise ValueError(f"{parameter_name} thresholds must be non-negative, got {value}.")
+            raise ValueError(
+                f"{parameter_name} thresholds must be non-negative, got {value}."
+            )
     else:
         raise ValueError(f"Unsupported context size type {kind} for {parameter_name}.")
     return context
@@ -296,7 +300,9 @@ def validate_triggers_and_keep(
     validated_keep = validate_context_size(keep, "keep")
 
     # Check fraction requirements
-    uses_fraction = any(t[0] == "fraction" for t in trigger_conditions) or keep[0] == "fraction"
+    uses_fraction = (
+        any(t[0] == "fraction" for t in trigger_conditions) or keep[0] == "fraction"
+    )
     if uses_fraction and max_input_tokens is None:
         raise ValueError(
             "max_input_tokens is required when using fraction-based trigger or keep values."
@@ -327,7 +333,9 @@ async def async_determine_cutoff_index(
         return await async_find_token_based_cutoff(messages, int(value), token_counter)
     elif kind == "fraction" and max_input_tokens:
         target_tokens = int(max_input_tokens * value)
-        return await async_find_token_based_cutoff(messages, target_tokens, token_counter)
+        return await async_find_token_based_cutoff(
+            messages, target_tokens, token_counter
+        )
 
     return find_safe_cutoff(messages, default_keep)  # pragma: no cover
 
@@ -341,7 +349,10 @@ async def async_find_token_based_cutoff(
 
     Supports both sync and async token counters.
     """
-    if not messages or await async_count_tokens(token_counter, messages) <= target_token_count:
+    if (
+        not messages
+        or await async_count_tokens(token_counter, messages) <= target_token_count
+    ):
         return 0
 
     left, right = 0, len(messages)
@@ -352,7 +363,10 @@ async def async_find_token_based_cutoff(
             break
 
         mid = (left + right) // 2
-        if await async_count_tokens(token_counter, messages[mid:]) <= target_token_count:
+        if (
+            await async_count_tokens(token_counter, messages[mid:])
+            <= target_token_count
+        ):
             cutoff_candidate = mid
             right = mid
         else:

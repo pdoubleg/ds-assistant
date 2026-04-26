@@ -9,7 +9,9 @@ from scipy import sparse
 from sklearn import compose, feature_extraction, impute, pipeline, preprocessing
 
 
-def convert_categorical_to_integer_f(column: pd.Series, mapping: Optional[Dict[int, str]] = None) -> pd.Series:
+def convert_categorical_to_integer_f(
+    column: pd.Series, mapping: Optional[Dict[int, str]] = None
+) -> pd.Series:
     """
     Converts a categorical column to integer values using the given mapping.
 
@@ -30,7 +32,12 @@ def convert_categorical_to_integer_f(column: pd.Series, mapping: Optional[Dict[i
     return column
 
 
-def run_llm_code(code: str, df: pd.DataFrame, convert_categorical_to_integer: Optional[bool] = False, fill_na: Optional[bool] = False) -> pd.DataFrame:
+def run_llm_code(
+    code: str,
+    df: pd.DataFrame,
+    convert_categorical_to_integer: Optional[bool] = False,
+    fill_na: Optional[bool] = False,
+) -> pd.DataFrame:
     """
     Executes the given code on the given dataframe and returns the resulting dataframe.
 
@@ -50,7 +57,7 @@ def run_llm_code(code: str, df: pd.DataFrame, convert_categorical_to_integer: Op
         >>> run_llm_code(code, df)
            a  b
         0  1.0  x
-        1  2.0  
+        1  2.0
         2  0.0  z
     """
     try:
@@ -63,7 +70,13 @@ def run_llm_code(code: str, df: pd.DataFrame, convert_categorical_to_integer: Op
         if convert_categorical_to_integer:
             df = df.apply(convert_categorical_to_integer_f)
 
-        access_scope = {"df": df, "pd": pd, "np": np, "scipy": scipy, "sklearn": sklearn}
+        access_scope = {
+            "df": df,
+            "pd": pd,
+            "np": np,
+            "scipy": scipy,
+            "sklearn": sklearn,
+        }
         parsed = ast.parse(code)
         check_ast(parsed)
         # Use the same namespace for both global and local scope so variables are accessible
@@ -73,8 +86,11 @@ def run_llm_code(code: str, df: pd.DataFrame, convert_categorical_to_integer: Op
 
     except Exception as e:
         import traceback
+
         tb = traceback.format_exc()
-        raise ValueError(f"Code could not be executed! {e}. \nTraceback: {tb}\nCode that failed: {code}")
+        raise ValueError(
+            f"Code could not be executed! {e}. \nTraceback: {tb}\nCode that failed: {code}"
+        )
 
     return df
 
@@ -92,7 +108,9 @@ def get_default_tabular_encoder(df: pd.DataFrame) -> Any:
         ValueError: If the dataframe does not contain any feature columns.
     """
     if df.empty:
-        raise ValueError("Cannot build a default encoder for an empty feature dataframe.")
+        raise ValueError(
+            "Cannot build a default encoder for an empty feature dataframe."
+        )
 
     numeric_columns = list(df.select_dtypes(include=["number", "bool"]).columns)
     categorical_columns = [col for col in df.columns if col not in numeric_columns]

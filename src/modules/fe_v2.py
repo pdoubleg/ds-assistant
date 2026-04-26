@@ -101,9 +101,7 @@ MODEL_PROMPT_DETAILS = {
 
 
 def metric_ppv(
-    y_true: Union[list, pd.Series], 
-    y_pred: Union[list, pd.Series], 
-    top_p: float
+    y_true: Union[list, pd.Series], y_pred: Union[list, pd.Series], top_p: float
 ) -> float:
     """
     Computes PPV (Positive Predictive Value) at the top p% predicted probability scores.
@@ -136,10 +134,12 @@ def metric_ppv(
 
     top_num = max(1, math.ceil(len(y_true) * top_p))
 
-    ranked = pd.DataFrame({
-        "label": pd.Series(y_true).values,
-        "predicted_prob": pd.Series(y_pred).values,
-    })
+    ranked = pd.DataFrame(
+        {
+            "label": pd.Series(y_true).values,
+            "predicted_prob": pd.Series(y_pred).values,
+        }
+    )
 
     top_ranked = ranked.sort_values("predicted_prob", ascending=False).head(top_num)
     ppv = top_ranked["label"].value_counts(normalize=True).get(1, 0.0)
@@ -603,7 +603,9 @@ def get_feature_generation_agent(
                 ctx.deps.dataset,
                 fill_na=True,
             )
-            feature_df = feature_df.drop(columns=[ctx.deps.target_name], errors="ignore")
+            feature_df = feature_df.drop(
+                columns=[ctx.deps.target_name], errors="ignore"
+            )
             run_llm_encoder_code(result.encoding_code_to_run, feature_df)
         except Exception as e:
             logger.error(
@@ -896,7 +898,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
     A scikit-learn–compatible transformer that uses an LLM (e.g. GPT-4o)
     to iteratively generate new features (CAAFE algorithm), evaluating each batch
     via RepeatedStratifiedKFold and keeping only those that show improvement.
-    
+
     Supports:
 
     - Logging (no direct prints/displays)
@@ -1037,11 +1039,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         self.dataset_description = dataset_description or ""
         self.max_features = max_features
         self.optimization_metric = optimization_metric.lower()
-        
+
         # Validate optimization metric
         if self.optimization_metric not in ["accuracy", "auc", "ppv"]:
-            raise ValueError("optimization_metric must be one of: 'accuracy', 'auc', 'ppv'")
-            
+            raise ValueError(
+                "optimization_metric must be one of: 'accuracy', 'auc', 'ppv'"
+            )
+
         self.iterations = iterations
         self.llm_model = llm_model
         self.n_splits = n_splits
@@ -1154,7 +1158,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         Returns:
             Combined executable code.
         """
-        return "\n\n".join(block.strip() for block in code_blocks if block and block.strip())
+        return "\n\n".join(
+            block.strip() for block in code_blocks if block and block.strip()
+        )
 
     def _describe_encoding_strategy(self, encoding_code: str) -> str:
         """Return a human-readable encoding strategy label.
@@ -1284,7 +1290,6 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         )
         return encoded_df
 
-
     def fit(
         self,
         X: pd.DataFrame,
@@ -1400,9 +1405,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                 )
                 return self
             except Exception as e:
-                self.logger.error(
-                    f"Failed to load code from {load_code_path}: {e}"
-                )
+                self.logger.error(f"Failed to load code from {load_code_path}: {e}")
                 raise IOError(f"Failed to load code from {load_code_path}: {e}")
 
         # Otherwise, run full iterative feature-engineering process
@@ -1444,7 +1447,7 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
             self.baseline_auc
             if self.optimization_metric == "auc"
             else self.baseline_acc
-            if self.optimization_metric == "accuracy" 
+            if self.optimization_metric == "accuracy"
             else self.baseline_ppv
         )
         self.logger.info(
@@ -1514,7 +1517,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                 llm_start_time = time.time()
                 self.logger.info("\n\n→ Invoking LLM for new feature generation...\n")
 
-                result = self.feature_agent.run_sync(prompt, deps=self.deps, message_history=messages or None)
+                result = self.feature_agent.run_sync(
+                    prompt, deps=self.deps, message_history=messages or None
+                )
                 llm_duration = time.time() - llm_start_time
 
                 feature_result = result.output
@@ -1595,11 +1600,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                     improvement_ppv = np.nanmean(new_results["ppv"]) - np.nanmean(
                         old_results["ppv"]
                     )
-                    
+
                     # Determine significance based on the primary optimization metric
                     primary_improvement = (
-                        improvement_roc if self.optimization_metric == "auc"
-                        else improvement_acc if self.optimization_metric == "accuracy"
+                        improvement_roc
+                        if self.optimization_metric == "auc"
+                        else improvement_acc
+                        if self.optimization_metric == "accuracy"
                         else improvement_ppv
                     )
                     is_significant = primary_improvement > 0
@@ -1679,7 +1686,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
                         if auc_improvement > 0:
                             self.logger.info(f"\nROC AUC +{auc_improvement:.4}")
                         if ppv_improvement > 0:
-                            self.logger.info(f"\nPPV@{self.top_p:.1%} +{ppv_improvement:.4}")
+                            self.logger.info(
+                                f"\nPPV@{self.top_p:.1%} +{ppv_improvement:.4}"
+                            )
 
                         # Update our accumulated feature code
                         self.full_code = self._combine_code_blocks(self.full_code, code)
@@ -1791,7 +1800,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         self._is_fitted = True
         return self
 
-    def transform(self, X: pd.DataFrame, convert_categorical_to_integer: bool = False) -> pd.DataFrame:
+    def transform(
+        self, X: pd.DataFrame, convert_categorical_to_integer: bool = False
+    ) -> pd.DataFrame:
         """
         Apply the accepted feature code and encoding pipeline to a new DataFrame.
 
@@ -1851,7 +1862,9 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         After writing, logs the location to self.logger.
         """
         if not self.full_code and not self.full_encoding_code:
-            self.logger.warning("No feature-generation or encoding code available to save.")
+            self.logger.warning(
+                "No feature-generation or encoding code available to save."
+            )
             return
 
         bundled_code = self._serialize_code_bundle()
@@ -2006,13 +2019,13 @@ class CAAFETransformer(BaseEstimator, TransformerMixin):
         probs = self.base_classifier.predict_proba(test_x)
         acc = float(accuracy_metric(target_test, probs))
         auc = float(auc_metric(target_test, probs))
-        
+
         # Compute PPV at top_p% - extract positive class probabilities
         if probs.shape[1] == 2:  # Binary classification
             positive_probs = probs[:, 1]  # Probabilities for positive class
         else:  # Single class (should not happen in binary classification)
             positive_probs = probs.flatten()
-            
+
         ppv = float(metric_ppv(target_test, positive_probs, top_p=self.top_p))
 
         return {"accuracy": acc, "auc": auc, "ppv": ppv}

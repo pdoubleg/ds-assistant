@@ -48,11 +48,11 @@ def generate_image(image_prompt: str, file_name: str) -> str:
     if image_data:
         image_base64 = image_data[0]
         decoded_image = base64.b64decode(image_base64)
-        
+
         # Save as PNG
         with open(f"{IMAGE_DIRECTORY}/{file_name}.png", "wb") as f:
             f.write(decoded_image)
-            
+
         # Save as JPEG
         with open(f"{IMAGE_DIRECTORY}/{file_name}.jpeg", "wb") as f:
             f.write(decoded_image)
@@ -82,7 +82,6 @@ def generate_image_with_inputs(
         if not os.path.exists(path):
             raise FileNotFoundError(f"Image file not found: {path}")
 
-    
     # Prepare file name
     file_name = file_name.replace(" ", "_")
     # Remove any image file extension if added in error
@@ -139,7 +138,9 @@ def generate_image_with_inputs(
             # Save as JPEG
             with open(f"{IMAGE_DIRECTORY}/{file_name}.jpeg", "wb") as f:
                 f.write(decoded_image)
-        return f"Success: Files have been saved as: {file_name}.png and {file_name}.jpeg"
+        return (
+            f"Success: Files have been saved as: {file_name}.png and {file_name}.jpeg"
+        )
 
     except Exception as e:
         return f"Error generating image: {str(e)}"

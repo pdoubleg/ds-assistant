@@ -134,10 +134,10 @@ def extract_logs_from_study(study: optuna.Study, top_n: int = 5) -> tuple[str, f
 def make_serializable(obj: Any) -> Any:
     """
     Convert objects to JSON/YAML serializable format.
-    
+
     Args:
         obj: The object to make serializable
-        
+
     Returns:
         A JSON/YAML serializable version of the object
     """
