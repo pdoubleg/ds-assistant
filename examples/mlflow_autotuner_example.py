@@ -7,6 +7,7 @@ with natural MLflow integration. It shows both the full API and convenience func
 Usage:
     python examples/mlflow_autotuner_example.py
 """
+
 import os
 import sys
 import warnings
@@ -30,15 +31,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.tune.tuner import MLflowAutoTuner, run_mlflow_tuning
 
 # Configure warnings
-warnings.filterwarnings('ignore', category=UserWarning)
-warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-os.environ["LOKY_MAX_CPU_COUNT"] = '4'
+os.environ["LOKY_MAX_CPU_COUNT"] = "4"
 # Removes warnings in the current job
 warnings.filterwarnings("ignore")
 # Removes warnings in the spawned jobs
-os.environ['PYTHONWARNINGS']='ignore'
+os.environ["PYTHONWARNINGS"] = "ignore"
 
 
 def create_sample_classification_data():
@@ -231,62 +232,80 @@ def example_integration_with_existing_pipeline():
 
 def example_with_lightgbm_regression():
     """Example using LightGBM for regression with the penguins dataset.
-    
+
     This example demonstrates how to use the MLflowAutoTuner with LightGBM
-    for a regression task using the famous penguins dataset, including 
+    for a regression task using the famous penguins dataset, including
     comprehensive preprocessing and feature engineering steps.
-    
+
     Returns:
         dict: Results from the tuning process including best configuration,
               scores, and other metadata.
     """
     print("\n" + "=" * 60)
-    print("Example 6: LightGBM Regression with Penguins Dataset") 
+    print("Example 6: LightGBM Regression with Penguins Dataset")
     print("=" * 60)
 
     # Load the penguins dataset
     import seaborn as sns
-    penguins_df = sns.load_dataset('penguins')
-    
+
+    penguins_df = sns.load_dataset("penguins")
+
     # Drop rows with missing values for simplicity
     penguins_df = penguins_df.dropna()
-    
+
     print(penguins_df.head())
-    
+
     # Use body_mass_g as target for regression
     # Remove it from features and make it the target
-    target_col = 'body_mass_g'
-    
+    target_col = "body_mass_g"
+
     print(f"Dataset shape: {penguins_df.shape}")
     print(f"Target variable: {target_col}")
     print(f"Features: {[col for col in penguins_df.columns if col != target_col]}")
-        
+
     # Create comprehensive preprocessing and feature engineering pipeline
-    
+
     # Identify categorical and numerical columns
-    categorical_features = ['species', 'island', 'sex']
-    numerical_features = [col for col in penguins_df.columns 
-                         if col not in categorical_features + [target_col]]
-    
+    categorical_features = ["species", "island", "sex"]
+    numerical_features = [
+        col
+        for col in penguins_df.columns
+        if col not in categorical_features + [target_col]
+    ]
+
     print(f"Categorical features: {categorical_features}")
     print(f"Numerical features: {numerical_features}")
-    
+
     # Create preprocessing pipeline
     preprocessor = ColumnTransformer(
         transformers=[
             # Numerical features: scaling and polynomial features
-            ('num', Pipeline([
-                ('scaler', StandardScaler()),
-                ('poly', PolynomialFeatures(degree=2, include_bias=False, interaction_only=True))
-            ]), numerical_features),
-            
+            (
+                "num",
+                Pipeline(
+                    [
+                        ("scaler", StandardScaler()),
+                        (
+                            "poly",
+                            PolynomialFeatures(
+                                degree=2, include_bias=False, interaction_only=True
+                            ),
+                        ),
+                    ]
+                ),
+                numerical_features,
+            ),
             # Categorical features: one-hot encoding
-            ('cat', OneHotEncoder(drop='first', sparse_output=False), categorical_features)
+            (
+                "cat",
+                OneHotEncoder(drop="first", sparse_output=False),
+                categorical_features,
+            ),
         ],
-        remainder='passthrough',  # Keep any remaining columns
-        verbose_feature_names_out=True  # This helps preserve feature names
+        remainder="passthrough",  # Keep any remaining columns
+        verbose_feature_names_out=True,  # This helps preserve feature names
     )
-    
+
     # Create LightGBM regressor with reasonable defaults
     lgbm_regressor = LGBMRegressor(
         random_state=42,
@@ -294,18 +313,23 @@ def example_with_lightgbm_regression():
         verbose=-1,  # Suppress LightGBM warnings
         force_col_wise=True,  # Better for small datasets
     )
-    
+
     # Create full pipeline with feature engineering and selection
-    pipeline = Pipeline([
-        ('preprocessor', preprocessor),  # Handle categorical and numerical features
-        ('feature_selection', SelectKBest(score_func=f_regression, k=10)),  # Tunable feature selection
-        ('regressor', lgbm_regressor)  # LightGBM with tunable hyperparameters
-    ])
+    pipeline = Pipeline(
+        [
+            ("preprocessor", preprocessor),  # Handle categorical and numerical features
+            (
+                "feature_selection",
+                SelectKBest(score_func=f_regression, k=10),
+            ),  # Tunable feature selection
+            ("regressor", lgbm_regressor),  # LightGBM with tunable hyperparameters
+        ]
+    )
 
     # Initialize tuner with custom configuration
     tuner = MLflowAutoTuner(
         dataset=penguins_df,
-        config_path="src/tune/config.yml", 
+        config_path="src/tune/config.yml",
         metric="r2",
         experiment_name="autotuner_example_lightgbm_penguins",
         custom_estimator=pipeline,
@@ -321,11 +345,11 @@ def example_with_lightgbm_regression():
     tuner.deps.task_type = "regression"
     tuner.config.direction = "maximize"
     tuner.deps.direction = "maximize"
-    
+
     # Set reasonable optimization parameters
     tuner.config.n_trials = 50  # More trials for better optimization
-    tuner.config.cv_folds = 5   # 5-fold cross-validation
-    tuner.config.verbose = 2    # Show detailed progress
+    tuner.config.cv_folds = 5  # 5-fold cross-validation
+    tuner.config.verbose = 2  # Show detailed progress
 
     # Run tuning with descriptive task description
     results = tuner.tune(
@@ -336,81 +360,104 @@ def example_with_lightgbm_regression():
             "flipper length, species, island, and sex. The pipeline includes "
             "comprehensive preprocessing with polynomial feature engineering, "
             "feature selection, and dimensionality reduction before LightGBM modeling."
-        )
+        ),
     )
-    
+
     return results
 
 
 def example_with_lightgbm_classification():
     """Example using LightGBM for classification with the penguins dataset.
-    
+
     This example demonstrates how to use the MLflowAutoTuner with LightGBM
-    for a multi-class classification task to predict penguin species using 
-    the famous penguins dataset, including comprehensive preprocessing and 
+    for a multi-class classification task to predict penguin species using
+    the famous penguins dataset, including comprehensive preprocessing and
     feature engineering steps.
-    
+
     Returns:
         dict: Results from the tuning process including best configuration,
               scores, and other metadata.
     """
     print("\n" + "=" * 60)
-    print("Example 7: LightGBM Classification - Penguin Species Prediction") 
+    print("Example 7: LightGBM Classification - Penguin Species Prediction")
     print("=" * 60)
 
     # Load the penguins dataset
     import seaborn as sns
-    penguins_df = sns.load_dataset('penguins')
-    
+
+    penguins_df = sns.load_dataset("penguins")
+
     # Drop rows with missing values for simplicity
     penguins_df = penguins_df.dropna()
-    
+
     # Use species as target for classification
-    target_col = 'species'
-           
+    target_col = "species"
+
     # Create comprehensive preprocessing and feature engineering pipeline
-    
+
     # Identify categorical and numerical columns (excluding target)
-    categorical_features = ['island', 'sex']  # species is now the target
-    numerical_features = [col for col in penguins_df.columns 
-                         if col not in categorical_features + [target_col]]
-    
+    categorical_features = ["island", "sex"]  # species is now the target
+    numerical_features = [
+        col
+        for col in penguins_df.columns
+        if col not in categorical_features + [target_col]
+    ]
+
     # Create preprocessing pipeline
     preprocessor = ColumnTransformer(
         transformers=[
             # Numerical features: scaling and polynomial features
-            ('num', Pipeline([
-                ('scaler', StandardScaler()),
-                ('poly', PolynomialFeatures(degree=2, include_bias=False, interaction_only=True))
-            ]), numerical_features),
-            
+            (
+                "num",
+                Pipeline(
+                    [
+                        ("scaler", StandardScaler()),
+                        (
+                            "poly",
+                            PolynomialFeatures(
+                                degree=2, include_bias=False, interaction_only=True
+                            ),
+                        ),
+                    ]
+                ),
+                numerical_features,
+            ),
             # Categorical features: one-hot encoding
-            ('cat', OneHotEncoder(drop='first', sparse_output=False), categorical_features)
+            (
+                "cat",
+                OneHotEncoder(drop="first", sparse_output=False),
+                categorical_features,
+            ),
         ],
-        remainder='passthrough',  # Keep any remaining columns
-        verbose_feature_names_out=True  # This helps preserve feature names
+        remainder="passthrough",  # Keep any remaining columns
+        verbose_feature_names_out=True,  # This helps preserve feature names
     )
-    
+
     # Create LightGBM classifier with reasonable defaults for multi-class
     lgbm_classifier = LGBMClassifier(
         random_state=42,
         n_jobs=-1,  # Use all available cores
         verbose=-1,  # Suppress LightGBM warnings
         force_col_wise=True,  # Better for small datasets
-        objective='multiclass',  # Explicitly set for multi-class
+        objective="multiclass",  # Explicitly set for multi-class
         num_class=3,  # Three penguin species
     )
-    
+
     # Create full pipeline with feature engineering and selection
-    pipeline = Pipeline([
-        ('preprocessor', preprocessor),  # Handle categorical and numerical features
-        ('feature_selection', SelectKBest(score_func=f_classif, k=15)),  # Tunable feature selection for classification
-        ('classifier', lgbm_classifier)  # LightGBM with tunable hyperparameters
-    ])
+    pipeline = Pipeline(
+        [
+            ("preprocessor", preprocessor),  # Handle categorical and numerical features
+            (
+                "feature_selection",
+                SelectKBest(score_func=f_classif, k=15),
+            ),  # Tunable feature selection for classification
+            ("classifier", lgbm_classifier),  # LightGBM with tunable hyperparameters
+        ]
+    )
     # Initialize tuner with custom configuration
     tuner = MLflowAutoTuner(
         dataset=penguins_df,
-        config_path="src/tune/config.yml", 
+        config_path="src/tune/config.yml",
         metric="accuracy",
         experiment_name="autotuner_example_lightgbm_penguins_classification",
         custom_estimator=pipeline,
@@ -426,12 +473,12 @@ def example_with_lightgbm_classification():
     tuner.deps.task_type = "classification"
     tuner.config.direction = "maximize"  # Maximize accuracy
     tuner.deps.direction = "maximize"
-    
+
     tuner.deps.metric = "accuracy"
     # Set reasonable optimization parameters
     tuner.config.n_trials = 50  # More trials for better optimization
-    tuner.config.cv_folds = 5   # 5-fold cross-validation
-    tuner.config.verbose = 2    # Show detailed progress
+    tuner.config.cv_folds = 5  # 5-fold cross-validation
+    tuner.config.verbose = 2  # Show detailed progress
 
     # Run tuning with descriptive task description
     results = tuner.tune(
@@ -442,122 +489,147 @@ def example_with_lightgbm_classification():
             "flipper length, body mass, island, and sex. The pipeline includes comprehensive "
             "preprocessing with polynomial feature engineering, feature selection for classification, "
             "and LightGBM modeling optimized for multi-class prediction."
-        )
+        ),
     )
-    
+
     return results
 
 
 def example_with_random_forest_titanic_survival():
     """Example using Random Forest for binary classification with the Titanic dataset.
-    
+
     This example demonstrates how to use the MLflowAutoTuner with Random Forest
     for a binary classification task to predict passenger survival on the Titanic.
     The function includes comprehensive preprocessing, feature engineering, and
     multiple pipeline steps for optimal model performance.
-    
+
     Returns:
         dict: Results from the tuning process including best configuration,
               scores, and other metadata.
-              
+
     Example:
         >>> results = example_with_random_forest_titanic_survival()
         >>> print(f"Best accuracy: {results['best_score']:.4f}")
     """
     print("\n" + "=" * 60)
-    print("Example 8: Random Forest Binary Classification - Titanic Survival Prediction") 
+    print(
+        "Example 8: Random Forest Binary Classification - Titanic Survival Prediction"
+    )
     print("=" * 60)
 
     # Load the Titanic dataset
     import seaborn as sns
-    titanic_df = sns.load_dataset('titanic')
+
+    titanic_df = sns.load_dataset("titanic")
     print("Successfully loaded Titanic dataset from seaborn")
-        
+
     # Use 'survived' as target for binary classification
-    target_col = 'survived'
-    
+    target_col = "survived"
+
     # Define feature categories for comprehensive preprocessing
     # Numerical features that need scaling and imputation
-    numerical_features = ['age', 'fare', 'sibsp', 'parch']
-    
+    numerical_features = ["age", "fare", "sibsp", "parch"]
+
     # Categorical features that need encoding
-    categorical_features = ['sex', 'embarked', 'class', 'who', 'deck', 'embark_town']
-    
+    categorical_features = ["sex", "embarked", "class", "who", "deck", "embark_town"]
+
     # Boolean features that can be used as-is or converted
-    boolean_features = ['adult_male', 'alone']
-    
+    boolean_features = ["adult_male", "alone"]
+
     print(f"Numerical features: {numerical_features}")
     print(f"Categorical features: {categorical_features}")
     print(f"Boolean features: {boolean_features}")
-    
+
     # Create comprehensive preprocessing pipeline
     # Handle numerical features: imputation, scaling, and polynomial features
-    numerical_transformer = Pipeline([
-        ('imputer', SimpleImputer(strategy='median')),  # Handle missing ages and fares
-        ('scaler', RobustScaler()),  # Robust to outliers in fare
-        ('poly', PolynomialFeatures(degree=2, include_bias=False, interaction_only=True))
-    ])
-    
+    numerical_transformer = Pipeline(
+        [
+            (
+                "imputer",
+                SimpleImputer(strategy="median"),
+            ),  # Handle missing ages and fares
+            ("scaler", RobustScaler()),  # Robust to outliers in fare
+            (
+                "poly",
+                PolynomialFeatures(degree=2, include_bias=False, interaction_only=True),
+            ),
+        ]
+    )
+
     # Handle categorical features: imputation and encoding
-    categorical_transformer = Pipeline([
-        ('imputer', SimpleImputer(strategy='most_frequent')),  # Handle missing embarked/deck
-        ('encoder', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'))
-    ])
-    
+    categorical_transformer = Pipeline(
+        [
+            (
+                "imputer",
+                SimpleImputer(strategy="most_frequent"),
+            ),  # Handle missing embarked/deck
+            (
+                "encoder",
+                OneHotEncoder(
+                    drop="first", sparse_output=False, handle_unknown="ignore"
+                ),
+            ),
+        ]
+    )
+
     # Handle boolean features: convert to int and scale
-    boolean_transformer = Pipeline([
-        ('converter', 'passthrough'),  # Keep as-is, they're already 0/1
-    ])
-    
+    boolean_transformer = Pipeline(
+        [
+            ("converter", "passthrough"),  # Keep as-is, they're already 0/1
+        ]
+    )
+
     # Combine all preprocessing steps
     preprocessor = ColumnTransformer(
         transformers=[
-            ('num', numerical_transformer, numerical_features),
-            ('cat', categorical_transformer, categorical_features),
-            ('bool', boolean_transformer, boolean_features)
+            ("num", numerical_transformer, numerical_features),
+            ("cat", categorical_transformer, categorical_features),
+            ("bool", boolean_transformer, boolean_features),
         ],
-        remainder='drop',  # Drop any remaining columns (like 'alive')
-        verbose_feature_names_out=True
+        remainder="drop",  # Drop any remaining columns (like 'alive')
+        verbose_feature_names_out=True,
     )
-    
+
     # Create Random Forest classifier with reasonable defaults for binary classification
     rf_classifier = RandomForestClassifier(
         random_state=42,
         n_jobs=-1,  # Use all available cores
-        class_weight='balanced',  # Handle class imbalance
+        class_weight="balanced",  # Handle class imbalance
         bootstrap=True,  # Enable bootstrapping for better generalization
         oob_score=True,  # Out-of-bag scoring for additional validation
     )
-    
+
     # Create comprehensive pipeline with multiple feature engineering steps
-    pipeline = Pipeline([
-        # Step 1: Comprehensive preprocessing
-        ('preprocessor', preprocessor),
-        
-        # Step 2: Feature scaling after preprocessing (some algorithms benefit from this)
-        ('feature_scaler', MinMaxScaler()),
-        
-        # Step 3: Feature selection using statistical tests
-        ('feature_selection_univariate', SelectKBest(score_func=f_classif, k=20)),
-        
-        # Step 4: Dimensionality reduction for noise reduction
-        ('pca', PCA(n_components=0.95, random_state=42)),  # Keep 95% of variance
-        
-        # Step 5: Recursive feature elimination with Random Forest
-        ('feature_selection_rfe', RFE(
-            estimator=RandomForestClassifier(n_estimators=10, random_state=42, bootstrap=True),
-            n_features_to_select=15,
-            step=1
-        )),
-        
-        # Step 6: Final Random Forest classifier
-        ('classifier', rf_classifier)
-    ])
+    pipeline = Pipeline(
+        [
+            # Step 1: Comprehensive preprocessing
+            ("preprocessor", preprocessor),
+            # Step 2: Feature scaling after preprocessing (some algorithms benefit from this)
+            ("feature_scaler", MinMaxScaler()),
+            # Step 3: Feature selection using statistical tests
+            ("feature_selection_univariate", SelectKBest(score_func=f_classif, k=20)),
+            # Step 4: Dimensionality reduction for noise reduction
+            ("pca", PCA(n_components=0.95, random_state=42)),  # Keep 95% of variance
+            # Step 5: Recursive feature elimination with Random Forest
+            (
+                "feature_selection_rfe",
+                RFE(
+                    estimator=RandomForestClassifier(
+                        n_estimators=10, random_state=42, bootstrap=True
+                    ),
+                    n_features_to_select=15,
+                    step=1,
+                ),
+            ),
+            # Step 6: Final Random Forest classifier
+            ("classifier", rf_classifier),
+        ]
+    )
 
     # Initialize tuner with custom configuration
     tuner = MLflowAutoTuner(
         dataset=titanic_df,
-        config_path="src/tune/config.yml", 
+        config_path="src/tune/config.yml",
         metric="roc_auc",  # Use ROC-AUC for binary classification
         experiment_name="autotuner_example_random_forest_titanic_survival",
         custom_estimator=pipeline,
@@ -574,11 +646,11 @@ def example_with_random_forest_titanic_survival():
     tuner.config.direction = "maximize"  # Maximize ROC-AUC
     tuner.deps.direction = "maximize"
     tuner.deps.metric = "roc_auc"
-    
+
     # Set optimization parameters for thorough search
     tuner.config.n_trials = 75  # More trials for comprehensive optimization
-    tuner.config.cv_folds = 5   # 5-fold cross-validation for robust evaluation
-    tuner.config.verbose = 2    # Show detailed progress
+    tuner.config.cv_folds = 5  # 5-fold cross-validation for robust evaluation
+    tuner.config.verbose = 2  # Show detailed progress
 
     # Run tuning with comprehensive task description
     results = tuner.tune(
@@ -593,9 +665,9 @@ def example_with_random_forest_titanic_survival():
             "univariate feature selection, PCA for dimensionality reduction, "
             "recursive feature elimination, and Random Forest classification optimized "
             "for binary prediction with class balancing to handle survival rate imbalance."
-        )
+        ),
     )
-    
+
     return results
 
 
@@ -619,7 +691,7 @@ def main():
 
         # Example 5: LightGBM Classification
         example_with_lightgbm_classification()
-        
+
         # Example 6: Random Forest Titanic Survival
         # example_with_random_forest_titanic_survival()
 

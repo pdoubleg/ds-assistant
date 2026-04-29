@@ -188,7 +188,9 @@ class TestRenderTreeMarkdown:
         # The child line should have more leading spaces
         part_i_line = next(line for line in lines if "Part I" in line)
         sec_line = next(line for line in lines if "Sec 1.1" in line)
-        assert len(sec_line) - len(sec_line.lstrip()) > len(part_i_line) - len(part_i_line.lstrip())
+        assert len(sec_line) - len(sec_line.lstrip()) > len(part_i_line) - len(
+            part_i_line.lstrip()
+        )
 
     def test_node_id_in_output(self) -> None:
         tree = _make_tree()
@@ -231,7 +233,12 @@ class TestPostProcessToTree:
         end_page should be next_physical_index - 1."""
         flat = [
             {"structure": "1", "title": "A", "physical_index": 1},
-            {"structure": "2", "title": "B", "physical_index": 5, "appear_start": "yes"},
+            {
+                "structure": "2",
+                "title": "B",
+                "physical_index": 5,
+                "appear_start": "yes",
+            },
         ]
         tree = post_process_to_tree(flat, total_pages=10)
         assert tree[0].end_page == 4  # 5 - 1
@@ -241,7 +248,12 @@ class TestPostProcessToTree:
         should be clamped so start_page <= end_page (not crash)."""
         flat = [
             {"structure": "1", "title": "A", "physical_index": 5},
-            {"structure": "2", "title": "B", "physical_index": 5, "appear_start": "yes"},
+            {
+                "structure": "2",
+                "title": "B",
+                "physical_index": 5,
+                "appear_start": "yes",
+            },
         ]
         tree = post_process_to_tree(flat, total_pages=10)
         # 5 - 1 = 4 would be < 5, so the clamp sets end = start = 5
@@ -264,7 +276,9 @@ class TestPropagatePageRanges:
         """Parent end_page should expand to cover its children."""
         child_a = IndexNode(title="A", start_page=8, end_page=10)
         child_b = IndexNode(title="B", start_page=10, end_page=11)
-        parent = IndexNode(title="Section I", start_page=8, end_page=8, children=[child_a, child_b])
+        parent = IndexNode(
+            title="Section I", start_page=8, end_page=8, children=[child_a, child_b]
+        )
         propagate_page_ranges([parent])
         assert parent.end_page == 11
         assert parent.start_page == 8

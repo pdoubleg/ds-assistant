@@ -24,6 +24,11 @@ class DataReadConfig:
         partition_filters: Optional equality or membership filters.
         sample_n_rows: Optional maximum row count to retain.
         max_fragments: Optional maximum number of parquet fragments to scan.
+        batch_size: Maximum Arrow record-batch size used while scanning parquet.
+        sample_strategy: Sampling strategy used when ``sample_n_rows`` is set.
+            ``"head"`` stops after the first matching rows, while
+            ``"reservoir"`` scans all selected fragments and keeps a
+            deterministic random sample.
         random_seed: Random seed used for deterministic fragment and row sampling.
     """
 
@@ -32,6 +37,8 @@ class DataReadConfig:
     partition_filters: dict[str, list[Any] | Any] | None = None
     sample_n_rows: int | None = None
     max_fragments: int | None = None
+    batch_size: int = 65_536
+    sample_strategy: Literal["head", "reservoir"] = "head"
     random_seed: int = 42
 
 

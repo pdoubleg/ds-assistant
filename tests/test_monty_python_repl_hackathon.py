@@ -66,9 +66,7 @@ def _make_training_frame() -> pd.DataFrame:
 
 def test_package_has_no_repo_internal_imports() -> None:
     """The hackathon package should not depend on repo-internal modules."""
-    package_root = (
-        PROJECT_ROOT / "src" / "mcp" / "monty_python_repl_hackathon"
-    )
+    package_root = PROJECT_ROOT / "src" / "mcp" / "monty_python_repl_hackathon"
     forbidden_snippets = [
         "from src.mcp.monty_python_repl",
         "import src.mcp.monty_python_repl",

@@ -7,6 +7,7 @@ and workflows: dataset-aware and user-description-based tuning.
 
 import sys
 import os
+
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,7 +24,7 @@ from src.modules.tune import AutoTuneLLM
 def create_sample_dataset() -> tuple[pd.DataFrame, str]:
     """
     Create a sample binary classification dataset for demonstration.
-    
+
     Returns:
         tuple[pd.DataFrame, str]: Dataset and target column name
     """
@@ -35,17 +36,17 @@ def create_sample_dataset() -> tuple[pd.DataFrame, str]:
         n_redundant=2,
         n_clusters_per_class=1,
         class_sep=0.8,
-        random_state=42
+        random_state=42,
     )
-    
+
     # Create feature names
     feature_names = [f"feature_{i}" for i in range(X.shape[1])]
-    
+
     # Create DataFrame
     df = pd.DataFrame(X, columns=feature_names)
-    df['target'] = y
-    
-    return df, 'target'
+    df["target"] = y
+
+    return df, "target"
 
 
 def example_xgboost_with_dataset_analysis():
@@ -55,10 +56,10 @@ def example_xgboost_with_dataset_analysis():
     print("=" * 60)
     print("EXAMPLE 1: XGBoost with Dataset Analysis")
     print("=" * 60)
-    
+
     # Create sample dataset
     df, target = create_sample_dataset()
-    
+
     # Initialize tuner for XGBoost with dataset analysis
     tuner = AutoTuneLLM(
         estimator_type="xgboost",
@@ -67,20 +68,20 @@ def example_xgboost_with_dataset_analysis():
         scoring=make_scorer(precision_score, pos_label=1),
         task_description="Binary classification task with balanced classes. Goal is to maximize precision.",
         top_n_configs=3,
-        max_consecutive_no_improvement=2
+        max_consecutive_no_improvement=2,
     )
-    
+
     # Run tuning with dataset analysis
     tuner.tune_with_dataset_analysis(max_iterations=3)
-    
+
     # Get results
     best_config = tuner.get_best_config()
     summary = tuner.get_tuning_summary()
-    
+
     print(f"\nBest Configuration: {best_config}")
     print(f"Best Score: {summary['best_score']:.4f}")
     print(f"Total Iterations: {summary['total_iterations']}")
-    
+
     # Create and show the best estimator
     best_estimator = tuner.create_best_estimator()
     print(f"Best Estimator: {type(best_estimator).__name__}")
@@ -93,10 +94,10 @@ def example_lightgbm_with_user_description():
     print("\n" + "=" * 60)
     print("EXAMPLE 2: LightGBM with User Description")
     print("=" * 60)
-    
+
     # Create sample dataset
     df, target = create_sample_dataset()
-    
+
     # Define detailed user description
     user_description = """
     This is a binary classification problem with the following characteristics:
@@ -109,7 +110,7 @@ def example_lightgbm_with_user_description():
     - The problem domain suggests that tree-based models should work well
     - We want to avoid overfitting given the moderate sample size
     """
-    
+
     # Initialize tuner for LightGBM with user description workflow
     tuner = AutoTuneLLM(
         estimator_type="lightgbm",
@@ -117,16 +118,16 @@ def example_lightgbm_with_user_description():
         target=target,
         scoring=make_scorer(f1_score),
         top_n_configs=3,
-        max_consecutive_no_improvement=2
+        max_consecutive_no_improvement=2,
     )
-    
+
     # Run tuning with user description (no dataset analysis passed to LLM)
     tuner.tune_with_user_description(user_description, max_iterations=3)
-    
+
     # Get results
     best_config = tuner.get_best_config()
     summary = tuner.get_tuning_summary()
-    
+
     print(f"\nBest Configuration: {best_config}")
     print(f"Best Score: {summary['best_score']:.4f}")
     print(f"Total Iterations: {summary['total_iterations']}")
@@ -139,13 +140,13 @@ def example_custom_estimator():
     print("\n" + "=" * 60)
     print("EXAMPLE 3: Custom Estimator (Random Forest)")
     print("=" * 60)
-    
+
     # Create sample dataset
     df, target = create_sample_dataset()
-    
+
     # Create a custom Random Forest estimator
     custom_rf = RandomForestClassifier(random_state=42)
-    
+
     # Initialize tuner for custom estimator
     tuner = AutoTuneLLM(
         estimator_type="custom",
@@ -155,16 +156,16 @@ def example_custom_estimator():
         scoring="accuracy",  # Use string scoring
         task_description="Binary classification with Random Forest. Focus on generalization and avoid overfitting.",
         top_n_configs=3,
-        max_consecutive_no_improvement=2
+        max_consecutive_no_improvement=2,
     )
-    
+
     # Run tuning with dataset analysis
     tuner.tune_with_dataset_analysis(max_iterations=2)
-    
+
     # Get results
     best_config = tuner.get_best_config()
     summary = tuner.get_tuning_summary()
-    
+
     print(f"\nBest Configuration: {best_config}")
     print(f"Best Score: {summary['best_score']:.4f}")
     print(f"Total Iterations: {summary['total_iterations']}")
@@ -177,15 +178,17 @@ def example_comparison():
     print("\n" + "=" * 60)
     print("EXAMPLE 4: Comparison of Different Approaches")
     print("=" * 60)
-    
+
     # Create sample dataset
     df, target = create_sample_dataset()
-    
+
     # Split into train/test for final evaluation
-    train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df[target])
-    
+    train_df, test_df = train_test_split(
+        df, test_size=0.2, random_state=42, stratify=df[target]
+    )
+
     results = {}
-    
+
     # Test XGBoost
     print("\nTuning XGBoost...")
     xgb_tuner = AutoTuneLLM(
@@ -193,30 +196,32 @@ def example_comparison():
         dataset=train_df,
         target=target,
         scoring=make_scorer(f1_score),
-        max_consecutive_no_improvement=1
+        max_consecutive_no_improvement=1,
     )
     xgb_tuner.tune_with_dataset_analysis(max_iterations=2)
-    results['XGBoost'] = xgb_tuner.get_tuning_summary()
-    
-    # Test LightGBM  
+    results["XGBoost"] = xgb_tuner.get_tuning_summary()
+
+    # Test LightGBM
     print("\nTuning LightGBM...")
     lgb_tuner = AutoTuneLLM(
         estimator_type="lightgbm",
         dataset=train_df,
-        target=target, 
+        target=target,
         scoring=make_scorer(f1_score),
-        max_consecutive_no_improvement=1
+        max_consecutive_no_improvement=1,
     )
-    
-    user_desc = "Binary classification task with moderate dataset size. Optimize for F1-score."
+
+    user_desc = (
+        "Binary classification task with moderate dataset size. Optimize for F1-score."
+    )
     lgb_tuner.tune_with_user_description(user_desc, max_iterations=2)
-    results['LightGBM'] = lgb_tuner.get_tuning_summary()
-    
+    results["LightGBM"] = lgb_tuner.get_tuning_summary()
+
     # Compare results
     print("\n" + "=" * 40)
     print("COMPARISON RESULTS")
     print("=" * 40)
-    
+
     for model_name, summary in results.items():
         print(f"{model_name}:")
         print(f"  Best Score: {summary['best_score']:.4f}")
@@ -236,19 +241,19 @@ if __name__ == "__main__":
     print("=" * 60)
     print("This script demonstrates the flexibility of the GeneralizedTuner class.")
     print("Note: Using small iteration counts for quick demonstration.\n")
-    
+
     try:
         # Run individual examples
         example_xgboost_with_dataset_analysis()
-        example_lightgbm_with_user_description() 
+        example_lightgbm_with_user_description()
         example_custom_estimator()
         example_comparison()
-        
+
         print("\n" + "=" * 60)
         print("All examples completed successfully!")
         print("=" * 60)
-        
+
     except Exception as e:
         print(f"\nError running examples: {e}")
         print("Make sure you have all required dependencies installed.")
-        print("You may need to set up your OpenAI API key as well.") 
+        print("You may need to set up your OpenAI API key as well.")

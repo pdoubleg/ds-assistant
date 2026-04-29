@@ -30,6 +30,7 @@ def ho3_pdf_path() -> Path:
 # Custom markers
 # ---------------------------------------------------------------------------
 
+
 def pytest_configure(config: pytest.Config) -> None:
     """Register custom markers."""
     config.addinivalue_line(

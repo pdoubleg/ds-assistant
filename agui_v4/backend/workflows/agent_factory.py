@@ -179,7 +179,9 @@ async def get_image_analysis(
 
     binary_content = ctx.deps.mapper.build_image_binary_content(payload, ctx.deps.runtime_storage)
     if binary_content is None:
-        return f"Image analysis unavailable for '{document.file_name}': staged image bytes not found."
+        return (
+            f"Image analysis unavailable for '{document.file_name}': staged image bytes not found."
+        )
 
     prompt = format_image_analysis_prompt(
         metadata_string=ctx.deps.mapper.build_document_metadata_string(payload),

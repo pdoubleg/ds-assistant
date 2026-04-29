@@ -159,9 +159,7 @@ class TestRenderingHelpers:
         md = pi.list_documents()
         assert "No documents" in md
 
-    async def test_tree_output(
-        self, ho3_pdf_path: Path, config: IndexConfig
-    ) -> None:
+    async def test_tree_output(self, ho3_pdf_path: Path, config: IndexConfig) -> None:
         """tree() should return readable markdown with node IDs and page ranges."""
         pi = PolicyIndex(config)
         await pi.get_or_create(ho3_pdf_path)
@@ -187,9 +185,7 @@ class TestRenderingHelpers:
         with pytest.raises(KeyError, match="Document not found"):
             pi.tree("nonexistent.pdf")
 
-    async def test_get_node(
-        self, ho3_pdf_path: Path, config: IndexConfig
-    ) -> None:
+    async def test_get_node(self, ho3_pdf_path: Path, config: IndexConfig) -> None:
         """get_node should find a node by its ID."""
         pi = PolicyIndex(config)
         await pi.get_or_create(ho3_pdf_path)

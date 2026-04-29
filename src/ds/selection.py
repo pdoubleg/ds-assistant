@@ -28,6 +28,7 @@ from .modeling import (
     build_train_valid_frames,
     fit_lightgbm_binary,
     infer_categorical_columns,
+    prepare_lightgbm_train_valid_frames,
 )
 from .metrics import fast_auc_score
 
@@ -1006,6 +1007,84 @@ def analyze_feature_correlation(
     )
 
 
+def _resolve_random_feature_name(columns: pd.Index) -> str:
+    """Return a synthetic feature name that does not collide with existing columns.
+
+    Args:
+        columns: Existing dataframe columns.
+
+    Returns:
+        Unique column name reserved for random-baseline feature ranking.
+    """
+
+    base_name = "__random_feature_baseline__"
+    if base_name not in columns:
+        return base_name
+
+    suffix = 1
+    while f"{base_name}_{suffix}" in columns:
+        suffix += 1
+    return f"{base_name}_{suffix}"
+
+
+def _add_random_feature(
+    dataframe: pd.DataFrame,
+    *,
+    feature_name: str,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Return a dataframe copy with one random normal feature appended.
+
+    Args:
+        dataframe: Source dataframe.
+        feature_name: Synthetic feature column name.
+        rng: Random generator used for deterministic baseline values.
+
+    Returns:
+        Dataframe copy containing the synthetic random feature.
+    """
+
+    augmented = dataframe.copy()
+    augmented[feature_name] = rng.normal(loc=0.0, scale=1.0, size=len(augmented))
+    return augmented
+
+
+def _coerce_binary_shap_matrix(
+    shap_values: Any,
+    *,
+    feature_count: int,
+) -> np.ndarray:
+    """Normalize SHAP output shapes to a two-dimensional feature matrix.
+
+    Args:
+        shap_values: Raw values returned by ``shap.TreeExplainer.shap_values``.
+        feature_count: Number of feature columns expected in the matrix.
+
+    Returns:
+        Two-dimensional SHAP value array with one column per feature.
+    """
+
+    if isinstance(shap_values, list):
+        shap_values = shap_values[-1]
+
+    shap_matrix = np.asarray(shap_values)
+    if shap_matrix.ndim == 3:
+        if shap_matrix.shape[1] == feature_count:
+            shap_matrix = shap_matrix[:, :, -1]
+        elif shap_matrix.shape[2] == feature_count:
+            shap_matrix = shap_matrix[-1, :, :]
+        else:
+            raise ValueError(
+                "Unexpected SHAP value shape; could not identify the feature axis."
+            )
+
+    if shap_matrix.ndim != 2 or shap_matrix.shape[1] != feature_count:
+        raise ValueError(
+            "Unexpected SHAP value shape; expected one column per feature."
+        )
+    return shap_matrix
+
+
 def rank_features_by_lightgbm(
     dataframe: pd.DataFrame,
     *,
@@ -1069,6 +1148,179 @@ def rank_features_by_lightgbm(
         categorical_columns=result.categorical_columns,
         importance_rows=importance_rows,
         evaluation_summary=result.evaluation_summary,
+    )
+
+
+def rank_features_by_shap(
+    dataframe: pd.DataFrame,
+    *,
+    target_column: str,
+    feature_columns: list[str] | None = None,
+    validation_df: pd.DataFrame | None = None,
+    keep_top_k: int | None = None,
+    filter_below_random: bool = False,
+    split_config: SplitConfig | None = None,
+    train_config: TrainConfig | None = None,
+    top_p: float = 0.05,
+) -> FeatureRankingResult:
+    """Rank candidate features using LightGBM SHAP values on validation rows.
+
+    Args:
+        dataframe: Source dataframe.
+        target_column: Target column used for modeling.
+        feature_columns: Optional explicit feature subset.
+        validation_df: Optional held-out validation dataframe.
+        keep_top_k: Optional maximum number of top-ranked features to keep.
+        filter_below_random: Whether to add a random feature and drop features
+            with lower mean absolute SHAP value than that random baseline.
+        split_config: Split configuration used when ``validation_df`` is omitted.
+        train_config: Training configuration override.
+        top_p: Fraction retained for PPV-style validation metrics.
+
+    Returns:
+        Structured SHAP ranking result.
+
+    Example:
+        >>> ranking = rank_features_by_shap(
+        ...     frame,
+        ...     target_column="target",
+        ...     keep_top_k=25,
+        ...     filter_below_random=True,
+        ... )
+    """
+
+    if target_column not in dataframe.columns:
+        raise ValueError(f"Target column {target_column!r} was not found.")
+    if keep_top_k is not None and keep_top_k <= 0:
+        raise ValueError("`keep_top_k` must be greater than zero when provided.")
+
+    feature_columns = feature_columns or [
+        str(column) for column in dataframe.columns if str(column) != target_column
+    ]
+    ranking_dataframe = dataframe
+    ranking_validation_df = validation_df
+    ranking_feature_columns = list(feature_columns)
+    random_feature_name: str | None = None
+
+    if filter_below_random:
+        all_input_columns = pd.Index(
+            [
+                *dataframe.columns,
+                *(validation_df.columns if validation_df is not None else []),
+            ]
+        )
+        random_feature_name = _resolve_random_feature_name(all_input_columns)
+        seed = (
+            split_config.random_seed
+            if split_config is not None
+            else SplitConfig().random_seed
+        )
+        rng = np.random.default_rng(seed)
+        ranking_dataframe = _add_random_feature(
+            dataframe,
+            feature_name=random_feature_name,
+            rng=rng,
+        )
+        if validation_df is not None:
+            ranking_validation_df = _add_random_feature(
+                validation_df,
+                feature_name=random_feature_name,
+                rng=rng,
+            )
+        ranking_feature_columns.append(random_feature_name)
+
+    split = build_train_valid_frames(
+        ranking_dataframe,
+        target_column=target_column,
+        feature_columns=ranking_feature_columns,
+        validation_df=ranking_validation_df,
+        split_config=split_config,
+    )
+    categorical_columns = infer_categorical_columns(
+        ranking_dataframe,
+        ranking_feature_columns,
+    )
+    result = fit_lightgbm_binary(
+        split.train_df,
+        split.valid_df,
+        target_column=target_column,
+        feature_columns=ranking_feature_columns,
+        categorical_columns=categorical_columns,
+        train_config=train_config,
+        top_p=top_p,
+    )
+    _, _, X_valid, _, _ = prepare_lightgbm_train_valid_frames(
+        split.train_df,
+        split.valid_df,
+        target_column=target_column,
+        feature_columns=ranking_feature_columns,
+        categorical_columns=categorical_columns,
+    )
+
+    import shap
+
+    explainer = shap.TreeExplainer(result.booster)
+    raw_shap_values = explainer.shap_values(X_valid)
+    shap_matrix = _coerce_binary_shap_matrix(
+        raw_shap_values,
+        feature_count=len(ranking_feature_columns),
+    )
+    mean_abs_shap = {
+        feature: float(value)
+        for feature, value in zip(
+            ranking_feature_columns,
+            np.abs(shap_matrix).mean(axis=0),
+            strict=True,
+        )
+    }
+
+    random_threshold = (
+        mean_abs_shap[random_feature_name] if random_feature_name is not None else None
+    )
+    importance_rows = []
+    for feature, value in sorted(
+        mean_abs_shap.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    ):
+        if feature == random_feature_name:
+            continue
+        passed_random_filter = (
+            True if random_threshold is None else value >= random_threshold
+        )
+        importance_rows.append(
+            {
+                "feature": feature,
+                "mean_abs_shap": value,
+                "passed_random_filter": passed_random_filter,
+            }
+        )
+
+    if filter_below_random:
+        importance_rows = [
+            row for row in importance_rows if bool(row["passed_random_filter"])
+        ]
+    if keep_top_k is not None:
+        importance_rows = importance_rows[:keep_top_k]
+
+    evaluation_summary = {
+        **result.evaluation_summary,
+        "importance_method": "shap_mean_abs",
+        "filter_below_random": bool(filter_below_random),
+        "random_feature": random_feature_name,
+        "random_feature_mean_abs_shap": random_threshold,
+    }
+    selected_columns = [str(row["feature"]) for row in importance_rows]
+    selected_column_set = set(selected_columns)
+    return FeatureRankingResult(
+        selected_columns=selected_columns,
+        categorical_columns=[
+            column
+            for column in result.categorical_columns
+            if column in selected_column_set
+        ],
+        importance_rows=importance_rows,
+        evaluation_summary=evaluation_summary,
     )
 
 
@@ -1164,6 +1416,7 @@ __all__ = [
     "analyze_feature_correlation",
     "rank_feature_subsets",
     "rank_features_by_lightgbm",
+    "rank_features_by_shap",
     "screen_feature_batches",
     "screen_features",
     "screen_parquet_feature_batches",

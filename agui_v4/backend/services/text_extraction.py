@@ -94,7 +94,9 @@ class TextExtractionService:
         """Build the extension-to-extractor lookup from MIME declarations."""
         mapping: dict[str, str] = {}
         for extension, mime_type in self.ext_to_mime.items():
-            extractor_name = self._mime_type_to_extractor_name(mime_type, file_name=f"file{extension}")
+            extractor_name = self._mime_type_to_extractor_name(
+                mime_type, file_name=f"file{extension}"
+            )
             if extractor_name:
                 mapping[extension] = extractor_name
         return mapping

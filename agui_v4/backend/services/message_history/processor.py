@@ -149,8 +149,7 @@ def count_tokens_tiktoken(messages: Sequence[ModelMessage], model: str = "gpt-5.
         import tiktoken
     except ImportError:
         raise ImportError(
-            "tiktoken is required for accurate token counting. "
-            "Install it with: uv add tiktoken"
+            "tiktoken is required for accurate token counting. Install it with: uv add tiktoken"
         )
 
     try:
@@ -184,7 +183,7 @@ def count_tokens_tiktoken(messages: Sequence[ModelMessage], model: str = "gpt-5.
                     total_tokens += len(encoding.encode(str(response_part.args)))
 
     return total_tokens
-                                
+
 
 def _format_request_parts(msg: ModelRequest) -> list[str]:  # pragma: no branch
     """Format request message parts."""

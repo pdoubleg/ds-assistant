@@ -52,7 +52,9 @@ async def summarize_document(
     prompt = format_document_summary_prompt(
         document_metadata=mapper.build_document_metadata_string(payload),
         document_content=(
-            content if not mapper.is_image_document(payload) else "The image is attached separately."
+            content
+            if not mapper.is_image_document(payload)
+            else "The image is attached separately."
         ),
         additional_instructions=additional_instructions,
     )

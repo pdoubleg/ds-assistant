@@ -5,7 +5,7 @@ from __future__ import annotations
 import gc
 import random
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -51,6 +51,8 @@ def read_parquet_fragment(
     partition_filters: dict[str, list[Any] | Any] | None = None,
     sample_n_rows: int | None = None,
     max_fragments: int | None = None,
+    batch_size: int = 65_536,
+    sample_strategy: Literal["head", "reservoir"] = "head",
     random_seed: int = 42,
     include_metadata: bool = False,
 ) -> pd.DataFrame | tuple[pd.DataFrame, ParquetReadMetadata]:
@@ -63,11 +65,24 @@ def read_parquet_fragment(
             scanning fragments.
         sample_n_rows: Optional maximum sampled row count.
         max_fragments: Optional maximum number of parquet fragments to scan.
+        batch_size: Maximum Arrow record-batch size read from each fragment.
+        sample_strategy: Sampling strategy used when ``sample_n_rows`` is set.
+            Use ``"head"`` to stop after the first matching rows, or
+            ``"reservoir"`` to scan selected fragments and keep a deterministic
+            random sample without materializing the full dataset.
         random_seed: Random seed used for deterministic fragment and row sampling.
         include_metadata: Whether to also return fragment read metadata.
 
     Returns:
         A dataframe, or ``(dataframe, metadata)`` when ``include_metadata=True``.
+
+    Example:
+        >>> df = read_parquet_fragment("train.parquet", sample_n_rows=10_000)
+        >>> sample = read_parquet_fragment(
+        ...     "train.parquet",
+        ...     sample_n_rows=10_000,
+        ...     sample_strategy="reservoir",
+        ... )
     """
 
     try:
@@ -82,8 +97,19 @@ def read_parquet_fragment(
         partition_filters=partition_filters,
         sample_n_rows=sample_n_rows,
         max_fragments=max_fragments,
+        batch_size=batch_size,
+        sample_strategy=sample_strategy,
         random_seed=random_seed,
     )
+    if config.sample_n_rows is not None and config.sample_n_rows <= 0:
+        raise ValueError("sample_n_rows must be positive when provided.")
+    if config.max_fragments is not None and config.max_fragments <= 0:
+        raise ValueError("max_fragments must be positive when provided.")
+    if config.batch_size <= 0:
+        raise ValueError("batch_size must be positive.")
+    if config.sample_strategy not in {"head", "reservoir"}:
+        raise ValueError("sample_strategy must be either 'head' or 'reservoir'.")
+
     dataset_uri: str | Path = (
         config.uri if str(config.uri).startswith("s3://") else Path(config.uri)
     )
@@ -122,38 +148,86 @@ def read_parquet_fragment(
 
     tables: list[Any] = []
     rows_collected = 0
+    scanned_fragment_count = 0
+    rng = np.random.default_rng(config.random_seed)
     for fragment in fragments:
+        scanned_fragment_count += 1
         scanner = ds.Scanner.from_fragment(
             fragment,
             columns=resolved_columns or None,
             filter=filter_expression,
             use_threads=True,
+            batch_size=config.batch_size,
         )
-        table = scanner.to_table()
-        if table.num_rows == 0:
-            continue
-        tables.append(table)
-        rows_collected += int(table.num_rows)
-        if config.sample_n_rows is not None and rows_collected >= config.sample_n_rows:
+
+        for batch in scanner.to_batches():
+            if batch.num_rows == 0:
+                continue
+
+            if config.sample_n_rows is None:
+                table = pa.Table.from_batches([batch])
+            elif config.sample_strategy == "head":
+                remaining_rows = config.sample_n_rows - rows_collected
+                if remaining_rows <= 0:
+                    break
+                table = pa.Table.from_batches([batch.slice(0, remaining_rows)])
+            else:
+                # Keep only the smallest random keys seen so far. This gives a
+                # deterministic random sample while holding at most sample rows
+                # plus one Arrow batch in memory.
+                table = pa.Table.from_batches([batch]).append_column(
+                    "__ds_sample_key", pa.array(rng.random(batch.num_rows))
+                )
+
+            if table.num_rows == 0:
+                continue
+
+            tables.append(table)
+            rows_collected += int(table.num_rows)
+
+            if (
+                config.sample_n_rows is not None
+                and config.sample_strategy == "reservoir"
+                and rows_collected > config.sample_n_rows
+            ):
+                combined_candidates = pa.concat_tables(
+                    tables, promote_options="default"
+                )
+                sample_keys = combined_candidates["__ds_sample_key"].to_numpy()
+                take_idx = np.argpartition(sample_keys, config.sample_n_rows - 1)[
+                    : config.sample_n_rows
+                ]
+                take_idx = take_idx[np.argsort(sample_keys[take_idx])]
+                tables = [combined_candidates.take(pa.array(take_idx))]
+                rows_collected = config.sample_n_rows
+
+            if (
+                config.sample_n_rows is not None
+                and config.sample_strategy == "head"
+                and rows_collected >= config.sample_n_rows
+            ):
+                break
+
+        if (
+            config.sample_n_rows is not None
+            and config.sample_strategy == "head"
+            and rows_collected >= config.sample_n_rows
+        ):
             break
 
     if not tables:
         raise ValueError("No rows were read from the parquet dataset.")
 
     combined = pa.concat_tables(tables, promote_options="default")
-    if config.sample_n_rows is not None and combined.num_rows > config.sample_n_rows:
-        rng = np.random.default_rng(config.random_seed)
-        take_idx = rng.choice(
-            combined.num_rows, size=config.sample_n_rows, replace=False
-        )
-        combined = combined.take(pa.array(np.sort(take_idx)))
+    if "__ds_sample_key" in combined.column_names:
+        combined = combined.drop_columns(["__ds_sample_key"])
 
     dataframe = combined.to_pandas(types_mapper=None)
     metadata = ParquetReadMetadata(
         source_uri=str(uri),
         resolved_columns=list(dataframe.columns),
         available_fragment_count=available_fragment_count,
-        scanned_fragment_count=len(tables),
+        scanned_fragment_count=scanned_fragment_count,
         row_count=int(len(dataframe)),
     )
     if include_metadata:

@@ -128,7 +128,9 @@ def test_parameter_manifest_and_custom_stage_registration() -> None:
         def __init__(self, factor: float = 1.0) -> None:
             self.factor = factor
 
-        def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> "MultiplySignalTransformer":
+        def fit(
+            self, X: pd.DataFrame, y: pd.Series | None = None
+        ) -> "MultiplySignalTransformer":
             del y
             return self
 
@@ -279,7 +281,9 @@ def test_apply_trial_params_updates_nested_configs() -> None:
     def objective(trial: optuna.Trial) -> float:
         updated, params = apply_trial_params(pipeline_spec, trial)
         assert "model__learning_rate" in params
-        assert updated.stages[0].config["learning_rate"] == params["model__learning_rate"]
+        assert (
+            updated.stages[0].config["learning_rate"] == params["model__learning_rate"]
+        )
         return float(params["model__learning_rate"])
 
     study = optuna.create_study(direction="maximize")
@@ -310,4 +314,3 @@ def test_cli_train_baseline_smoke(tmp_path: Path) -> None:
     assert (latest / "model.joblib").exists()
     assert (latest / "metrics.json").exists()
     assert (latest / "pipeline_params.json").exists()
-

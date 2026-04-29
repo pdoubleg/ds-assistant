@@ -55,7 +55,10 @@ def test_help_lists_default_collections_and_repl_notes(tmp_path: Path) -> None:
     assert "[preprocessing] (8 tools)" in payload
     assert "[splitting] (10 tools)" in payload
     assert "[visualizations] (9 tools)" in payload
-    assert "Tools: list_workspace_files, read_workspace_json, read_workspace_text" in payload
+    assert (
+        "Tools: list_workspace_files, read_workspace_json, read_workspace_text"
+        in payload
+    )
     assert "Tools: load_csv, load_excel, save_csv, save_excel" in payload
     assert "Tools: dataframe_columns, dataframe_describe, dataframe_dtypes" in payload
     assert "Tools: create_metric_scorer, create_ppv_scorer" in payload
@@ -88,7 +91,9 @@ def test_safe_json_value_preserves_long_code_strings_and_mapping_contents() -> N
     assert rendered["freeform"]["args"] == {"alpha": 0.1, "beta": 2.0}
 
 
-def test_safe_json_value_preserves_all_dataframe_columns_but_truncates_preview_values() -> None:
+def test_safe_json_value_preserves_all_dataframe_columns_but_truncates_preview_values() -> (
+    None
+):
     """Dataframe schema should stay intact even when preview cell values are large."""
     frame = pd.DataFrame(
         [
@@ -117,17 +122,32 @@ def test_help_can_filter_by_collection_and_surface_arguments(tmp_path: Path) -> 
     single_tool_help = repl.help("load_csv")
 
     assert "Collection: data_io" in collection_help
-    assert "Purpose:\nLoad and save pandas dataframes as CSV and Excel files." in collection_help
+    assert (
+        "Purpose:\nLoad and save pandas dataframes as CSV and Excel files."
+        in collection_help
+    )
     assert "load_csv(path: str, *, nrows: int | None = None) -> str" in collection_help
-    assert "load_excel(path: str, *, sheet_name: str | int = 0, nrows: int | None = None) -> str" in collection_help
-    assert "save_excel(dataframes: dict[str, str], path: str, *, index: bool = False) -> str" in collection_help
+    assert (
+        "load_excel(path: str, *, sheet_name: str | int = 0, nrows: int | None = None) -> str"
+        in collection_help
+    )
+    assert (
+        "save_excel(dataframes: dict[str, str], path: str, *, index: bool = False) -> str"
+        in collection_help
+    )
     assert "Read or write" not in collection_help
 
     assert "Tool: load_csv" in single_tool_help
     assert "Collection: data_io" in single_tool_help
-    assert "Purpose: Load a CSV file from `/workspace` and return a dataframe handle." in single_tool_help
+    assert (
+        "Purpose: Load a CSV file from `/workspace` and return a dataframe handle."
+        in single_tool_help
+    )
     assert "Arguments:" in single_tool_help
-    assert "- nrows (int | None, optional, default=None): Optional maximum row count to load." in single_tool_help
+    assert (
+        "- nrows (int | None, optional, default=None): Optional maximum row count to load."
+        in single_tool_help
+    )
     assert "Returns:\n- str: Handle for the stored dataframe." in single_tool_help
     assert 'df_handle = load_csv("/workspace/input/data.csv")' in single_tool_help
     assert "Call this helper directly inside `execute(...)` code" in single_tool_help
@@ -144,9 +164,15 @@ def test_help_can_describe_workspace_file_collection(tmp_path: Path) -> None:
     assert "Collection: workspace" in payload
     assert "Read and write common text files inside /workspace" in payload
     assert "Supported file extensions:" in payload
-    assert "list_workspace_files(subdir: str = \".\") -> list[str]" in payload
-    assert "read_workspace_text(path: str, *, max_chars: int = 200000000) -> dict[str, Any]" in payload
-    assert "write_workspace_json(path: str, data: Any, *, overwrite: bool = True) -> dict[str, Any]" in payload
+    assert 'list_workspace_files(subdir: str = ".") -> list[str]' in payload
+    assert (
+        "read_workspace_text(path: str, *, max_chars: int = 200000000) -> dict[str, Any]"
+        in payload
+    )
+    assert (
+        "write_workspace_json(path: str, data: Any, *, overwrite: bool = True) -> dict[str, Any]"
+        in payload
+    )
 
     assert "Tool: write_workspace_json" in write_json_help
     assert "Collection: workspace" in write_json_help
@@ -156,7 +182,9 @@ def test_help_can_describe_workspace_file_collection(tmp_path: Path) -> None:
     assert '"data": {' in read_json_help
 
 
-def test_help_surfaces_structured_examples_for_dict_shaped_tools(tmp_path: Path) -> None:
+def test_help_surfaces_structured_examples_for_dict_shaped_tools(
+    tmp_path: Path,
+) -> None:
     """Dict-shaped tool examples should show representative input and output structure."""
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
@@ -406,7 +434,9 @@ def test_help_returns_valid_names_for_unknown_lookup(tmp_path: Path) -> None:
     assert "load_csv" in payload
 
 
-def test_execute_persists_assigned_state_and_results_are_drained(tmp_path: Path) -> None:
+def test_execute_persists_assigned_state_and_results_are_drained(
+    tmp_path: Path,
+) -> None:
     """Top-level assignments should persist and results should be drainable."""
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
@@ -496,7 +526,9 @@ def test_execute_enforces_workspace_paths_and_tracks_artifacts(tmp_path: Path) -
     assert "outside the /workspace sandbox" in buffered["combined_output"]
 
 
-def test_workspace_file_helpers_can_read_and_write_text_and_json(tmp_path: Path) -> None:
+def test_workspace_file_helpers_can_read_and_write_text_and_json(
+    tmp_path: Path,
+) -> None:
     """Workspace helpers should support safe text and JSON authoring flows."""
     repl = MontyPythonREPL(workspace_root=tmp_path)
 
@@ -569,9 +601,13 @@ def test_default_eda_helpers_can_generate_artifacts(tmp_path: Path) -> None:
 
     assert first["status"] == "success"
     assert second["status"] == "success"
-    assert {"df_handle", "summary_handle", "fig_handle", "saved_plot_paths", "saved_excel_path"} <= set(
-        first["persisted_variables"]
-    )
+    assert {
+        "df_handle",
+        "summary_handle",
+        "fig_handle",
+        "saved_plot_paths",
+        "saved_excel_path",
+    } <= set(first["persisted_variables"])
     assert (tmp_path / "output" / "chart.html").is_file()
     assert (tmp_path / "output" / "report.xlsx").is_file()
     assert len(buffered["executions"]) == 2
@@ -726,7 +762,7 @@ def test_freeform_dataframe_tool_returns_captured_stdout(tmp_path: Path) -> None
     freeform_code = "\n".join(
         [
             "print('starting freeform')",
-            "print(f\"rows={len(df)}\")",
+            'print(f"rows={len(df)}")',
             "df['margin'] = df['premium'] - df['loss']",
             "print('finished freeform')",
         ]
@@ -768,7 +804,7 @@ def test_freeform_dataframe_tool_supports_workspace_path_helper(
     freeform_code = "\n".join(
         [
             "reference = pd.read_csv(workspace_path('/workspace/reference.csv'))",
-            "print(f\"reference_rows={len(reference)}\")",
+            'print(f"reference_rows={len(reference)}")',
             "df['reference_value'] = reference.loc[0, 'value']",
         ]
     )
@@ -1298,7 +1334,9 @@ def test_preprocessing_helpers_can_fit_transform_and_persist_artifacts(
     assert "one_hot_encoder" in str(inspected_summary["value"]["groups"])
     assert "target" in onehot_train_encoded.columns
     assert "target" not in onehot_score_encoded.columns
-    assert onehot_score_encoded.columns.tolist() == reloaded_score_encoded.columns.tolist()
+    assert (
+        onehot_score_encoded.columns.tolist() == reloaded_score_encoded.columns.tolist()
+    )
     assert onehot_artifact.output_columns == onehot_score_encoded.columns.tolist()
     assert ordinal_result["preprocessor_handle"].startswith("prep_")
     assert ordinal_train_encoded.columns[-1] == "target"
@@ -1463,7 +1501,10 @@ def test_feature_engineering_helpers_can_fit_transform_and_compose(
     assert np.isclose(fe_score_frame.loc[1, "segment_premium_mean"], 137.5)
     assert float(fe_score_frame.loc[1, "city_segment_count"]) == -1.0
     assert "numeric__premium_income_ratio" in post_fe_prep_score_frame.columns
-    assert fe_after_prep_artifact.engineered_columns == ["scaled_gap", "encoded_city_abs"]
+    assert fe_after_prep_artifact.engineered_columns == [
+        "scaled_gap",
+        "encoded_city_abs",
+    ]
     assert "scaled_gap" in fe_after_prep_score_frame.columns
     assert "encoded_city_abs" in fe_after_prep_score_frame.columns
     assert fe_score_frame.columns.tolist() == reloaded_score_frame.columns.tolist()
@@ -1565,9 +1606,16 @@ def test_feature_selection_helpers_can_generate_reports_and_metrics(
     assert first["status"] == "success"
     assert second["status"] == "success"
     assert summary_report.report_type == "summary"
-    assert any(row["feature"] == "constant_col" and row["zero_variance"] for row in summary_report.findings)
+    assert any(
+        row["feature"] == "constant_col" and row["zero_variance"]
+        for row in summary_report.findings
+    )
     assert target_report.report_type == "target_metrics"
-    assert target_report.findings[0]["feature"] in {"signal_num", "dup_signal", "cat_signal"}
+    assert target_report.findings[0]["feature"] in {
+        "signal_num",
+        "dup_signal",
+        "cat_signal",
+    }
     assert any("Target-aware rankings" in warning for warning in target_report.warnings)
     assert redundancy_report.report_type == "redundancy"
     assert any(
@@ -1578,7 +1626,10 @@ def test_feature_selection_helpers_can_generate_reports_and_metrics(
     assert evaluation_report.metrics["mode"] == "validation"
     assert "metrics" in evaluation_report.metrics
     assert importance_report.report_type == "importance"
-    assert importance_report.findings[0]["feature"] in train_frame.drop(columns=["target"]).columns
+    assert (
+        importance_report.findings[0]["feature"]
+        in train_frame.drop(columns=["target"]).columns
+    )
     assert reloaded_report.findings == target_report.findings
     assert inspected_summary["value"]["type"] == "StoredFeatureSelectionReport"
     assert (tmp_path / "output" / "fs_report.joblib").is_file()
@@ -1899,9 +1950,18 @@ def test_hpo_inspection_exposes_sklearn_params_and_accepts_sklearn_search_space(
     assert execution["status"] == "success"
     assert inspection["search_space"][0]["path"] == "model.base_params.num_leaves"
     assert inspection["search_space"][1]["path"] == "freeform.args.ratio_floor"
-    assert inspection["search_space"][2]["path"] == "preprocessing.spec.groups.0.steps.0.strategy"
-    assert inspection["sklearn_param_aliases"]["model__num_leaves"] == "model.base_params.num_leaves"
-    assert inspection["sklearn_param_aliases"]["freeform__params__ratio_floor"] == "freeform.args.ratio_floor"
+    assert (
+        inspection["search_space"][2]["path"]
+        == "preprocessing.spec.groups.0.steps.0.strategy"
+    )
+    assert (
+        inspection["sklearn_param_aliases"]["model__num_leaves"]
+        == "model.base_params.num_leaves"
+    )
+    assert (
+        inspection["sklearn_param_aliases"]["freeform__params__ratio_floor"]
+        == "freeform.args.ratio_floor"
+    )
     assert any(
         row["sklearn_param"] == "model__num_leaves"
         for row in inspection["sklearn_pipeline_params"]
@@ -2022,7 +2082,9 @@ def test_hpo_helpers_can_run_iterative_tuning_and_save_artifacts(
         ]
         is True
     )
-    assert tunable_summary["return_schema"]["payload_type"] == "PipelineInspectionResult"
+    assert (
+        tunable_summary["return_schema"]["payload_type"] == "PipelineInspectionResult"
+    )
     assert (
         tunable_summary["return_schema"]["top_level_fields"]["pipeline_params"][
             "container"
@@ -2059,9 +2121,9 @@ def test_hpo_helpers_can_run_iterative_tuning_and_save_artifacts(
     assert (tmp_path / "output" / "hpo_importances.html").is_file()
     assert (tmp_path / "output" / "tuned_pipeline_report.md").is_file()
     assert (tmp_path / "output" / "best_pipeline.py").is_file()
-    assert "BEST_PIPELINE_CONFIG" in (tmp_path / "output" / "best_pipeline.py").read_text(
-        encoding="utf-8"
-    )
+    assert "BEST_PIPELINE_CONFIG" in (
+        tmp_path / "output" / "best_pipeline.py"
+    ).read_text(encoding="utf-8")
     assert "/workspace/output/tuned_pipeline.joblib" in second["combined_output"]
     assert "/workspace/output/hpo_report.md" in second["combined_output"]
     assert "/workspace/output/best_pipeline.py" in second["combined_output"]
@@ -2178,7 +2240,9 @@ def test_evaluate_tuned_pipeline_replays_saved_freeform_transformer_on_raw_input
         }
     )
     train_frame.to_csv(tmp_path / "train_tuned_freeform_eval.csv", index=False)
-    validation_frame.to_csv(tmp_path / "validation_tuned_freeform_eval.csv", index=False)
+    validation_frame.to_csv(
+        tmp_path / "validation_tuned_freeform_eval.csv", index=False
+    )
     holdout_frame.to_csv(tmp_path / "holdout_tuned_freeform_eval.csv", index=False)
 
     execution = run_execute(
@@ -2191,10 +2255,10 @@ def test_evaluate_tuned_pipeline_replays_saved_freeform_transformer_on_raw_input
                 "pipeline_config = {",
                 "    'data': {'train_handle': train_handle, 'validation_handle': validation_handle, 'target_column': 'target'},",
                 "    'freeform': {",
-                "        'code': \"\"\"",
+                '        \'code\': """',
                 "df['premium_floor'] = np.where(df['premium'] > params['premium_floor'], df['premium'], params['premium_floor'])",
                 "df['loss_ratio'] = df['loss'] / df['premium_floor']",
-                "\"\"\",",
+                '""",',
                 "        'args': {'premium_floor': 1.0},",
                 "    },",
                 "    'model': {'base_params': {'n_estimators': 20, 'num_leaves': 8, 'learning_rate': 0.1, 'min_child_samples': 1}},",
@@ -2256,12 +2320,16 @@ def test_hpo_iteration_surfaces_failed_trials_and_reasons(tmp_path: Path) -> Non
     assert repl.interpreter.state["iteration_result"]["failed_trial_count"] == 1
     assert repl.interpreter.state["iteration_result"]["recent_failures"]
     assert "Unknown object handle" in str(
-        repl.interpreter.state["iteration_result"]["recent_failures"][0]["failure_reason"]
+        repl.interpreter.state["iteration_result"]["recent_failures"][0][
+            "failure_reason"
+        ]
     )
     assert repl.interpreter.state["study_summary"]["failed_trial_count"] == 1
 
 
-def test_hpo_rejects_executable_feature_selection_and_stage_order(tmp_path: Path) -> None:
+def test_hpo_rejects_executable_feature_selection_and_stage_order(
+    tmp_path: Path,
+) -> None:
     """The fixed-order HPO config should not accept executable feature selection or stage_order."""
     repl = MontyPythonREPL(workspace_root=tmp_path)
     frame = pd.DataFrame({"premium": [1.0, 2.0], "target": [0, 1]})
@@ -2336,7 +2404,9 @@ def test_evaluate_feature_subset_applies_model_params(monkeypatch: Any) -> None:
     assert captured_params == [{"num_leaves": 99, "learning_rate": 0.25}]
 
 
-def test_prepare_model_frames_raises_clear_error_on_validation_schema_mismatch() -> None:
+def test_prepare_model_frames_raises_clear_error_on_validation_schema_mismatch() -> (
+    None
+):
     """Validation schema drift should fail fast with a helpful column diff."""
     train_frame = pd.DataFrame({"feature_a": [1.0, 2.0], "feature_b": [3.0, 4.0]})
     validation_frame = pd.DataFrame(

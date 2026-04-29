@@ -186,7 +186,9 @@ class TestLLMResponseModels:
     """Tests for LLM structured-output models."""
 
     def test_toc_detection_result(self) -> None:
-        result = TocDetectionResult(reasoning="It has numbered sections", is_toc_page=True)
+        result = TocDetectionResult(
+            reasoning="It has numbered sections", is_toc_page=True
+        )
         assert result.is_toc_page is True
 
     def test_toc_entry_with_page(self) -> None:

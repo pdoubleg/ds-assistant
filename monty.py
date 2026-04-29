@@ -13,7 +13,10 @@ from rich.traceback import install
 
 from src.clai import run_chat
 from src.mcp.monty_python_repl.capability import MontyPythonCapability
-from src.message_history.processor import create_summarization_processor, count_tokens_tiktoken
+from src.message_history.processor import (
+    create_summarization_processor,
+    count_tokens_tiktoken,
+)
 
 os.environ["PYDEVD_DISABLE_FILE_VALIDATION"] = "1"
 os.environ["LOKY_MAX_CPU_COUNT"] = "4"
@@ -42,7 +45,7 @@ history_processor = create_summarization_processor(
     token_counter=count_tokens_tiktoken,
 )
 
-model = OpenAIResponsesModel('gpt-5.4')
+model = OpenAIResponsesModel("gpt-5.4")
 model_settings = OpenAIResponsesModelSettings(
     openai_reasoning_effort="medium",
     openai_reasoning_summary="auto",

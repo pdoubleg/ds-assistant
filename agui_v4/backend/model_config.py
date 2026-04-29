@@ -36,7 +36,7 @@ def get_agent_model() -> str:
         openai_reasoning_effort="medium",
         openai_reasoning_summary="concise",
         parallel_tool_calls=False,
-    )   
+    )
     model = OpenAIResponsesModel(
         model_name="gpt-5.4",
         settings=settings,

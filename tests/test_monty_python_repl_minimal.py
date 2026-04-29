@@ -284,7 +284,9 @@ def test_execute_surfaces_static_safe_hints_for_wrapped_errors(
     assert MONTY_HINTS["ImportError"] in execution["error"]["message"]
 
 
-def test_help_highlights_restricted_runtime_and_workspace_helpers(tmp_path: Path) -> None:
+def test_help_highlights_restricted_runtime_and_workspace_helpers(
+    tmp_path: Path,
+) -> None:
     """Help output should explain sandbox limits and preferred file helpers.
 
     Args:
@@ -317,7 +319,10 @@ def test_help_highlights_restricted_runtime_and_workspace_helpers(tmp_path: Path
     assert "Guidance:" not in write_help
 
     missing_help = repl.help("not_a_real_tool")
-    assert "No collection or function named 'not_a_real_tool' is registered." in missing_help
+    assert (
+        "No collection or function named 'not_a_real_tool' is registered."
+        in missing_help
+    )
     assert "Collections:" in missing_help
     assert "Tools:" in missing_help
 
@@ -439,7 +444,10 @@ def test_duplicate_final_expression_summary_is_omitted_from_execute_and_results(
     )
 
     assert execution["status"] == "success"
-    assert execution["summary"] == "Execution succeeded. Call results() for buffered details."
+    assert (
+        execution["summary"]
+        == "Execution succeeded. Call results() for buffered details."
+    )
 
     buffered = repl.results()
     assert (
@@ -487,7 +495,10 @@ def test_score_model_dataframe_returns_compact_scoring_summary(tmp_path: Path) -
     )
 
     assert execution["status"] == "success"
-    assert execution["summary"] == "Execution succeeded. Call results() for buffered details."
+    assert (
+        execution["summary"]
+        == "Execution succeeded. Call results() for buffered details."
+    )
 
     buffered = repl.results()
     scored = buffered["executions"][0]["persisted_value_summaries"]["scored"]
@@ -617,7 +628,10 @@ def test_analyze_top_p_false_positives_returns_privacy_safe_report(
     assert report["value"]["details"]["top_p_summary"]["false_positive_count"] == 2
     assert report["value"]["details"]["top_p_summary"]["true_positive_count"] == 2
     assert report["value"]["details"]["numeric_findings"][0]["column"] == "risk_signal"
-    assert report["value"]["details"]["categorical_findings"][0]["column"] == "device_group"
+    assert (
+        report["value"]["details"]["categorical_findings"][0]["column"]
+        == "device_group"
+    )
 
     rendered_buffered = str(buffered)
     assert "secret_fp_a" not in rendered_buffered
@@ -731,8 +745,14 @@ def test_parse_tool_docstring_uses_griffe_for_multiline_google_sections() -> Non
         parsed.parameter_descriptions["limit"]
         == "Maximum number of rows to include in the preview payload."
     )
-    assert parsed.returns_description == "dict[str, Any]: Privacy-safe summary for the handle."
-    assert parsed.example == 'result = summarize_handle("df_1", limit=3)\nprint(result["handle"])'
+    assert (
+        parsed.returns_description
+        == "dict[str, Any]: Privacy-safe summary for the handle."
+    )
+    assert (
+        parsed.example
+        == 'result = summarize_handle("df_1", limit=3)\nprint(result["handle"])'
+    )
 
 
 def test_execute_surfaces_persisted_helper_summaries(tmp_path: Path) -> None:
@@ -762,7 +782,10 @@ def test_execute_surfaces_persisted_helper_summaries(tmp_path: Path) -> None:
     )
 
     assert execution["status"] == "success"
-    assert execution["summary"] == "Execution succeeded. Call results() for buffered details."
+    assert (
+        execution["summary"]
+        == "Execution succeeded. Call results() for buffered details."
+    )
     rendered_execution = str(execution)
     assert "secret_city" not in rendered_execution
     assert "other_city" not in rendered_execution
@@ -770,12 +793,16 @@ def test_execute_surfaces_persisted_helper_summaries(tmp_path: Path) -> None:
 
     buffered = repl.results()
     assert buffered["executions"][0]["persisted_variables"] == ["details", "payload"]
-    assert buffered["executions"][0]["persisted_value_summaries"]["payload"][
-        "dataframe_handle"
-    ] == "df_1"
-    assert buffered["executions"][0]["persisted_value_summaries"]["details"][
-        "handle"
-    ] == "df_1"
+    assert (
+        buffered["executions"][0]["persisted_value_summaries"]["payload"][
+            "dataframe_handle"
+        ]
+        == "df_1"
+    )
+    assert (
+        buffered["executions"][0]["persisted_value_summaries"]["details"]["handle"]
+        == "df_1"
+    )
     rendered_buffered = str(buffered)
     assert "secret_city" not in rendered_buffered
     assert "other_city" not in rendered_buffered
@@ -814,9 +841,17 @@ def test_execute_surfaces_final_helper_expression(tmp_path: Path) -> None:
     assert len(buffered["executions"]) == 2
     assert buffered["executions"][1]["persisted_variables"] == []
     assert buffered["executions"][1]["persisted_value_summaries"] == {}
-    assert buffered["executions"][1]["last_expression_summary"]["report_handle"] == "fs_1"
-    assert buffered["executions"][1]["last_expression_summary"]["dataframe_handle"] == "df_2"
-    assert len(buffered["executions"][1]["last_expression_summary"]["selected_columns"]) == 2
+    assert (
+        buffered["executions"][1]["last_expression_summary"]["report_handle"] == "fs_1"
+    )
+    assert (
+        buffered["executions"][1]["last_expression_summary"]["dataframe_handle"]
+        == "df_2"
+    )
+    assert (
+        len(buffered["executions"][1]["last_expression_summary"]["selected_columns"])
+        == 2
+    )
 
 
 def test_feature_pipeline_expression_summary_stays_privacy_safe(tmp_path: Path) -> None:
@@ -873,8 +908,14 @@ def test_feature_pipeline_expression_summary_stays_privacy_safe(tmp_path: Path) 
     assert "hidden_city" not in rendered_execution
 
     buffered = repl.results()
-    assert buffered["executions"][1]["last_expression_summary"]["dataframe_handle"] == "df_2"
-    assert buffered["executions"][1]["last_expression_summary"]["pipeline_handle"] == "pipeline_1"
+    assert (
+        buffered["executions"][1]["last_expression_summary"]["dataframe_handle"]
+        == "df_2"
+    )
+    assert (
+        buffered["executions"][1]["last_expression_summary"]["pipeline_handle"]
+        == "pipeline_1"
+    )
     assert buffered["executions"][1]["last_expression_summary"]["summary"].startswith(
         "Applied feature pipeline"
     )
@@ -893,7 +934,10 @@ def test_wide_table_data_view_helpers_plan_feature_subsets(tmp_path: Path) -> No
 
     wide_frame = pd.DataFrame(
         {
-            **{f"feature_{index}": [float(index), float(index + 1)] for index in range(12)},
+            **{
+                f"feature_{index}": [float(index), float(index + 1)]
+                for index in range(12)
+            },
             "target": [0, 1],
             "customer_id": [101, 102],
         }
@@ -923,9 +967,15 @@ def test_wide_table_data_view_helpers_plan_feature_subsets(tmp_path: Path) -> No
     overview = buffered["executions"][0]["persisted_value_summaries"]["overview"]
     assert overview["column_count"] == 14
     assert overview["shape"] == [2, 14]
-    assert buffered["executions"][0]["last_expression_summary"]["report_handle"] == "report_1"
+    assert (
+        buffered["executions"][0]["last_expression_summary"]["report_handle"]
+        == "report_1"
+    )
     assert buffered["executions"][0]["last_expression_summary"]["subset_count"] == 3
-    assert len(buffered["executions"][0]["last_expression_summary"]["feature_subsets"]) == 3
+    assert (
+        len(buffered["executions"][0]["last_expression_summary"]["feature_subsets"])
+        == 3
+    )
 
 
 def test_feature_selection_and_correlation_helpers_return_standardized_handles(
@@ -967,13 +1017,22 @@ def test_feature_selection_and_correlation_helpers_return_standardized_handles(
 
     assert execution["status"] == "success"
     buffered = repl.results()
-    assert buffered["executions"][0]["last_expression_summary"]["report_handle"] == "fs_2"
-    assert buffered["executions"][0]["last_expression_summary"]["dataframe_handle"] == "df_3"
+    assert (
+        buffered["executions"][0]["last_expression_summary"]["report_handle"] == "fs_2"
+    )
+    assert (
+        buffered["executions"][0]["last_expression_summary"]["dataframe_handle"]
+        == "df_3"
+    )
     assert "dropped_columns" in buffered["executions"][0]["last_expression_summary"]
-    assert buffered["executions"][0]["last_expression_summary"]["summary"].startswith("Flagged")
+    assert buffered["executions"][0]["last_expression_summary"]["summary"].startswith(
+        "Flagged"
+    )
 
 
-def test_modeling_surface_exposes_tunable_params_and_hpo_handles(tmp_path: Path) -> None:
+def test_modeling_surface_exposes_tunable_params_and_hpo_handles(
+    tmp_path: Path,
+) -> None:
     """Modeling helpers should expose tunables and study/model handles.
 
     Args:
@@ -1009,8 +1068,13 @@ def test_modeling_surface_exposes_tunable_params_and_hpo_handles(tmp_path: Path)
     assert tunables["native_categorical_handling"] is True
     assert any(item["name"] == "learning_rate" for item in tunables["params"])
     buffered = repl.results()
-    assert buffered["executions"][0]["last_expression_summary"]["model_handle"] == "model_1"
-    assert buffered["executions"][0]["last_expression_summary"]["summary"].startswith("Fit")
+    assert (
+        buffered["executions"][0]["last_expression_summary"]["model_handle"]
+        == "model_1"
+    )
+    assert buffered["executions"][0]["last_expression_summary"]["summary"].startswith(
+        "Fit"
+    )
 
 
 def test_tune_lightgbm_handles_linear_tree_trials(
@@ -1103,4 +1167,7 @@ def test_tune_lightgbm_handles_linear_tree_trials(
 
     assert execution["status"] == "success"
     buffered = repl.results()
-    assert buffered["executions"][0]["last_expression_summary"]["model_handle"] == "model_1"
+    assert (
+        buffered["executions"][0]["last_expression_summary"]["model_handle"]
+        == "model_1"
+    )

@@ -20,8 +20,8 @@ class AutoMLDependencies:
     error_log: List[str]
     tool_output_log: List[str]
     prompt_log: List[str]
-    
-    
+
+
 class PythonCode(BaseModel):
     """A valid python code block and its reasoning"""
 

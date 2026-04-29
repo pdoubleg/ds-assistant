@@ -45,6 +45,7 @@ agent = Agent(
     ),
 )
 
+
 @agent.instructions
 async def get_minimal_monty_agent_system_prompt() -> str:
     """Return additional workflow instructions for the minimal agent."""
@@ -62,6 +63,7 @@ async def get_minimal_monty_agent_system_prompt() -> str:
         </instructions>
         """
     )
+
 
 async def main() -> None:
     """Run the interactive Monty chat loop."""

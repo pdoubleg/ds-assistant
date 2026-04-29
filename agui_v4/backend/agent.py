@@ -166,11 +166,7 @@ async def get_image_analysis(
     mapper = DocumentMapper()
     runtime_storage = get_runtime_storage_service()
     document = next(
-        (
-            doc
-            for doc in state.documents
-            if str(doc.get("content_id", "")) == content_id
-        ),
+        (doc for doc in state.documents if str(doc.get("content_id", "")) == content_id),
         None,
     )
     if document is None:

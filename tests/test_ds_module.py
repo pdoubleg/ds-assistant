@@ -28,7 +28,11 @@ from src.ds.config import (
     TrainConfig,
 )
 from src.ds.error_analysis import analyze_top_p_false_positives
-from src.ds.hpo import refit_best_lightgbm_pipeline, suggest_lgbm_params, tune_lightgbm_pipeline
+from src.ds.hpo import (
+    refit_best_lightgbm_pipeline,
+    suggest_lgbm_params,
+    tune_lightgbm_pipeline,
+)
 from src.ds.io import read_parquet_fragment
 from src.ds.main import run_binary_experiment
 from src.ds.metrics import ppv_at_top_p, summarize_top_p_predictions
@@ -40,10 +44,15 @@ from src.ds.modeling import (
     resolve_feature_columns,
     score_dataframe,
 )
-from src.ds.pipelines import build_feature_pipeline, fit_transform_features, suggest_pipeline_params
+from src.ds.pipelines import (
+    build_feature_pipeline,
+    fit_transform_features,
+    suggest_pipeline_params,
+)
 from src.ds.selection import (
     analyze_feature_correlation,
     rank_features_by_lightgbm,
+    rank_features_by_shap,
     screen_feature_batches,
     screen_features,
     screen_parquet_feature_batches,
@@ -67,7 +76,9 @@ def make_classification_frame(rows: int = 600) -> pd.DataFrame:
     signal = rng.normal(loc=0.0, scale=1.0, size=rows)
     balance = 100.0 + signal * 25.0 + rng.normal(scale=5.0, size=rows)
     utilization = rng.uniform(0.0, 1.0, size=rows)
-    segment = np.where(signal > 0.4, "vip", np.where(signal > -0.2, "standard", "watch"))
+    segment = np.where(
+        signal > 0.4, "vip", np.where(signal > -0.2, "standard", "watch")
+    )
     noise = rng.normal(scale=0.35, size=rows)
     target = ((signal + 0.5 * utilization + noise) > 0.35).astype(int)
     frame = pd.DataFrame(
@@ -117,12 +128,45 @@ def test_local_parquet_fragment_reader(tmp_path: Path) -> None:
         columns=["target", "customer_id", "signal", "segment"],
         sample_n_rows=80,
         max_fragments=1,
+        batch_size=17,
         include_metadata=True,
     )
 
     assert len(sampled) <= 80
     assert set(sampled.columns) == {"target", "customer_id", "signal", "segment"}
+    assert sampled["customer_id"].tolist() == list(range(80))
     assert metadata.row_count == len(sampled)
+    assert metadata.scanned_fragment_count == 1
+
+
+def test_local_parquet_fragment_reader_streaming_random_sample(tmp_path: Path) -> None:
+    """Reservoir parquet sampling should be deterministic and memory bounded."""
+
+    pytest.importorskip("pyarrow")
+    frame = make_classification_frame()
+    parquet_path = tmp_path / "train.parquet"
+    frame.to_parquet(parquet_path, index=False)
+
+    first_sample = read_parquet_fragment(
+        parquet_path,
+        columns=["customer_id", "target"],
+        sample_n_rows=80,
+        batch_size=17,
+        sample_strategy="reservoir",
+        random_seed=7,
+    )
+    second_sample = read_parquet_fragment(
+        parquet_path,
+        columns=["customer_id", "target"],
+        sample_n_rows=80,
+        batch_size=17,
+        sample_strategy="reservoir",
+        random_seed=7,
+    )
+
+    assert len(first_sample) == 80
+    assert first_sample.equals(second_sample)
+    assert first_sample["customer_id"].max() > 79
 
 
 def test_pipeline_param_unpacking_and_screening() -> None:
@@ -247,11 +291,13 @@ def test_prepare_lightgbm_train_valid_frames_aligns_categories() -> None:
         }
     )
 
-    X_train, y_train, X_valid, y_valid, categorical_columns = prepare_lightgbm_train_valid_frames(
-        train_df,
-        valid_df,
-        target_column="target",
-        feature_columns=["segment", "signal"],
+    X_train, y_train, X_valid, y_valid, categorical_columns = (
+        prepare_lightgbm_train_valid_frames(
+            train_df,
+            valid_df,
+            target_column="target",
+            feature_columns=["segment", "signal"],
+        )
     )
 
     assert categorical_columns == ["segment"]
@@ -266,7 +312,9 @@ def test_hpo_refit_path_preserves_native_categorical_handling() -> None:
     """HPO and refit should share the same prepared categorical columns."""
 
     frame = make_classification_frame(rows=200)
-    pipeline = Pipeline([("identity", FunctionTransformer(feature_names_out="one-to-one"))])
+    pipeline = Pipeline(
+        [("identity", FunctionTransformer(feature_names_out="one-to-one"))]
+    )
     pipeline.set_output(transform="pandas")
 
     hpo_result = tune_lightgbm_pipeline(
@@ -275,7 +323,9 @@ def test_hpo_refit_path_preserves_native_categorical_handling() -> None:
         pipeline=pipeline,
         id_columns=["customer_id"],
         split_config=SplitConfig(random_seed=42),
-        train_config=TrainConfig(num_threads=1, num_boost_round=20, early_stopping_rounds=5),
+        train_config=TrainConfig(
+            num_threads=1, num_boost_round=20, early_stopping_rounds=5
+        ),
         optuna_config=OptunaConfig(n_trials=1, random_seed=42),
         top_p=0.2,
     )
@@ -285,12 +335,16 @@ def test_hpo_refit_path_preserves_native_categorical_handling() -> None:
         target_column="target",
         pipeline=pipeline,
         id_columns=["customer_id"],
-        train_config=TrainConfig(num_threads=1, num_boost_round=20, early_stopping_rounds=5),
+        train_config=TrainConfig(
+            num_threads=1, num_boost_round=20, early_stopping_rounds=5
+        ),
     )
 
     assert hpo_result.best_result.categorical_columns
     assert "segment" in hpo_result.best_result.categorical_columns
-    assert refit_result.categorical_columns == hpo_result.best_result.categorical_columns
+    assert (
+        refit_result.categorical_columns == hpo_result.best_result.categorical_columns
+    )
     assert refit_result.evaluation_summary["ppv_at_p"] >= 0.0
 
 
@@ -393,14 +447,23 @@ def test_batched_feature_screening_decorrelates_across_batches(tmp_path: Path) -
         row["dropped_feature"] == "weak_signal" and row["decision"] == "dropped"
         for row in result.correlation_pair_rows
     )
-    assert any(row["feature"] == "constant_feature" and "zero_variance" in row["reasons"] for row in result.finding_rows)
-    assert any(row["feature"] == "mostly_missing" and "too_missing" in row["reasons"] for row in result.finding_rows)
+    assert any(
+        row["feature"] == "constant_feature" and "zero_variance" in row["reasons"]
+        for row in result.finding_rows
+    )
+    assert any(
+        row["feature"] == "mostly_missing" and "too_missing" in row["reasons"]
+        for row in result.finding_rows
+    )
     assert len(result.finding_paths) == 2
     assert all(path.exists() for path in result.finding_paths)
-    assert max(
-        len([column for column in columns if column not in {"target", "row_id"}])
-        for columns in requested_columns
-    ) <= 3
+    assert (
+        max(
+            len([column for column in columns if column not in {"target", "row_id"}])
+            for columns in requested_columns
+        )
+        <= 3
+    )
 
 
 def test_parquet_batched_feature_screening_uses_projected_reads(tmp_path: Path) -> None:
@@ -430,7 +493,9 @@ def test_parquet_batched_feature_screening_uses_projected_reads(tmp_path: Path) 
     assert "signal" in result.selected_columns
     assert len(result.finding_paths) == 2
     assert any(path.exists() for path in result.finding_paths)
-    assert "balance" in result.dropped_columns or "balance_copy" in result.dropped_columns
+    assert (
+        "balance" in result.dropped_columns or "balance_copy" in result.dropped_columns
+    )
 
 
 def test_torch_preprocessor_feeds_categorical_embeddings() -> None:
@@ -502,10 +567,14 @@ def test_lightgbm_training_hpo_and_error_analysis() -> None:
         valid_frame,
         target_column="target",
         feature_columns=[str(column) for column in transformed_train.columns],
-        train_config=TrainConfig(num_threads=1, num_boost_round=60, early_stopping_rounds=10),
+        train_config=TrainConfig(
+            num_threads=1, num_boost_round=60, early_stopping_rounds=10
+        ),
         top_p=0.2,
     )
-    scored_valid = score_dataframe(valid_frame, baseline_result, score_column_name="pred_score")
+    scored_valid = score_dataframe(
+        valid_frame, baseline_result, score_column_name="pred_score"
+    )
     error_report = analyze_top_p_false_positives(
         scored_valid,
         target_column="target",
@@ -518,7 +587,9 @@ def test_lightgbm_training_hpo_and_error_analysis() -> None:
         feature_columns=feature_columns,
         keep_top_k=4,
         split_config=SplitConfig(random_seed=42),
-        train_config=TrainConfig(num_threads=1, num_boost_round=40, early_stopping_rounds=10),
+        train_config=TrainConfig(
+            num_threads=1, num_boost_round=40, early_stopping_rounds=10
+        ),
         top_p=0.2,
     )
     hpo_result = tune_lightgbm_pipeline(
@@ -535,7 +606,9 @@ def test_lightgbm_training_hpo_and_error_analysis() -> None:
         ],
         id_columns=["customer_id"],
         split_config=SplitConfig(random_seed=42),
-        train_config=TrainConfig(num_threads=1, num_boost_round=50, early_stopping_rounds=10),
+        train_config=TrainConfig(
+            num_threads=1, num_boost_round=50, early_stopping_rounds=10
+        ),
         optuna_config=OptunaConfig(n_trials=2, random_seed=42),
         top_p=0.2,
     )
@@ -545,16 +618,51 @@ def test_lightgbm_training_hpo_and_error_analysis() -> None:
         target_column="target",
         pipeline=pipeline,
         id_columns=["customer_id"],
-        train_config=TrainConfig(num_threads=1, num_boost_round=50, early_stopping_rounds=10),
+        train_config=TrainConfig(
+            num_threads=1, num_boost_round=50, early_stopping_rounds=10
+        ),
     )
 
     assert baseline_result.evaluation_summary["ppv_at_p"] >= 0.0
     assert error_report.analyzed_columns
     assert ranking.selected_columns
     assert hpo_result.best_result.evaluation_summary["ppv_at_p"] >= 0.0
-    assert hpo_result.best_pipeline_params["preprocess__numeric__impute__strategy"] in {"mean", "median"}
+    assert hpo_result.best_pipeline_params["preprocess__numeric__impute__strategy"] in {
+        "mean",
+        "median",
+    }
     assert hasattr(fitted_pipeline, "fit")
     assert refit_result.evaluation_summary["ppv_at_p"] >= 0.0
+
+
+def test_shap_feature_ranking_can_filter_against_random_feature() -> None:
+    """SHAP ranking should support optional top-k and random-baseline filtering."""
+
+    frame = make_classification_frame(rows=300)
+    feature_columns = ["signal", "balance", "utilization", "segment"]
+
+    ranking = rank_features_by_shap(
+        frame,
+        target_column="target",
+        feature_columns=feature_columns,
+        keep_top_k=None,
+        filter_below_random=True,
+        split_config=SplitConfig(random_seed=42),
+        train_config=TrainConfig(
+            num_threads=1,
+            num_boost_round=30,
+            early_stopping_rounds=10,
+        ),
+        top_p=0.2,
+    )
+
+    assert ranking.selected_columns
+    assert "__random_feature_baseline__" not in ranking.selected_columns
+    assert len(ranking.selected_columns) <= len(feature_columns)
+    assert set(ranking.categorical_columns).issubset(ranking.selected_columns)
+    assert ranking.evaluation_summary["importance_method"] == "shap_mean_abs"
+    assert ranking.evaluation_summary["random_feature_mean_abs_shap"] is not None
+    assert all(row["passed_random_filter"] for row in ranking.importance_rows)
 
 
 def test_run_binary_experiment_returns_summary_payload() -> None:
@@ -566,7 +674,9 @@ def test_run_binary_experiment_returns_summary_payload() -> None:
         target_column="target",
         id_columns=["customer_id"],
         split_config=SplitConfig(random_seed=42),
-        train_config=TrainConfig(num_threads=1, num_boost_round=40, early_stopping_rounds=10),
+        train_config=TrainConfig(
+            num_threads=1, num_boost_round=40, early_stopping_rounds=10
+        ),
         top_p=0.2,
     )
 

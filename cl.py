@@ -44,8 +44,9 @@ agent = Agent(
         cl_query_writer,
     ],
     deps_type=None,
-    system_prompt="You are a world class legal assistant AI. Use the available tools to help the user with their query."
+    system_prompt="You are a world class legal assistant AI. Use the available tools to help the user with their query.",
 )
+
 
 @agent.instructions
 async def get_query_agent_system_prompt(ctx: RunContext[None]):
@@ -83,7 +84,7 @@ async def get_query_agent_system_prompt(ctx: RunContext[None]):
 
 async def main():
     deps = None
-    
+
     try:
         await run_chat(
             stream=True,

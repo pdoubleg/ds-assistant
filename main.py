@@ -68,7 +68,7 @@ async def get_analyst_agent_system_prompt(ctx: RunContext[AnalystAgentDeps]):
 
 async def main():
     deps = AnalystAgentDeps(data_directory=DATA_DIRECTORY)
-    
+
     try:
         await run_chat(
             stream=True,

@@ -42,7 +42,9 @@ class TestCountTokens:
 
     def test_longer_text_has_more_tokens(self) -> None:
         short = count_tokens("Hi")
-        long = count_tokens("Hello, this is a much longer sentence for testing purposes.")
+        long = count_tokens(
+            "Hello, this is a much longer sentence for testing purposes."
+        )
         assert long > short
 
 
