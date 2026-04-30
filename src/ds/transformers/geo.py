@@ -1,9 +1,24 @@
+"""Geographic feature transformers for direct-mail modeling.
+
+Target-aware transformers in this module must be fit only on training data.
+
+For honest validation:
+- Preferred: place target-aware transformers inside the modeling pipeline
+  evaluated by cross-validation.
+- Acceptable: use a train/validation split where ``fit_transform`` is called
+  on train and ``transform`` is called on validation.
+- Avoid: precomputing target encodings on the full dataset before doing model
+  cross-validation.
+
+Out-of-fold encodings prevent row self-label leakage inside the fitted sample,
+but they can still leak outer validation folds when generated before model CV.
+"""
+
 from __future__ import annotations
 
 import math
 import warnings
-from dataclasses import dataclass
-from typing import Any, Iterable, Literal, Sequence
+from typing import Any, Literal, Sequence
 
 import numpy as np
 import pandas as pd
@@ -13,6 +28,7 @@ from sklearn.neighbors import BallTree
 
 
 EARTH_RADIUS_MILES = 3958.7613
+MISSING_GEO_VALUE = "__MISSING__"
 
 
 DEFAULT_MAJOR_CITIES = pd.DataFrame(
@@ -511,6 +527,64 @@ def _validate_lat_lon_values(
         raise ValueError(f"{lon_col} contains values outside [-180, 180].")
 
 
+def _valid_lat_lon_mask(
+    X: pd.DataFrame,
+    lat_col: str,
+    lon_col: str,
+) -> pd.Series:
+    """Return rows with non-missing latitude/longitude inside valid ranges.
+
+    Args:
+        X: Input frame containing coordinate columns.
+        lat_col: Latitude column name.
+        lon_col: Longitude column name.
+
+    Returns:
+        Boolean series indexed like ``X``. ``True`` means both coordinates are
+        present and inside latitude/longitude bounds.
+    """
+    _require_columns(X, [lat_col, lon_col])
+    lat = pd.to_numeric(X[lat_col], errors="coerce")
+    lon = pd.to_numeric(X[lon_col], errors="coerce")
+    return lat.notna() & lon.notna() & lat.between(-90, 90) & lon.between(-180, 180)
+
+
+def _validate_missing_policy(missing_policy: str) -> None:
+    """Validate a coordinate missingness policy value."""
+    if missing_policy not in {"error", "impute", "sentinel"}:
+        raise ValueError(
+            "missing_policy must be one of: 'error', 'impute', 'sentinel'."
+        )
+
+
+def _feature_names_or_raise(estimator: Any) -> np.ndarray:
+    """Return fitted feature names with a consistent sklearn-style error."""
+    if not hasattr(estimator, "feature_names_out_"):
+        raise RuntimeError(f"{estimator.__class__.__name__} has not been fit.")
+    return np.array(estimator.feature_names_out_, dtype=object)
+
+
+def _validate_binary_target(
+    y: pd.Series | np.ndarray,
+    index: pd.Index,
+    estimator_name: str,
+) -> pd.Series:
+    """Validate a binary 0/1 target and align it to an input index."""
+    y_series = pd.Series(y, index=index).astype(float)
+    if y_series.isna().any():
+        raise ValueError("Target contains missing values.")
+    if not y_series.isin([0.0, 1.0]).all():
+        raise ValueError(f"{estimator_name} expects a binary target with values 0/1.")
+    return y_series
+
+
+def _as_key_series(
+    series: pd.Series, missing_value: str = MISSING_GEO_VALUE
+) -> pd.Series:
+    """Cast a categorical key series while preserving missing as an explicit key."""
+    return series.astype("string").fillna(missing_value)
+
+
 def _lat_lon_to_radians(df: pd.DataFrame, lat_col: str, lon_col: str) -> np.ndarray:
     coords = df[[lat_col, lon_col]].astype(float).to_numpy()
     return np.deg2rad(coords)
@@ -588,10 +662,15 @@ def _try_make_h3_cells(
     lat: pd.Series,
     lon: pd.Series,
     resolution: int,
+    require_h3: bool = True,
 ) -> pd.Series:
     try:
         import h3  # type: ignore
     except ImportError:
+        if require_h3:
+            raise ImportError(
+                "h3 is required for GeoCellTransformer when require_h3=True."
+            ) from None
         return _make_grid_cell(lat=lat, lon=lon, resolution=resolution)
 
     def to_cell(row: tuple[float, float]) -> str | pd.NA:
@@ -622,19 +701,44 @@ class GeoFeatureUnion(BaseEstimator, TransformerMixin):
     """
 
     def __init__(self, transformers: Sequence[tuple[str, TransformerMixin]]):
-        self.transformers = list(transformers)
+        self.transformers = transformers
+
+    def _validate_transformer_names(self) -> None:
+        names = [name for name, _ in self.transformers]
+        if len(names) != len(set(names)):
+            raise ValueError("Transformer names must be unique.")
+
+    def _concat_frames(
+        self, frames: list[pd.DataFrame], index: pd.Index
+    ) -> pd.DataFrame:
+        if not frames:
+            result = pd.DataFrame(index=index)
+        else:
+            result = pd.concat(frames, axis=1)
+
+        if result.columns.duplicated().any():
+            duplicates = result.columns[result.columns.duplicated()].unique().tolist()
+            raise ValueError(f"Duplicate output columns: {duplicates}")
+
+        self.feature_names_out_ = list(result.columns)
+        return result
 
     def fit(
         self, X: pd.DataFrame, y: pd.Series | np.ndarray | None = None
     ) -> "GeoFeatureUnion":
         X = _as_dataframe(X)
+        self._validate_transformer_names()
         self.fitted_transformers_: list[tuple[str, TransformerMixin]] = []
+        frames = []
 
         for name, transformer in self.transformers:
             fitted = clone(transformer)
             fitted.fit(X, y)
+            Xt = _as_dataframe(fitted.transform(X))
+            frames.append(Xt)
             self.fitted_transformers_.append((name, fitted))
 
+        self._concat_frames(frames, X.index)
         return self
 
     def fit_transform(
@@ -644,6 +748,7 @@ class GeoFeatureUnion(BaseEstimator, TransformerMixin):
         **fit_params: Any,
     ) -> pd.DataFrame:
         X = _as_dataframe(X)
+        self._validate_transformer_names()
         self.fitted_transformers_ = []
         frames = []
 
@@ -654,10 +759,7 @@ class GeoFeatureUnion(BaseEstimator, TransformerMixin):
             frames.append(Xt)
             self.fitted_transformers_.append((name, fitted))
 
-        if not frames:
-            return pd.DataFrame(index=X.index)
-
-        return pd.concat(frames, axis=1)
+        return self._concat_frames(frames, X.index)
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = _as_dataframe(X)
@@ -671,10 +773,75 @@ class GeoFeatureUnion(BaseEstimator, TransformerMixin):
             Xt = _as_dataframe(Xt)
             frames.append(Xt)
 
-        if not frames:
-            return pd.DataFrame(index=X.index)
+        return self._concat_frames(frames, X.index)
 
-        return pd.concat(frames, axis=1)
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
+
+
+class LatLonMissingIndicatorTransformer(BaseEstimator, TransformerMixin):
+    """Create numeric missing/valid coordinate indicators.
+
+    Example:
+        ``LatLonMissingIndicatorTransformer().fit_transform(df)`` returns
+        ``geo_lat_missing``, ``geo_lon_missing``, ``geo_lat_lon_missing``, and
+        ``geo_lat_lon_valid``.
+    """
+
+    def __init__(
+        self,
+        lat_col: str = "lat",
+        lon_col: str = "lon",
+        prefix: str = "geo",
+    ):
+        self.lat_col = lat_col
+        self.lon_col = lon_col
+        self.prefix = prefix
+
+    def fit(
+        self, X: pd.DataFrame, y: pd.Series | np.ndarray | None = None
+    ) -> "LatLonMissingIndicatorTransformer":
+        X = _as_dataframe(X)
+        _require_columns(X, [self.lat_col, self.lon_col])
+        self.feature_names_out_ = [
+            f"{self.prefix}_lat_missing",
+            f"{self.prefix}_lon_missing",
+            f"{self.prefix}_lat_lon_missing",
+            f"{self.prefix}_lat_lon_valid",
+        ]
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        X = _as_dataframe(X)
+        _require_columns(X, [self.lat_col, self.lon_col])
+        lat = pd.to_numeric(X[self.lat_col], errors="coerce")
+        lon = pd.to_numeric(X[self.lon_col], errors="coerce")
+        valid = _valid_lat_lon_mask(X, self.lat_col, self.lon_col)
+
+        out = pd.DataFrame(index=X.index)
+        out[f"{self.prefix}_lat_missing"] = (lat.isna() | ~lat.between(-90, 90)).astype(
+            int
+        )
+        out[f"{self.prefix}_lon_missing"] = (
+            lon.isna() | ~lon.between(-180, 180)
+        ).astype(int)
+        out[f"{self.prefix}_lat_lon_missing"] = (~valid).astype(int)
+        out[f"{self.prefix}_lat_lon_valid"] = valid.astype(int)
+        self.feature_names_out_ = list(out.columns)
+        return out
+
+    def fit_transform(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series | np.ndarray | None = None,
+        **fit_params: Any,
+    ) -> pd.DataFrame:
+        return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
 
 
 class LatLonBasicTransformer(BaseEstimator, TransformerMixin):
@@ -689,6 +856,9 @@ class LatLonBasicTransformer(BaseEstimator, TransformerMixin):
         include_raw: bool = True,
         include_trig: bool = True,
         include_interaction: bool = True,
+        missing_policy: Literal["error", "impute", "sentinel"] = "sentinel",
+        impute_lat: float = 0.0,
+        impute_lon: float = 0.0,
         prefix: str = "geo",
     ):
         self.lat_col = lat_col
@@ -696,6 +866,9 @@ class LatLonBasicTransformer(BaseEstimator, TransformerMixin):
         self.include_raw = include_raw
         self.include_trig = include_trig
         self.include_interaction = include_interaction
+        self.missing_policy = missing_policy
+        self.impute_lat = float(impute_lat)
+        self.impute_lon = float(impute_lon)
         self.prefix = prefix
 
     def fit(
@@ -703,16 +876,53 @@ class LatLonBasicTransformer(BaseEstimator, TransformerMixin):
     ) -> "LatLonBasicTransformer":
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
-        _validate_lat_lon_values(X, self.lat_col, self.lon_col)
+        _validate_missing_policy(self.missing_policy)
+        if self.missing_policy == "error":
+            _validate_lat_lon_values(X, self.lat_col, self.lon_col, allow_missing=False)
+        self.feature_names_out_ = self._output_columns()
         return self
+
+    def _output_columns(self) -> list[str]:
+        cols: list[str] = []
+        if self.include_raw:
+            cols.extend([f"{self.prefix}_lat", f"{self.prefix}_lon"])
+        if self.include_trig:
+            cols.extend(
+                [
+                    f"{self.prefix}_sin_lat",
+                    f"{self.prefix}_cos_lat",
+                    f"{self.prefix}_sin_lon",
+                    f"{self.prefix}_cos_lon",
+                ]
+            )
+        if self.include_interaction:
+            cols.extend(
+                [
+                    f"{self.prefix}_lat_lon_product",
+                    f"{self.prefix}_lat_abs",
+                    f"{self.prefix}_lon_abs",
+                ]
+            )
+        return cols
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
-        _validate_lat_lon_values(X, self.lat_col, self.lon_col)
+        _validate_missing_policy(self.missing_policy)
+        valid = _valid_lat_lon_mask(X, self.lat_col, self.lon_col)
+        if self.missing_policy == "error" and not valid.all():
+            raise ValueError(
+                "Latitude and longitude columns contain missing or invalid values."
+            )
 
-        lat = X[self.lat_col].astype(float)
-        lon = X[self.lon_col].astype(float)
+        lat = pd.to_numeric(X[self.lat_col], errors="coerce")
+        lon = pd.to_numeric(X[self.lon_col], errors="coerce")
+        if self.missing_policy == "impute":
+            lat = lat.where(valid, self.impute_lat)
+            lon = lon.where(valid, self.impute_lon)
+        else:
+            lat = lat.where(valid, np.nan)
+            lon = lon.where(valid, np.nan)
 
         out = pd.DataFrame(index=X.index)
 
@@ -731,6 +941,7 @@ class LatLonBasicTransformer(BaseEstimator, TransformerMixin):
             out[f"{self.prefix}_lat_abs"] = lat.abs()
             out[f"{self.prefix}_lon_abs"] = lon.abs()
 
+        self.feature_names_out_ = list(out.columns)
         return out
 
     def fit_transform(
@@ -740,6 +951,10 @@ class LatLonBasicTransformer(BaseEstimator, TransformerMixin):
         **fit_params: Any,
     ) -> pd.DataFrame:
         return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
 
 
 class RoundedLatLonTransformer(BaseEstimator, TransformerMixin):
@@ -769,7 +984,22 @@ class RoundedLatLonTransformer(BaseEstimator, TransformerMixin):
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
         _validate_lat_lon_values(X, self.lat_col, self.lon_col)
+        self.feature_names_out_ = self._output_columns()
         return self
+
+    def _output_columns(self) -> list[str]:
+        cols: list[str] = []
+        for decimal in self.decimals:
+            if self.include_numeric:
+                cols.extend(
+                    [
+                        f"{self.prefix}_lat_round_{decimal}",
+                        f"{self.prefix}_lon_round_{decimal}",
+                    ]
+                )
+            if self.include_categorical_cell:
+                cols.append(f"{self.prefix}_cell_round_{decimal}")
+        return cols
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = _as_dataframe(X)
@@ -798,6 +1028,7 @@ class RoundedLatLonTransformer(BaseEstimator, TransformerMixin):
                     + rounded_lon.astype("string")
                 ).astype("category")
 
+        self.feature_names_out_ = list(out.columns)
         return out
 
     def fit_transform(
@@ -808,56 +1039,80 @@ class RoundedLatLonTransformer(BaseEstimator, TransformerMixin):
     ) -> pd.DataFrame:
         return self.fit(X, y).transform(X)
 
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
+
 
 class GeoCellTransformer(BaseEstimator, TransformerMixin):
     """
-    Adds H3 or fallback grid-cell categorical columns.
+    Adds H3 or explicit fallback grid-cell categorical columns.
 
-    If `use_h3=True` and h3 is installed, true H3 cells are used.
-    Otherwise a rounded lat/lon grid fallback is used.
+    Missing or invalid coordinates are emitted as ``missing_value``.
     """
 
     def __init__(
         self,
         lat_col: str = "lat",
         lon_col: str = "lon",
-        resolutions: Sequence[int] = (5, 6, 7),
+        resolutions: Sequence[int] = (4, 5, 6, 7),
         use_h3: bool = True,
+        require_h3: bool = True,
         prefix: str = "geo",
+        missing_value: str = MISSING_GEO_VALUE,
     ):
         self.lat_col = lat_col
         self.lon_col = lon_col
         self.resolutions = tuple(resolutions)
         self.use_h3 = use_h3
+        self.require_h3 = require_h3
         self.prefix = prefix
+        self.missing_value = missing_value
 
     def fit(
         self, X: pd.DataFrame, y: pd.Series | np.ndarray | None = None
     ) -> "GeoCellTransformer":
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
-        _validate_lat_lon_values(X, self.lat_col, self.lon_col)
+        if self.use_h3 and self.require_h3:
+            try:
+                import h3  # noqa: F401
+            except ImportError:
+                raise ImportError(
+                    "h3 is required for GeoCellTransformer when require_h3=True."
+                ) from None
+        self.feature_names_out_ = [
+            f"{self.prefix}_{'h3' if self.use_h3 else 'grid'}_r{resolution}"
+            for resolution in self.resolutions
+        ]
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
-        _validate_lat_lon_values(X, self.lat_col, self.lon_col)
+        valid = _valid_lat_lon_mask(X, self.lat_col, self.lon_col)
 
         out = pd.DataFrame(index=X.index)
-        lat = X[self.lat_col].astype(float)
-        lon = X[self.lon_col].astype(float)
+        lat = pd.to_numeric(X[self.lat_col], errors="coerce")
+        lon = pd.to_numeric(X[self.lon_col], errors="coerce")
+        valid_lat = lat.where(valid)
+        valid_lon = lon.where(valid)
 
         for resolution in self.resolutions:
             if self.use_h3:
-                cell = _try_make_h3_cells(lat, lon, resolution)
+                cell = _try_make_h3_cells(
+                    valid_lat, valid_lon, resolution, require_h3=self.require_h3
+                )
                 col = f"{self.prefix}_h3_r{resolution}"
             else:
-                cell = _make_grid_cell(lat, lon, resolution)
+                cell = _make_grid_cell(valid_lat, valid_lon, resolution)
                 col = f"{self.prefix}_grid_r{resolution}"
 
-            out[col] = cell.astype("category")
+            out[col] = (
+                cell.astype("string").fillna(self.missing_value).astype("category")
+            )
 
+        self.feature_names_out_ = list(out.columns)
         return out
 
     def fit_transform(
@@ -867,6 +1122,10 @@ class GeoCellTransformer(BaseEstimator, TransformerMixin):
         **fit_params: Any,
     ) -> pd.DataFrame:
         return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
 
 
 class NearestCityDistanceTransformer(BaseEstimator, TransformerMixin):
@@ -896,6 +1155,9 @@ class NearestCityDistanceTransformer(BaseEstimator, TransformerMixin):
         population_thresholds: Sequence[int] = (100_000, 250_000, 1_000_000),
         include_nearest_city_name: bool = True,
         include_nearest_city_population: bool = True,
+        missing_policy: Literal["error", "impute", "sentinel"] = "sentinel",
+        impute_lat: float = 0.0,
+        impute_lon: float = 0.0,
         prefix: str = "geo",
     ):
         self.lat_col = lat_col
@@ -909,6 +1171,9 @@ class NearestCityDistanceTransformer(BaseEstimator, TransformerMixin):
         self.population_thresholds = tuple(population_thresholds)
         self.include_nearest_city_name = include_nearest_city_name
         self.include_nearest_city_population = include_nearest_city_population
+        self.missing_policy = missing_policy
+        self.impute_lat = float(impute_lat)
+        self.impute_lon = float(impute_lon)
         self.prefix = prefix
 
     def fit(
@@ -916,7 +1181,9 @@ class NearestCityDistanceTransformer(BaseEstimator, TransformerMixin):
     ) -> "NearestCityDistanceTransformer":
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
-        _validate_lat_lon_values(X, self.lat_col, self.lon_col)
+        _validate_missing_policy(self.missing_policy)
+        if self.missing_policy == "error":
+            _validate_lat_lon_values(X, self.lat_col, self.lon_col, allow_missing=False)
 
         cities = (
             DEFAULT_MAJOR_CITIES.copy() if self.city_df is None else self.city_df.copy()
@@ -964,58 +1231,126 @@ class NearestCityDistanceTransformer(BaseEstimator, TransformerMixin):
                 BallTree(subset_coords_rad, metric="haversine"),
             )
 
+        self.feature_names_out_ = self._output_columns()
         return self
+
+    def _output_columns(self) -> list[str]:
+        cols = [f"{self.prefix}_nearest_city_distance_miles"]
+        if self.include_nearest_city_population:
+            cols.append(f"{self.prefix}_nearest_city_population")
+        if self.include_nearest_city_name:
+            cols.extend(
+                [
+                    f"{self.prefix}_nearest_city_name",
+                    f"{self.prefix}_nearest_city_state",
+                ]
+            )
+        for threshold in self.population_thresholds:
+            cols.append(f"{self.prefix}_nearest_city_pop_gt_{threshold}_distance_miles")
+            if self.include_nearest_city_name:
+                cols.extend(
+                    [
+                        f"{self.prefix}_nearest_city_pop_gt_{threshold}_name",
+                        f"{self.prefix}_nearest_city_pop_gt_{threshold}_state",
+                    ]
+                )
+        return cols
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
-        _validate_lat_lon_values(X, self.lat_col, self.lon_col)
+        _validate_missing_policy(self.missing_policy)
+        valid = _valid_lat_lon_mask(X, self.lat_col, self.lon_col)
+        if self.missing_policy == "error" and not valid.all():
+            raise ValueError(
+                "Latitude and longitude columns contain missing or invalid values."
+            )
 
-        coords_rad = _lat_lon_to_radians(X, self.lat_col, self.lon_col)
         out = pd.DataFrame(index=X.index)
+        out[f"{self.prefix}_nearest_city_distance_miles"] = np.nan
+        if self.include_nearest_city_population:
+            out[f"{self.prefix}_nearest_city_population"] = np.nan
+        if self.include_nearest_city_name:
+            out[f"{self.prefix}_nearest_city_name"] = MISSING_GEO_VALUE
+            out[f"{self.prefix}_nearest_city_state"] = MISSING_GEO_VALUE
+        for threshold in self.population_thresholds:
+            out[f"{self.prefix}_nearest_city_pop_gt_{threshold}_distance_miles"] = (
+                np.nan
+            )
+            if self.include_nearest_city_name:
+                out[f"{self.prefix}_nearest_city_pop_gt_{threshold}_name"] = (
+                    MISSING_GEO_VALUE
+                )
+                out[f"{self.prefix}_nearest_city_pop_gt_{threshold}_state"] = (
+                    MISSING_GEO_VALUE
+                )
+
+        query = X[[self.lat_col, self.lon_col]].copy()
+        if self.missing_policy == "impute":
+            query[self.lat_col] = pd.to_numeric(
+                query[self.lat_col], errors="coerce"
+            ).where(valid, self.impute_lat)
+            query[self.lon_col] = pd.to_numeric(
+                query[self.lon_col], errors="coerce"
+            ).where(valid, self.impute_lon)
+            query_index = X.index
+        else:
+            query = query.loc[valid]
+            query_index = query.index
+
+        if query.empty:
+            for col in out.columns:
+                if out[col].dtype == object:
+                    out[col] = out[col].astype("category")
+            self.feature_names_out_ = list(out.columns)
+            return out
+
+        coords_rad = _lat_lon_to_radians(query, self.lat_col, self.lon_col)
 
         dist_rad, ind = self.city_tree_.query(coords_rad, k=1)
         dist_miles = dist_rad[:, 0] * EARTH_RADIUS_MILES
         nearest_idx = ind[:, 0]
         nearest_cities = self.city_df_.iloc[nearest_idx].reset_index(drop=True)
 
-        out[f"{self.prefix}_nearest_city_distance_miles"] = dist_miles
+        out.loc[query_index, f"{self.prefix}_nearest_city_distance_miles"] = dist_miles
 
         if self.include_nearest_city_population:
-            out[f"{self.prefix}_nearest_city_population"] = (
+            out.loc[query_index, f"{self.prefix}_nearest_city_population"] = (
                 nearest_cities[self.city_population_col].astype(float).to_numpy()
             )
 
         if self.include_nearest_city_name:
-            out[f"{self.prefix}_nearest_city_name"] = (
+            out.loc[query_index, f"{self.prefix}_nearest_city_name"] = (
                 nearest_cities[self.city_name_col].astype(str).to_numpy()
             )
-            out[f"{self.prefix}_nearest_city_state"] = (
+            out.loc[query_index, f"{self.prefix}_nearest_city_state"] = (
                 nearest_cities[self.city_state_col].astype(str).to_numpy()
             )
 
         for threshold, (subset, tree) in self.threshold_trees_.items():
             threshold_dist_rad, threshold_ind = tree.query(coords_rad, k=1)
             threshold_dist_miles = threshold_dist_rad[:, 0] * EARTH_RADIUS_MILES
-            out[f"{self.prefix}_nearest_city_pop_gt_{threshold}_distance_miles"] = (
-                threshold_dist_miles
-            )
+            out.loc[
+                query_index,
+                f"{self.prefix}_nearest_city_pop_gt_{threshold}_distance_miles",
+            ] = threshold_dist_miles
 
             if self.include_nearest_city_name:
                 threshold_nearest = subset.iloc[threshold_ind[:, 0]].reset_index(
                     drop=True
                 )
-                out[f"{self.prefix}_nearest_city_pop_gt_{threshold}_name"] = (
-                    threshold_nearest[self.city_name_col].astype(str).to_numpy()
-                )
-                out[f"{self.prefix}_nearest_city_pop_gt_{threshold}_state"] = (
-                    threshold_nearest[self.city_state_col].astype(str).to_numpy()
-                )
+                out.loc[
+                    query_index, f"{self.prefix}_nearest_city_pop_gt_{threshold}_name"
+                ] = threshold_nearest[self.city_name_col].astype(str).to_numpy()
+                out.loc[
+                    query_index, f"{self.prefix}_nearest_city_pop_gt_{threshold}_state"
+                ] = threshold_nearest[self.city_state_col].astype(str).to_numpy()
 
         for col in out.columns:
             if out[col].dtype == object:
                 out[col] = out[col].astype("category")
 
+        self.feature_names_out_ = list(out.columns)
         return out
 
     def fit_transform(
@@ -1025,6 +1360,10 @@ class NearestCityDistanceTransformer(BaseEstimator, TransformerMixin):
         **fit_params: Any,
     ) -> pd.DataFrame:
         return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
 
 
 class CustomerDensityTransformer(BaseEstimator, TransformerMixin):
@@ -1046,6 +1385,9 @@ class CustomerDensityTransformer(BaseEstimator, TransformerMixin):
         radii_miles: Sequence[float] = (10.0, 25.0, 50.0),
         exclude_self: bool = True,
         add_log_density: bool = True,
+        missing_policy: Literal["error", "impute", "sentinel"] = "sentinel",
+        impute_lat: float = 0.0,
+        impute_lon: float = 0.0,
         prefix: str = "geo",
     ):
         self.lat_col = lat_col
@@ -1053,6 +1395,9 @@ class CustomerDensityTransformer(BaseEstimator, TransformerMixin):
         self.radii_miles = tuple(float(r) for r in radii_miles)
         self.exclude_self = exclude_self
         self.add_log_density = add_log_density
+        self.missing_policy = missing_policy
+        self.impute_lat = float(impute_lat)
+        self.impute_lon = float(impute_lon)
         self.prefix = prefix
 
     def fit(
@@ -1060,22 +1405,86 @@ class CustomerDensityTransformer(BaseEstimator, TransformerMixin):
     ) -> "CustomerDensityTransformer":
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
-        _validate_lat_lon_values(X, self.lat_col, self.lon_col, allow_missing=False)
+        _validate_missing_policy(self.missing_policy)
+        valid = _valid_lat_lon_mask(X, self.lat_col, self.lon_col)
+        if self.missing_policy == "error" and not valid.all():
+            raise ValueError(
+                "Latitude and longitude columns contain missing or invalid values."
+            )
 
         self.fit_index_ = X.index.copy()
-        self.coords_rad_ = _lat_lon_to_radians(X, self.lat_col, self.lon_col)
-        self.tree_ = BallTree(self.coords_rad_, metric="haversine")
+        if self.missing_policy == "impute":
+            ref = X[[self.lat_col, self.lon_col]].copy()
+            ref[self.lat_col] = pd.to_numeric(ref[self.lat_col], errors="coerce").where(
+                valid, self.impute_lat
+            )
+            ref[self.lon_col] = pd.to_numeric(ref[self.lon_col], errors="coerce").where(
+                valid, self.impute_lon
+            )
+        else:
+            ref = X.loc[valid, [self.lat_col, self.lon_col]]
+        self.reference_X_ = ref
+        self.coords_rad_ = (
+            _lat_lon_to_radians(ref, self.lat_col, self.lon_col)
+            if len(ref)
+            else np.empty((0, 2), dtype=float)
+        )
+        self.tree_ = (
+            BallTree(self.coords_rad_, metric="haversine") if len(ref) else None
+        )
+        self.feature_names_out_ = self._output_columns()
         return self
+
+    def _output_columns(self) -> list[str]:
+        cols: list[str] = []
+        for radius in self.radii_miles:
+            count_col = f"{self.prefix}_customer_count_within_{int(radius)}mi"
+            density_col = (
+                f"{self.prefix}_customer_density_per_sqmi_within_{int(radius)}mi"
+            )
+            cols.extend([count_col, density_col])
+            if self.add_log_density:
+                cols.extend([f"{count_col}_log1p", f"{density_col}_log1p"])
+        return cols
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = _as_dataframe(X)
         _require_columns(X, [self.lat_col, self.lon_col])
-        _validate_lat_lon_values(X, self.lat_col, self.lon_col, allow_missing=False)
+        _validate_missing_policy(self.missing_policy)
+        valid = _valid_lat_lon_mask(X, self.lat_col, self.lon_col)
+        if self.missing_policy == "error" and not valid.all():
+            raise ValueError(
+                "Latitude and longitude columns contain missing or invalid values."
+            )
 
-        coords_rad = _lat_lon_to_radians(X, self.lat_col, self.lon_col)
         same_index = X.index.equals(self.fit_index_)
 
         out = pd.DataFrame(index=X.index)
+        for col in self._output_columns():
+            out[col] = 0.0
+
+        if self.tree_ is None:
+            self.feature_names_out_ = list(out.columns)
+            return out
+
+        query = X[[self.lat_col, self.lon_col]].copy()
+        if self.missing_policy == "impute":
+            query[self.lat_col] = pd.to_numeric(
+                query[self.lat_col], errors="coerce"
+            ).where(valid, self.impute_lat)
+            query[self.lon_col] = pd.to_numeric(
+                query[self.lon_col], errors="coerce"
+            ).where(valid, self.impute_lon)
+            query_index = X.index
+        else:
+            query = query.loc[valid]
+            query_index = query.index
+
+        if query.empty:
+            self.feature_names_out_ = list(out.columns)
+            return out
+
+        coords_rad = _lat_lon_to_radians(query, self.lat_col, self.lon_col)
 
         for radius in self.radii_miles:
             radius_rad = radius / EARTH_RADIUS_MILES
@@ -1087,18 +1496,19 @@ class CustomerDensityTransformer(BaseEstimator, TransformerMixin):
                 counts = np.maximum(counts - 1.0, 0.0)
 
             count_col = f"{self.prefix}_customer_count_within_{int(radius)}mi"
-            out[count_col] = counts
+            out.loc[query_index, count_col] = counts
 
             area = math.pi * radius**2
             density_col = (
                 f"{self.prefix}_customer_density_per_sqmi_within_{int(radius)}mi"
             )
-            out[density_col] = counts / area
+            out.loc[query_index, density_col] = counts / area
 
             if self.add_log_density:
-                out[f"{count_col}_log1p"] = np.log1p(counts)
-                out[f"{density_col}_log1p"] = np.log1p(counts / area)
+                out.loc[query_index, f"{count_col}_log1p"] = np.log1p(counts)
+                out.loc[query_index, f"{density_col}_log1p"] = np.log1p(counts / area)
 
+        self.feature_names_out_ = list(out.columns)
         return out
 
     def fit_transform(
@@ -1109,46 +1519,46 @@ class CustomerDensityTransformer(BaseEstimator, TransformerMixin):
     ) -> pd.DataFrame:
         return self.fit(X, y).transform(X)
 
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
+
 
 class GeoCellCountTransformer(BaseEstimator, TransformerMixin):
     """
     Count observations in each geo cell. Useful as a simple density proxy.
 
-    You can pass pre-existing cell columns or have this transformer create
-    fallback grid/H3-like cells from lat/lon.
+    This transformer expects precomputed cell columns so H3 generation happens
+    once upstream.
     """
 
     def __init__(
         self,
-        lat_col: str = "lat",
-        lon_col: str = "lon",
-        cell_cols: Sequence[str] | None = None,
-        resolutions: Sequence[int] = (5, 6, 7),
-        use_h3: bool = True,
-        smoothing_count: float = 0.0,
+        cell_cols: Sequence[str],
+        unseen_count_value: float = 0.0,
+        add_log_count: bool = True,
+        add_frequency: bool = True,
         prefix: str = "geo",
     ):
-        self.lat_col = lat_col
-        self.lon_col = lon_col
-        self.cell_cols = None if cell_cols is None else tuple(cell_cols)
-        self.resolutions = tuple(resolutions)
-        self.use_h3 = use_h3
-        self.smoothing_count = smoothing_count
+        self.cell_cols = tuple(cell_cols)
+        self.unseen_count_value = float(unseen_count_value)
+        self.add_log_count = add_log_count
+        self.add_frequency = add_frequency
         self.prefix = prefix
 
     def _make_cells(self, X: pd.DataFrame) -> pd.DataFrame:
-        if self.cell_cols is not None:
-            _require_columns(X, list(self.cell_cols))
-            return X[list(self.cell_cols)].astype("string")
+        _require_columns(X, list(self.cell_cols))
+        return X[list(self.cell_cols)].apply(_as_key_series)
 
-        celler = GeoCellTransformer(
-            lat_col=self.lat_col,
-            lon_col=self.lon_col,
-            resolutions=self.resolutions,
-            use_h3=self.use_h3,
-            prefix=self.prefix,
-        )
-        return celler.fit_transform(X).astype("string")
+    def _output_columns(self) -> list[str]:
+        cols: list[str] = []
+        for col in self.cell_cols:
+            cols.append(f"{col}_train_count")
+            if self.add_log_count:
+                cols.append(f"{col}_train_count_log1p")
+            if self.add_frequency:
+                cols.append(f"{col}_train_frequency")
+        return cols
 
     def fit(
         self, X: pd.DataFrame, y: pd.Series | np.ndarray | None = None
@@ -1162,6 +1572,7 @@ class GeoCellCountTransformer(BaseEstimator, TransformerMixin):
         for col in self.cell_cols_:
             self.count_maps_[col] = cells[col].value_counts(dropna=False)
 
+        self.feature_names_out_ = self._output_columns()
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -1174,11 +1585,16 @@ class GeoCellCountTransformer(BaseEstimator, TransformerMixin):
                 cells[col]
                 .map(self.count_maps_[col])
                 .astype(float)
-                .fillna(self.smoothing_count)
+                .fillna(self.unseen_count_value)
             )
             out[f"{col}_train_count"] = counts
-            out[f"{col}_train_count_log1p"] = np.log1p(counts)
+            if self.add_log_count:
+                out[f"{col}_train_count_log1p"] = np.log1p(counts)
+            if self.add_frequency:
+                frequency = counts / self.global_count_
+                out[f"{col}_train_frequency"] = frequency.where(counts > 0, 0.0)
 
+        self.feature_names_out_ = list(out.columns)
         return out
 
     def fit_transform(
@@ -1188,6 +1604,10 @@ class GeoCellCountTransformer(BaseEstimator, TransformerMixin):
         **fit_params: Any,
     ) -> pd.DataFrame:
         return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
 
 
 class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
@@ -1213,15 +1633,21 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
         cols: Sequence[str] | None = None,
         lat_col: str = "lat",
         lon_col: str = "lon",
-        create_geo_cells: bool = True,
+        create_geo_cells: bool = False,
         resolutions: Sequence[int] = (5, 6, 7),
         use_h3: bool = True,
+        require_h3: bool = True,
         alpha: float = 50.0,
+        min_samples_leaf: int = 1,
+        handle_unknown: Literal["global_mean", "nan"] = "global_mean",
         n_splits: int = 5,
         random_state: int = 42,
         stratified: bool = True,
         add_count_features: bool = True,
+        add_count_log1p_features: bool = True,
+        add_reliability_features: bool = True,
         add_logit_features: bool = True,
+        output_suffix: str = "oof",
         prefix: str = "te",
     ):
         self.cols = None if cols is None else tuple(cols)
@@ -1230,12 +1656,18 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
         self.create_geo_cells = create_geo_cells
         self.resolutions = tuple(resolutions)
         self.use_h3 = use_h3
+        self.require_h3 = require_h3
         self.alpha = float(alpha)
+        self.min_samples_leaf = int(min_samples_leaf)
+        self.handle_unknown = handle_unknown
         self.n_splits = int(n_splits)
         self.random_state = int(random_state)
         self.stratified = stratified
         self.add_count_features = add_count_features
+        self.add_count_log1p_features = add_count_log1p_features
+        self.add_reliability_features = add_reliability_features
         self.add_logit_features = add_logit_features
+        self.output_suffix = output_suffix
         self.prefix = prefix
 
     def _build_encoding_frame(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -1243,7 +1675,7 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
 
         if self.cols is not None:
             _require_columns(X, list(self.cols))
-            parts.append(X[list(self.cols)].astype("string"))
+            parts.append(X[list(self.cols)].apply(_as_key_series))
 
         if self.create_geo_cells:
             celler = GeoCellTransformer(
@@ -1251,14 +1683,36 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
                 lon_col=self.lon_col,
                 resolutions=self.resolutions,
                 use_h3=self.use_h3,
+                require_h3=self.require_h3,
                 prefix="geo",
             )
-            parts.append(celler.fit_transform(X).astype("string"))
+            parts.append(celler.fit_transform(X).apply(_as_key_series))
 
         if not parts:
             raise ValueError("No columns supplied and create_geo_cells=False.")
 
         return pd.concat(parts, axis=1)
+
+    def _unknown_fill_value(self) -> float:
+        if self.handle_unknown == "global_mean":
+            return self.global_mean_
+        if self.handle_unknown == "nan":
+            return np.nan
+        raise ValueError("handle_unknown must be one of: 'global_mean', 'nan'.")
+
+    def _output_columns(self) -> list[str]:
+        cols: list[str] = []
+        for col in self.key_cols_:
+            cols.append(f"{self.prefix}_{col}_rate_{self.output_suffix}")
+            if self.add_count_features:
+                cols.append(f"{self.prefix}_{col}_count_{self.output_suffix}")
+            if self.add_count_log1p_features:
+                cols.append(f"{self.prefix}_{col}_count_log1p_{self.output_suffix}")
+            if self.add_reliability_features:
+                cols.append(f"{self.prefix}_{col}_reliability_{self.output_suffix}")
+            if self.add_logit_features:
+                cols.append(f"{self.prefix}_{col}_logit_{self.output_suffix}")
+        return cols
 
     def _fit_maps_for_frame(
         self,
@@ -1270,7 +1724,7 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
         for col in keys.columns:
             stats = (
                 pd.DataFrame(
-                    {"key": keys[col].astype("string"), "y": y.astype(float).to_numpy()}
+                    {"key": _as_key_series(keys[col]), "y": y.astype(float).to_numpy()}
                 )
                 .groupby("key", dropna=False)["y"]
                 .agg(["sum", "count"])
@@ -1278,6 +1732,10 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
             stats["encoded"] = (stats["sum"] + self.alpha * self.global_mean_) / (
                 stats["count"] + self.alpha
             )
+            stats.loc[stats["count"] < self.min_samples_leaf, "encoded"] = (
+                self.global_mean_
+            )
+            stats["reliability"] = stats["count"] / (stats["count"] + self.alpha)
             stats["logit"] = np.log(
                 np.clip(stats["encoded"], 1e-6, 1 - 1e-6)
                 / np.clip(1 - stats["encoded"], 1e-6, 1)
@@ -1293,16 +1751,13 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
         if y is None:
             raise ValueError("OOFGeoTargetEncoder requires y during fit.")
 
-        y_series = pd.Series(y, index=X.index).astype(float)
-        if not y_series.isin([0.0, 1.0]).all():
-            raise ValueError(
-                "OOFGeoTargetEncoder expects a binary target with values 0/1."
-            )
+        y_series = _validate_binary_target(y, X.index, "OOFGeoTargetEncoder")
 
         keys = self._build_encoding_frame(X)
         self.key_cols_ = list(keys.columns)
         self.global_mean_ = float(y_series.mean())
         self.full_maps_ = self._fit_maps_for_frame(keys, y_series)
+        self.feature_names_out_ = self._output_columns()
         return self
 
     def fit_transform(
@@ -1315,24 +1770,17 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
         if y is None:
             raise ValueError("OOFGeoTargetEncoder requires y during fit_transform.")
 
-        y_series = pd.Series(y, index=X.index).astype(float)
-        if not y_series.isin([0.0, 1.0]).all():
-            raise ValueError(
-                "OOFGeoTargetEncoder expects a binary target with values 0/1."
-            )
+        y_series = _validate_binary_target(y, X.index, "OOFGeoTargetEncoder")
 
         keys = self._build_encoding_frame(X)
         self.key_cols_ = list(keys.columns)
         self.global_mean_ = float(y_series.mean())
 
         out = pd.DataFrame(index=X.index)
+        self.feature_names_out_ = self._output_columns()
 
-        for col in self.key_cols_:
-            out[f"{self.prefix}_{col}_rate_oof"] = np.nan
-            if self.add_count_features:
-                out[f"{self.prefix}_{col}_count_oof"] = np.nan
-            if self.add_logit_features:
-                out[f"{self.prefix}_{col}_logit_oof"] = np.nan
+        for col in self.feature_names_out_:
+            out[col] = np.nan
 
         if self.stratified:
             splitter = StratifiedKFold(
@@ -1365,19 +1813,38 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
                     valid_keys[col]
                     .map(stats["encoded"])
                     .astype(float)
-                    .fillna(self.global_mean_)
+                    .fillna(self._unknown_fill_value())
                 )
-                out.loc[valid_index, f"{self.prefix}_{col}_rate_oof"] = (
-                    encoded.to_numpy()
-                )
+                out.loc[
+                    valid_index, f"{self.prefix}_{col}_rate_{self.output_suffix}"
+                ] = encoded.to_numpy()
 
                 if self.add_count_features:
                     counts = (
                         valid_keys[col].map(stats["count"]).astype(float).fillna(0.0)
                     )
-                    out.loc[valid_index, f"{self.prefix}_{col}_count_oof"] = (
-                        counts.to_numpy()
+                    out.loc[
+                        valid_index, f"{self.prefix}_{col}_count_{self.output_suffix}"
+                    ] = counts.to_numpy()
+                if self.add_count_log1p_features:
+                    counts = (
+                        valid_keys[col].map(stats["count"]).astype(float).fillna(0.0)
                     )
+                    out.loc[
+                        valid_index,
+                        f"{self.prefix}_{col}_count_log1p_{self.output_suffix}",
+                    ] = np.log1p(counts).to_numpy()
+                if self.add_reliability_features:
+                    reliability = (
+                        valid_keys[col]
+                        .map(stats["reliability"])
+                        .astype(float)
+                        .fillna(0.0)
+                    )
+                    out.loc[
+                        valid_index,
+                        f"{self.prefix}_{col}_reliability_{self.output_suffix}",
+                    ] = reliability.to_numpy()
 
                 if self.add_logit_features:
                     logits = (
@@ -1391,15 +1858,16 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
                             )
                         )
                     )
-                    out.loc[valid_index, f"{self.prefix}_{col}_logit_oof"] = (
-                        logits.to_numpy()
-                    )
+                    out.loc[
+                        valid_index, f"{self.prefix}_{col}_logit_{self.output_suffix}"
+                    ] = logits.to_numpy()
 
         self.full_maps_ = self._fit_maps_for_frame(keys, y_series)
 
         for col in out.columns:
             out[col] = out[col].astype(float)
 
+        self.feature_names_out_ = list(out.columns)
         return out
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -1418,21 +1886,38 @@ class OOFGeoTargetEncoder(BaseEstimator, TransformerMixin):
         for col in self.key_cols_:
             stats = self.full_maps_[col]
             encoded = (
-                keys[col].map(stats["encoded"]).astype(float).fillna(self.global_mean_)
+                keys[col]
+                .map(stats["encoded"])
+                .astype(float)
+                .fillna(self._unknown_fill_value())
             )
-            out[f"{self.prefix}_{col}_rate_oof"] = encoded
+            out[f"{self.prefix}_{col}_rate_{self.output_suffix}"] = encoded
 
             if self.add_count_features:
                 counts = keys[col].map(stats["count"]).astype(float).fillna(0.0)
-                out[f"{self.prefix}_{col}_count_oof"] = counts
+                out[f"{self.prefix}_{col}_count_{self.output_suffix}"] = counts
+            if self.add_count_log1p_features:
+                counts = keys[col].map(stats["count"]).astype(float).fillna(0.0)
+                out[f"{self.prefix}_{col}_count_log1p_{self.output_suffix}"] = np.log1p(
+                    counts
+                )
+            if self.add_reliability_features:
+                out[f"{self.prefix}_{col}_reliability_{self.output_suffix}"] = (
+                    keys[col].map(stats["reliability"]).astype(float).fillna(0.0)
+                )
 
             if self.add_logit_features:
                 logits = (
                     keys[col].map(stats["logit"]).astype(float).fillna(global_logit)
                 )
-                out[f"{self.prefix}_{col}_logit_oof"] = logits
+                out[f"{self.prefix}_{col}_logit_{self.output_suffix}"] = logits
 
+        self.feature_names_out_ = list(out.columns)
         return out
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
 
 
 class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
@@ -1457,6 +1942,10 @@ class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
         n_splits: int = 5,
         random_state: int = 42,
         stratified: bool = True,
+        add_component_rates: bool = True,
+        add_count_features: bool = True,
+        add_reliability_features: bool = True,
+        add_ratio_feature: bool = True,
         prefix: str = "te",
     ):
         self.local_col = local_col
@@ -1466,6 +1955,10 @@ class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
         self.n_splits = int(n_splits)
         self.random_state = int(random_state)
         self.stratified = stratified
+        self.add_component_rates = add_component_rates
+        self.add_count_features = add_count_features
+        self.add_reliability_features = add_reliability_features
+        self.add_ratio_feature = add_ratio_feature
         self.prefix = prefix
 
     def _fit_single_map(
@@ -1476,14 +1969,80 @@ class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
         global_mean: float,
     ) -> pd.DataFrame:
         stats = (
-            pd.DataFrame(
-                {"key": keys.astype("string"), "y": y.astype(float).to_numpy()}
-            )
+            pd.DataFrame({"key": _as_key_series(keys), "y": y.astype(float).to_numpy()})
             .groupby("key", dropna=False)["y"]
             .agg(["sum", "count"])
         )
         stats["rate"] = (stats["sum"] + alpha * global_mean) / (stats["count"] + alpha)
+        stats["reliability"] = stats["count"] / (stats["count"] + alpha)
         return stats
+
+    def _output_columns(self) -> list[str]:
+        base = f"{self.prefix}_{self.local_col}_vs_{self.parent_col}"
+        cols: list[str] = []
+        if self.add_component_rates:
+            cols.extend([f"{base}_local_rate_oof", f"{base}_parent_rate_oof"])
+        if self.add_count_features:
+            cols.extend(
+                [
+                    f"{base}_local_count_oof",
+                    f"{base}_parent_count_oof",
+                    f"{base}_local_count_log1p_oof",
+                    f"{base}_parent_count_log1p_oof",
+                ]
+            )
+        if self.add_reliability_features:
+            cols.extend(
+                [f"{base}_local_reliability_oof", f"{base}_parent_reliability_oof"]
+            )
+        cols.append(f"{base}_local_minus_parent_rate_oof")
+        if self.add_ratio_feature:
+            cols.append(f"{base}_local_div_parent_rate_oof")
+        return cols
+
+    def _transform_from_maps(
+        self,
+        X: pd.DataFrame,
+        local_map: pd.DataFrame,
+        parent_map: pd.DataFrame,
+    ) -> pd.DataFrame:
+        base = f"{self.prefix}_{self.local_col}_vs_{self.parent_col}"
+        local_keys = _as_key_series(X[self.local_col])
+        parent_keys = _as_key_series(X[self.parent_col])
+
+        local_rate = (
+            local_keys.map(local_map["rate"]).astype(float).fillna(self.global_mean_)
+        )
+        parent_rate = (
+            parent_keys.map(parent_map["rate"]).astype(float).fillna(self.global_mean_)
+        )
+        local_count = local_keys.map(local_map["count"]).astype(float).fillna(0.0)
+        parent_count = parent_keys.map(parent_map["count"]).astype(float).fillna(0.0)
+        local_reliability = (
+            local_keys.map(local_map["reliability"]).astype(float).fillna(0.0)
+        )
+        parent_reliability = (
+            parent_keys.map(parent_map["reliability"]).astype(float).fillna(0.0)
+        )
+
+        out = pd.DataFrame(index=X.index)
+        if self.add_component_rates:
+            out[f"{base}_local_rate_oof"] = local_rate
+            out[f"{base}_parent_rate_oof"] = parent_rate
+        if self.add_count_features:
+            out[f"{base}_local_count_oof"] = local_count
+            out[f"{base}_parent_count_oof"] = parent_count
+            out[f"{base}_local_count_log1p_oof"] = np.log1p(local_count)
+            out[f"{base}_parent_count_log1p_oof"] = np.log1p(parent_count)
+        if self.add_reliability_features:
+            out[f"{base}_local_reliability_oof"] = local_reliability
+            out[f"{base}_parent_reliability_oof"] = parent_reliability
+        out[f"{base}_local_minus_parent_rate_oof"] = local_rate - parent_rate
+        if self.add_ratio_feature:
+            out[f"{base}_local_div_parent_rate_oof"] = local_rate / np.maximum(
+                parent_rate, 1e-6
+            )
+        return out.astype(float)
 
     def fit(
         self, X: pd.DataFrame, y: pd.Series | np.ndarray | None = None
@@ -1494,7 +2053,7 @@ class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
         if y is None:
             raise ValueError("LocalVsParentTargetEncoder requires y during fit.")
 
-        y_series = pd.Series(y, index=X.index).astype(float)
+        y_series = _validate_binary_target(y, X.index, "LocalVsParentTargetEncoder")
         self.global_mean_ = float(y_series.mean())
         self.local_map_ = self._fit_single_map(
             X[self.local_col], y_series, self.alpha_local, self.global_mean_
@@ -1502,6 +2061,7 @@ class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
         self.parent_map_ = self._fit_single_map(
             X[self.parent_col], y_series, self.alpha_parent, self.global_mean_
         )
+        self.feature_names_out_ = self._output_columns()
         return self
 
     def fit_transform(
@@ -1518,12 +2078,13 @@ class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
                 "LocalVsParentTargetEncoder requires y during fit_transform."
             )
 
-        y_series = pd.Series(y, index=X.index).astype(float)
+        y_series = _validate_binary_target(y, X.index, "LocalVsParentTargetEncoder")
         self.global_mean_ = float(y_series.mean())
 
-        out_col = f"{self.prefix}_{self.local_col}_minus_{self.parent_col}_rate_oof"
         out = pd.DataFrame(index=X.index)
-        out[out_col] = np.nan
+        self.feature_names_out_ = self._output_columns()
+        for col in self.feature_names_out_:
+            out[col] = np.nan
 
         if self.stratified:
             splitter = StratifiedKFold(
@@ -1559,22 +2120,10 @@ class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
                 self.global_mean_,
             )
 
-            local_rate = (
-                X.loc[valid_index, self.local_col]
-                .astype("string")
-                .map(local_map["rate"])
-                .astype(float)
-                .fillna(self.global_mean_)
+            fold_out = self._transform_from_maps(
+                X.loc[valid_index], local_map=local_map, parent_map=parent_map
             )
-            parent_rate = (
-                X.loc[valid_index, self.parent_col]
-                .astype("string")
-                .map(parent_map["rate"])
-                .astype(float)
-                .fillna(self.global_mean_)
-            )
-
-            out.loc[valid_index, out_col] = (local_rate - parent_rate).to_numpy()
+            out.loc[valid_index, fold_out.columns] = fold_out
 
         self.local_map_ = self._fit_single_map(
             X[self.local_col], y_series, self.alpha_local, self.global_mean_
@@ -1589,26 +2138,252 @@ class LocalVsParentTargetEncoder(BaseEstimator, TransformerMixin):
         X = _as_dataframe(X)
         _require_columns(X, [self.local_col, self.parent_col])
 
-        local_rate = (
-            X[self.local_col]
-            .astype("string")
-            .map(self.local_map_["rate"])
-            .astype(float)
-            .fillna(self.global_mean_)
+        out = self._transform_from_maps(
+            X, local_map=self.local_map_, parent_map=self.parent_map_
         )
-        parent_rate = (
-            X[self.parent_col]
-            .astype("string")
-            .map(self.parent_map_["rate"])
-            .astype(float)
-            .fillna(self.global_mean_)
-        )
-
-        out = pd.DataFrame(index=X.index)
-        out[f"{self.prefix}_{self.local_col}_minus_{self.parent_col}_rate_oof"] = (
-            local_rate - parent_rate
-        )
+        self.feature_names_out_ = list(out.columns)
         return out.astype(float)
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
+
+
+class OOFCellNeighborhoodTargetRateTransformer(BaseEstimator, TransformerMixin):
+    """Out-of-fold target-rate features using aggregated nearby geo cells.
+
+    The transformer groups training rows by ``cell_col`` and builds a BallTree
+    over cell centroids, which is much cheaper than row-level radius queries for
+    large direct-mail files.
+
+    Example:
+        ``OOFCellNeighborhoodTargetRateTransformer(cell_col="geo_h3_r7")`` adds
+        smoothed nearby bind-rate, count, exposure, log-exposure, and
+        reliability features for each configured radius.
+    """
+
+    def __init__(
+        self,
+        cell_col: str = "geo_h3_r7",
+        lat_col: str = "lat",
+        lon_col: str = "lon",
+        radii_miles: Sequence[float] = (25.0, 50.0),
+        alpha: float = 50.0,
+        n_splits: int = 5,
+        random_state: int = 42,
+        stratified: bool = True,
+        prefix: str = "geo",
+    ):
+        self.cell_col = cell_col
+        self.lat_col = lat_col
+        self.lon_col = lon_col
+        self.radii_miles = tuple(float(r) for r in radii_miles)
+        self.alpha = float(alpha)
+        self.n_splits = int(n_splits)
+        self.random_state = int(random_state)
+        self.stratified = stratified
+        self.prefix = prefix
+
+    def _output_columns(self) -> list[str]:
+        cols: list[str] = []
+        for radius in self.radii_miles:
+            radius_label = int(radius)
+            cols.extend(
+                [
+                    f"{self.prefix}_cell_neighborhood_bind_rate_{radius_label}mi_oof",
+                    f"{self.prefix}_cell_neighborhood_bind_count_{radius_label}mi_oof",
+                    f"{self.prefix}_cell_neighborhood_exposure_count_{radius_label}mi_oof",
+                    f"{self.prefix}_cell_neighborhood_exposure_count_{radius_label}mi_log1p_oof",
+                    f"{self.prefix}_cell_neighborhood_reliability_{radius_label}mi_oof",
+                ]
+            )
+        return cols
+
+    def _build_cell_index(self, X: pd.DataFrame, y: pd.Series) -> dict[str, Any]:
+        valid = _valid_lat_lon_mask(X, self.lat_col, self.lon_col)
+        frame = pd.DataFrame(
+            {
+                "cell": _as_key_series(X.loc[valid, self.cell_col]),
+                "lat": pd.to_numeric(X.loc[valid, self.lat_col], errors="coerce"),
+                "lon": pd.to_numeric(X.loc[valid, self.lon_col], errors="coerce"),
+                "y": y.loc[valid].astype(float),
+            }
+        )
+        if frame.empty:
+            return {
+                "cell_stats": pd.DataFrame(),
+                "tree": None,
+                "binds": np.array([], dtype=float),
+                "exposures": np.array([], dtype=float),
+            }
+
+        cell_stats = (
+            frame.groupby("cell", dropna=False)
+            .agg(
+                cell_bind_count=("y", "sum"),
+                cell_exposure_count=("y", "size"),
+                centroid_lat=("lat", "mean"),
+                centroid_lon=("lon", "mean"),
+            )
+            .reset_index()
+        )
+        centroid_rad = np.deg2rad(
+            cell_stats[["centroid_lat", "centroid_lon"]].astype(float).to_numpy()
+        )
+        return {
+            "cell_stats": cell_stats,
+            "tree": BallTree(centroid_rad, metric="haversine"),
+            "binds": cell_stats["cell_bind_count"].astype(float).to_numpy(),
+            "exposures": cell_stats["cell_exposure_count"].astype(float).to_numpy(),
+        }
+
+    def _compute_from_cell_index(
+        self, X: pd.DataFrame, cell_index: dict[str, Any]
+    ) -> pd.DataFrame:
+        out = pd.DataFrame(index=X.index)
+        for col in self._output_columns():
+            out[col] = 0.0
+
+        tree = cell_index["tree"]
+        valid = _valid_lat_lon_mask(X, self.lat_col, self.lon_col)
+        if tree is None or not valid.any():
+            for radius in self.radii_miles:
+                radius_label = int(radius)
+                out[
+                    f"{self.prefix}_cell_neighborhood_bind_rate_{radius_label}mi_oof"
+                ] = self.global_mean_
+            return out
+
+        query = X.loc[valid, [self.lat_col, self.lon_col]]
+        query_coords = _lat_lon_to_radians(query, self.lat_col, self.lon_col)
+        binds_by_cell = cell_index["binds"]
+        exposures_by_cell = cell_index["exposures"]
+
+        for radius in self.radii_miles:
+            radius_label = int(radius)
+            radius_rad = radius / EARTH_RADIUS_MILES
+            neighbor_indices = tree.query_radius(query_coords, r=radius_rad)
+
+            bind_counts = np.zeros(len(query), dtype=float)
+            exposure_counts = np.zeros(len(query), dtype=float)
+            for i, neighbors in enumerate(neighbor_indices):
+                if len(neighbors):
+                    bind_counts[i] = float(binds_by_cell[neighbors].sum())
+                    exposure_counts[i] = float(exposures_by_cell[neighbors].sum())
+
+            rates = (bind_counts + self.alpha * self.global_mean_) / (
+                exposure_counts + self.alpha
+            )
+            reliability = exposure_counts / (exposure_counts + self.alpha)
+
+            out.loc[
+                query.index,
+                f"{self.prefix}_cell_neighborhood_bind_rate_{radius_label}mi_oof",
+            ] = rates
+            out.loc[
+                query.index,
+                f"{self.prefix}_cell_neighborhood_bind_count_{radius_label}mi_oof",
+            ] = bind_counts
+            out.loc[
+                query.index,
+                f"{self.prefix}_cell_neighborhood_exposure_count_{radius_label}mi_oof",
+            ] = exposure_counts
+            out.loc[
+                query.index,
+                f"{self.prefix}_cell_neighborhood_exposure_count_{radius_label}mi_log1p_oof",
+            ] = np.log1p(exposure_counts)
+            out.loc[
+                query.index,
+                f"{self.prefix}_cell_neighborhood_reliability_{radius_label}mi_oof",
+            ] = reliability
+
+            invalid_index = X.index[~valid]
+            out.loc[
+                invalid_index,
+                f"{self.prefix}_cell_neighborhood_bind_rate_{radius_label}mi_oof",
+            ] = self.global_mean_
+
+        return out.astype(float)
+
+    def fit(
+        self, X: pd.DataFrame, y: pd.Series | np.ndarray | None = None
+    ) -> "OOFCellNeighborhoodTargetRateTransformer":
+        X = _as_dataframe(X)
+        _require_columns(X, [self.cell_col, self.lat_col, self.lon_col])
+        if y is None:
+            raise ValueError(
+                "OOFCellNeighborhoodTargetRateTransformer requires y during fit."
+            )
+        y_series = _validate_binary_target(
+            y, X.index, "OOFCellNeighborhoodTargetRateTransformer"
+        )
+        self.global_mean_ = float(y_series.mean())
+        self.cell_index_ = self._build_cell_index(X, y_series)
+        self.feature_names_out_ = self._output_columns()
+        return self
+
+    def fit_transform(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series | np.ndarray | None = None,
+        **fit_params: Any,
+    ) -> pd.DataFrame:
+        X = _as_dataframe(X)
+        _require_columns(X, [self.cell_col, self.lat_col, self.lon_col])
+        if y is None:
+            raise ValueError(
+                "OOFCellNeighborhoodTargetRateTransformer requires y during fit_transform."
+            )
+        y_series = _validate_binary_target(
+            y, X.index, "OOFCellNeighborhoodTargetRateTransformer"
+        )
+        self.global_mean_ = float(y_series.mean())
+        self.feature_names_out_ = self._output_columns()
+        out = pd.DataFrame(index=X.index)
+        for col in self.feature_names_out_:
+            out[col] = np.nan
+
+        if self.stratified:
+            splitter = StratifiedKFold(
+                n_splits=self.n_splits,
+                shuffle=True,
+                random_state=self.random_state,
+            )
+            split_iter = splitter.split(X, y_series)
+        else:
+            splitter = KFold(
+                n_splits=self.n_splits,
+                shuffle=True,
+                random_state=self.random_state,
+            )
+            split_iter = splitter.split(X)
+
+        for train_pos, valid_pos in split_iter:
+            train_index = X.index[train_pos]
+            valid_index = X.index[valid_pos]
+            cell_index = self._build_cell_index(
+                X.loc[train_index], y_series.loc[train_index]
+            )
+            fold_out = self._compute_from_cell_index(X.loc[valid_index], cell_index)
+            out.loc[valid_index, fold_out.columns] = fold_out
+
+        self.cell_index_ = self._build_cell_index(X, y_series)
+        return out.astype(float)
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        X = _as_dataframe(X)
+        _require_columns(X, [self.cell_col, self.lat_col, self.lon_col])
+        if not hasattr(self, "cell_index_"):
+            raise RuntimeError(
+                "OOFCellNeighborhoodTargetRateTransformer has not been fit."
+            )
+        out = self._compute_from_cell_index(X, self.cell_index_)
+        self.feature_names_out_ = list(out.columns)
+        return out
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
 
 
 class OOFNearbyTargetRateTransformer(BaseEstimator, TransformerMixin):
@@ -1641,6 +2416,12 @@ class OOFNearbyTargetRateTransformer(BaseEstimator, TransformerMixin):
         max_neighbors: int | None = None,
         prefix: str = "geo",
     ):
+        warnings.warn(
+            "OOFNearbyTargetRateTransformer is row-level and may be expensive on large datasets. "
+            "Prefer OOFCellNeighborhoodTargetRateTransformer for large training data.",
+            UserWarning,
+            stacklevel=2,
+        )
         self.lat_col = lat_col
         self.lon_col = lon_col
         self.radii_miles = tuple(float(r) for r in radii_miles)
@@ -1650,6 +2431,20 @@ class OOFNearbyTargetRateTransformer(BaseEstimator, TransformerMixin):
         self.stratified = stratified
         self.max_neighbors = max_neighbors
         self.prefix = prefix
+
+    def _output_columns(self) -> list[str]:
+        cols: list[str] = []
+        for radius in self.radii_miles:
+            radius_label = int(radius)
+            cols.extend(
+                [
+                    f"{self.prefix}_nearby_bind_rate_{radius_label}mi_oof",
+                    f"{self.prefix}_nearby_bind_count_{radius_label}mi_oof",
+                    f"{self.prefix}_nearby_exposure_count_{radius_label}mi_oof",
+                    f"{self.prefix}_nearby_exposure_count_{radius_label}mi_log1p_oof",
+                ]
+            )
+        return cols
 
     def _compute_features_from_tree(
         self,
@@ -1713,7 +2508,7 @@ class OOFNearbyTargetRateTransformer(BaseEstimator, TransformerMixin):
         if y is None:
             raise ValueError("OOFNearbyTargetRateTransformer requires y during fit.")
 
-        y_series = pd.Series(y, index=X.index).astype(float)
+        y_series = _validate_binary_target(y, X.index, "OOFNearbyTargetRateTransformer")
         self.global_mean_ = float(y_series.mean())
         self.reference_X_ = X[[self.lat_col, self.lon_col]].copy()
         self.reference_y_ = y_series.copy()
@@ -1721,6 +2516,7 @@ class OOFNearbyTargetRateTransformer(BaseEstimator, TransformerMixin):
             _lat_lon_to_radians(self.reference_X_, self.lat_col, self.lon_col),
             metric="haversine",
         )
+        self.feature_names_out_ = self._output_columns()
         return self
 
     def fit_transform(
@@ -1738,10 +2534,8 @@ class OOFNearbyTargetRateTransformer(BaseEstimator, TransformerMixin):
                 "OOFNearbyTargetRateTransformer requires y during fit_transform."
             )
 
-        y_series = pd.Series(y, index=X.index).astype(float)
+        y_series = _validate_binary_target(y, X.index, "OOFNearbyTargetRateTransformer")
         self.global_mean_ = float(y_series.mean())
-
-        out_parts = []
 
         if self.stratified:
             splitter = StratifiedKFold(
@@ -1787,7 +2581,9 @@ class OOFNearbyTargetRateTransformer(BaseEstimator, TransformerMixin):
             metric="haversine",
         )
 
-        return out.astype(float)
+        out = out.astype(float)
+        self.feature_names_out_ = list(out.columns)
+        return out
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X = _as_dataframe(X)
@@ -1797,36 +2593,107 @@ class OOFNearbyTargetRateTransformer(BaseEstimator, TransformerMixin):
         if not hasattr(self, "reference_tree_"):
             raise RuntimeError("OOFNearbyTargetRateTransformer has not been fit.")
 
-        return self._compute_features_from_tree(
+        out = self._compute_features_from_tree(
             query_X=X,
             reference_X=self.reference_X_,
             reference_y=self.reference_y_,
             tree=self.reference_tree_,
         ).astype(float)
+        self.feature_names_out_ = list(out.columns)
+        return out
+
+    def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
+        """Return output feature names after fitting."""
+        return _feature_names_or_raise(self)
+
+
+def make_geo_key_features(
+    lat_col: str = "lat",
+    lon_col: str = "lon",
+    use_h3: bool = True,
+    require_h3: bool = True,
+    resolutions: Sequence[int] = (4, 5, 6, 7),
+) -> GeoFeatureUnion:
+    """Build reusable target-free geography keys.
+
+    Example:
+        ``make_geo_key_features().fit_transform(X_train)`` computes missing
+        coordinate indicators and H3 cell columns once for reuse downstream.
+    """
+    return GeoFeatureUnion(
+        transformers=[
+            (
+                "lat_lon_missing",
+                LatLonMissingIndicatorTransformer(
+                    lat_col=lat_col,
+                    lon_col=lon_col,
+                    prefix="geo",
+                ),
+            ),
+            (
+                "geo_cells",
+                GeoCellTransformer(
+                    lat_col=lat_col,
+                    lon_col=lon_col,
+                    resolutions=resolutions,
+                    use_h3=use_h3,
+                    require_h3=require_h3,
+                    prefix="geo",
+                ),
+            ),
+        ]
+    )
 
 
 def make_phase1_geo_features(
     lat_col: str = "lat",
     lon_col: str = "lon",
+    h3_cols: Sequence[str] = ("geo_h3_r4", "geo_h3_r5", "geo_h3_r6", "geo_h3_r7"),
     city_df: pd.DataFrame | None = None,
-    use_h3: bool = True,
+    include_rounded: bool = False,
+    include_row_density: bool = False,
 ) -> GeoFeatureUnion:
-    """
-    Recommended Phase 1 feature bundle.
-    """
-    return GeoFeatureUnion(
-        transformers=[
-            (
-                "basic_lat_lon",
-                LatLonBasicTransformer(
-                    lat_col=lat_col,
-                    lon_col=lon_col,
-                    include_raw=True,
-                    include_trig=True,
-                    include_interaction=True,
-                    prefix="geo",
-                ),
+    """Build target-free geographic features from precomputed geography keys."""
+    transformers: list[tuple[str, TransformerMixin]] = [
+        (
+            "basic_lat_lon",
+            LatLonBasicTransformer(
+                lat_col=lat_col,
+                lon_col=lon_col,
+                include_raw=True,
+                include_trig=True,
+                include_interaction=True,
+                missing_policy="sentinel",
+                prefix="geo",
             ),
+        ),
+        (
+            "nearest_city",
+            NearestCityDistanceTransformer(
+                lat_col=lat_col,
+                lon_col=lon_col,
+                city_df=city_df,
+                population_thresholds=(100_000, 250_000, 1_000_000),
+                include_nearest_city_name=True,
+                include_nearest_city_population=True,
+                missing_policy="sentinel",
+                prefix="geo",
+            ),
+        ),
+        (
+            "cell_counts",
+            GeoCellCountTransformer(
+                cell_cols=h3_cols,
+                unseen_count_value=0.0,
+                add_log_count=True,
+                add_frequency=True,
+                prefix="geo",
+            ),
+        ),
+    ]
+
+    if include_rounded:
+        transformers.append(
             (
                 "rounded_lat_lon",
                 RoundedLatLonTransformer(
@@ -1837,29 +2704,11 @@ def make_phase1_geo_features(
                     include_categorical_cell=True,
                     prefix="geo",
                 ),
-            ),
-            (
-                "geo_cells",
-                GeoCellTransformer(
-                    lat_col=lat_col,
-                    lon_col=lon_col,
-                    resolutions=(5, 6, 7),
-                    use_h3=use_h3,
-                    prefix="geo",
-                ),
-            ),
-            (
-                "nearest_city",
-                NearestCityDistanceTransformer(
-                    lat_col=lat_col,
-                    lon_col=lon_col,
-                    city_df=city_df,
-                    population_thresholds=(100_000, 250_000, 1_000_000),
-                    include_nearest_city_name=True,
-                    include_nearest_city_population=True,
-                    prefix="geo",
-                ),
-            ),
+            )
+        )
+
+    if include_row_density:
+        transformers.append(
             (
                 "customer_density",
                 CustomerDensityTransformer(
@@ -1868,67 +2717,78 @@ def make_phase1_geo_features(
                     radii_miles=(10.0, 25.0, 50.0),
                     exclude_self=True,
                     add_log_density=True,
+                    missing_policy="sentinel",
                     prefix="geo",
                 ),
-            ),
-            (
-                "cell_counts",
-                GeoCellCountTransformer(
-                    lat_col=lat_col,
-                    lon_col=lon_col,
-                    cell_cols=None,
-                    resolutions=(5, 6, 7),
-                    use_h3=use_h3,
-                    smoothing_count=0.0,
-                    prefix="geo",
-                ),
-            ),
-        ]
-    )
+            )
+        )
+
+    return GeoFeatureUnion(transformers=transformers)
 
 
 def make_phase2_geo_features(
     lat_col: str = "lat",
     lon_col: str = "lon",
     area_cols: Sequence[str] | None = None,
-    use_h3: bool = True,
-    alpha: float = 50.0,
+    h3_cols: Sequence[str] = ("geo_h3_r5", "geo_h3_r6", "geo_h3_r7"),
+    alpha: float = 100.0,
     n_splits: int = 5,
     random_state: int = 42,
+    include_local_parent: bool = True,
+    include_cell_neighborhood: bool = False,
 ) -> GeoFeatureUnion:
-    """
-    Recommended Phase 2 target-aware feature bundle.
+    """Build leakage-aware target features from explicit area and H3 columns."""
+    area_cols = tuple(area_cols or ())
+    te_cols = [*area_cols, *h3_cols]
+    transformers: list[tuple[str, TransformerMixin]] = [
+        (
+            "geo_target_encoding",
+            OOFGeoTargetEncoder(
+                cols=te_cols,
+                lat_col=lat_col,
+                lon_col=lon_col,
+                create_geo_cells=False,
+                alpha=alpha,
+                n_splits=n_splits,
+                random_state=random_state,
+                stratified=True,
+                add_count_features=True,
+                add_count_log1p_features=True,
+                add_reliability_features=True,
+                add_logit_features=True,
+                output_suffix="oof",
+                prefix="te",
+            ),
+        ),
+    ]
 
-    area_cols can include columns such as:
-    - state
-    - county
-    - zip3
-    - rating_territory
-    - agency_territory
-    """
-    return GeoFeatureUnion(
-        transformers=[
+    if include_local_parent and {"geo_h3_r5", "geo_h3_r7"}.issubset(set(h3_cols)):
+        transformers.append(
             (
-                "geo_target_encoding",
-                OOFGeoTargetEncoder(
-                    cols=area_cols,
-                    lat_col=lat_col,
-                    lon_col=lon_col,
-                    create_geo_cells=True,
-                    resolutions=(5, 6, 7),
-                    use_h3=use_h3,
-                    alpha=alpha,
+                "local_vs_parent",
+                LocalVsParentTargetEncoder(
+                    local_col="geo_h3_r7",
+                    parent_col="geo_h3_r5",
+                    alpha_local=alpha / 2.0,
+                    alpha_parent=alpha,
                     n_splits=n_splits,
                     random_state=random_state,
                     stratified=True,
+                    add_component_rates=True,
                     add_count_features=True,
-                    add_logit_features=True,
+                    add_reliability_features=True,
+                    add_ratio_feature=True,
                     prefix="te",
                 ),
-            ),
+            )
+        )
+
+    if include_cell_neighborhood:
+        transformers.append(
             (
-                "nearby_target_rate",
-                OOFNearbyTargetRateTransformer(
+                "cell_neighborhood_target_rate",
+                OOFCellNeighborhoodTargetRateTransformer(
+                    cell_col="geo_h3_r7",
                     lat_col=lat_col,
                     lon_col=lon_col,
                     radii_miles=(25.0, 50.0),
@@ -1936,15 +2796,28 @@ def make_phase2_geo_features(
                     n_splits=n_splits,
                     random_state=random_state,
                     stratified=True,
-                    max_neighbors=None,
                     prefix="geo",
                 ),
             ),
-        ]
-    )
+        )
+
+    return GeoFeatureUnion(transformers=transformers)
 
 
 __all__ = [
+    "GeoFeatureUnion",
+    "LatLonMissingIndicatorTransformer",
+    "LatLonBasicTransformer",
+    "GeoCellTransformer",
+    "GeoCellCountTransformer",
+    "NearestCityDistanceTransformer",
+    "RoundedLatLonTransformer",
+    "CustomerDensityTransformer",
+    "OOFGeoTargetEncoder",
+    "LocalVsParentTargetEncoder",
+    "OOFCellNeighborhoodTargetRateTransformer",
+    "OOFNearbyTargetRateTransformer",
+    "make_geo_key_features",
     "make_phase1_geo_features",
     "make_phase2_geo_features",
 ]
