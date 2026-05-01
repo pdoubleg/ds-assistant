@@ -17,7 +17,10 @@ from src.ds.transformers.geo import (
     LatLonMissingIndicatorTransformer,
     LocalVsParentTargetEncoder,
     NearestCityDistanceTransformer,
+    OOFCellNeighborhoodTargetRateTransformer,
     OOFGeoTargetEncoder,
+    RoundedLatLonTransformer,
+    make_phase2_geo_features,
 )
 
 
@@ -65,6 +68,23 @@ def test_oof_geo_target_encoder_no_leakage_shape_and_unknowns() -> None:
     assert "te_area_reliability_oof" in train_out.columns
 
 
+def test_oof_geo_target_encoder_nan_unknowns_include_logits() -> None:
+    X = pd.DataFrame({"area": [f"a{i % 4}" for i in range(20)]})
+    y = pd.Series([0, 1] * 10)
+
+    encoder = OOFGeoTargetEncoder(
+        cols=["area"], n_splits=5, alpha=2.0, handle_unknown="nan"
+    )
+    encoder.fit(X, y)
+    out = encoder.transform(pd.DataFrame({"area": ["new_area"]}))
+
+    assert np.isnan(out.loc[0, "te_area_rate_oof"])
+    assert np.isnan(out.loc[0, "te_area_logit_oof"])
+    assert out.loc[0, "te_area_count_oof"] == 0.0
+    assert out.loc[0, "te_area_count_log1p_oof"] == 0.0
+    assert out.loc[0, "te_area_reliability_oof"] == 0.0
+
+
 def test_local_vs_parent_outputs() -> None:
     X = pd.DataFrame(
         {
@@ -91,6 +111,26 @@ def test_local_vs_parent_outputs() -> None:
         assert any(fragment in col for col in out.columns)
 
 
+def test_local_vs_parent_custom_output_suffix() -> None:
+    X = pd.DataFrame(
+        {
+            "local": [f"l{i % 5}" for i in range(30)],
+            "parent": [f"p{i % 2}" for i in range(30)],
+        }
+    )
+    y = pd.Series([0, 1] * 15)
+
+    out = LocalVsParentTargetEncoder(
+        local_col="local",
+        parent_col="parent",
+        n_splits=3,
+        output_suffix="full",
+    ).fit_transform(X, y)
+
+    assert all(col.endswith("_full") for col in out.columns)
+    assert not any(col.endswith("_oof") for col in out.columns)
+
+
 def test_geo_cell_count_transformer_counts_frequency_and_log() -> None:
     train = pd.DataFrame({"cell": ["a", "a", "b", "__MISSING__"]})
     test = pd.DataFrame({"cell": ["a", "c", "__MISSING__"]})
@@ -104,6 +144,84 @@ def test_geo_cell_count_transformer_counts_frequency_and_log() -> None:
     assert out["cell_train_count_log1p"].tolist() == pytest.approx(
         np.log1p([2.0, 0.0, 1.0])
     )
+
+
+def test_nearest_city_schema_stable_for_empty_threshold() -> None:
+    cities = pd.DataFrame(
+        {
+            "city": ["Smallville"],
+            "state": ["KS"],
+            "lat": [39.0],
+            "lon": [-96.0],
+            "population": [100.0],
+        }
+    )
+    X = pd.DataFrame({"lat": [39.1], "lon": [-96.1]})
+
+    with pytest.warns(UserWarning, match="No cities found"):
+        transformer = NearestCityDistanceTransformer(
+            city_df=cities,
+            population_thresholds=(1_000_000,),
+            include_nearest_city_name=True,
+        ).fit(X)
+    out = transformer.transform(X)
+
+    assert "geo_nearest_city_pop_gt_1000000_distance_miles" in out.columns
+    assert "geo_nearest_city_pop_gt_1000000_name" in out.columns
+    assert np.isnan(out.loc[0, "geo_nearest_city_pop_gt_1000000_distance_miles"])
+    assert out.loc[0, "geo_nearest_city_pop_gt_1000000_name"] == "__MISSING__"
+
+
+def test_cell_neighborhood_maps_outputs_by_unique_query_cell() -> None:
+    train = pd.DataFrame(
+        {
+            "cell": ["a", "b", "c", "d"],
+            "lat": [40.0, 40.01, 41.0, 42.0],
+            "lon": [-75.0, -75.01, -76.0, -77.0],
+        }
+    )
+    y = pd.Series([1, 0, 1, 0])
+    query = pd.DataFrame(
+        {
+            "cell": ["a", "a", "missing"],
+            "lat": [40.0, 40.02, np.nan],
+            "lon": [-75.0, -75.02, -75.0],
+        }
+    )
+
+    transformer = OOFCellNeighborhoodTargetRateTransformer(
+        cell_col="cell", radii_miles=(50.0,), alpha=1.0, n_splits=2
+    ).fit(train, y)
+    out = transformer.transform(query)
+
+    assert out.loc[0].tolist() == pytest.approx(out.loc[1].tolist())
+    assert out.loc[2, "geo_cell_neighborhood_bind_rate_50mi_oof"] == pytest.approx(
+        float(y.mean())
+    )
+    assert out.loc[2, "geo_cell_neighborhood_exposure_count_50mi_oof"] == 0.0
+
+
+def test_phase2_factory_validates_requested_cell_columns() -> None:
+    with pytest.raises(ValueError, match="geo_h3_r7"):
+        make_phase2_geo_features(
+            include_cell_neighborhood=True,
+            include_local_parent=False,
+            h3_cols=("geo_h3_r5",),
+        )
+
+
+def test_rounded_lat_lon_sentinel_missing_behavior() -> None:
+    df = pd.DataFrame({"lat": [40.0, np.nan, 91.0], "lon": [-75.0, -80.0, -181.0]})
+
+    out = RoundedLatLonTransformer(
+        decimals=(1,), missing_policy="sentinel"
+    ).fit_transform(df)
+
+    assert out.loc[0, "geo_cell_round_1"] == "round1_40.0_-75.0"
+    assert np.isnan(out.loc[1, "geo_lat_round_1"])
+    assert np.isnan(out.loc[2, "geo_lon_round_1"])
+    assert out.loc[1, "geo_cell_round_1"] == "__MISSING__"
+    assert out.loc[2, "geo_cell_round_1"] == "__MISSING__"
 
 
 class _ConstantFrameTransformer(BaseEstimator, TransformerMixin):
