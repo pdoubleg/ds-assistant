@@ -7,7 +7,6 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -16,7 +15,6 @@ from src.rlm.types import CodeExecutionError
 from .filesystem import (
     DEFAULT_HOST_WORKSPACE,
     HostWorkspaceOSAccess,
-    VIRTUAL_WORKSPACE_ROOT,
 )
 from .help_content import (
     OVERVIEW_KEY_NOTES,
@@ -35,7 +33,6 @@ from .registry import FunctionRegistry, ObjectStore, build_default_registry
 class ExecutionRecord(BaseModel):
     """Structured record for a single execute call."""
 
-    session_id: str = Field(description="Session identifier for the active REPL.")
     execution_id: int = Field(description="Monotonic execution identifier.")
     executed_at: str = Field(description="UTC timestamp for the execution.")
     code: str = Field(description="Submitted code.")
@@ -80,14 +77,12 @@ class MontyPythonREPL:
             self.os_access, self.object_store
         )
         self.interpreter = MontyReplInterpreter(
-            tools=self.registry.exported_tools(),
+            tool_entries={entry.name: entry for entry in self.registry.entries()},
             type_check=type_check,
             os_access=self.os_access,
         )
-        self.session_id = uuid4().hex
         self.started_at = datetime.now(timezone.utc).isoformat()
         self._execution_counter = 0
-        self._pending_results: list[ExecutionRecord] = []
 
     def help(
         self,
@@ -402,7 +397,7 @@ class MontyPythonREPL:
         return "; ".join(parts) + "."
 
     async def execute(self, code: str) -> dict[str, Any]:
-        """Execute Monty sandbox code and buffer the resulting output."""
+        """Execute Monty sandbox code and return the full execution record."""
         self.os_access.begin_artifact_tracking()
         stdout = ""
         persisted_variables: list[str] = []
@@ -442,7 +437,6 @@ class MontyPythonREPL:
 
         self._execution_counter += 1
         record = ExecutionRecord(
-            session_id=self.session_id,
             execution_id=self._execution_counter,
             executed_at=datetime.now(timezone.utc).isoformat(),
             code=code,
@@ -455,59 +449,4 @@ class MontyPythonREPL:
             error=error,
             traceback=formatted_traceback,
         )
-        self._pending_results.append(record)
-
-        return {
-            "session_id": self.session_id,
-            "execution_id": record.execution_id,
-            "status": status,
-            "summary": summary,
-            "artifacts": artifacts,
-            "persisted_variables": persisted_variables,
-            "persistence_failures": persistence_failures,
-            "pending_result_count": len(self._pending_results),
-            "error": error,
-        }
-
-    def results(self) -> dict[str, Any]:
-        """Return and clear accumulated execution output."""
-        if not self._pending_results:
-            return {
-                "status": "empty",
-                "summary": "No new execution output since the last results call.",
-                "session_id": self.session_id,
-                "started_at": self.started_at,
-                "workspace_root": str(VIRTUAL_WORKSPACE_ROOT),
-            }
-
-        executions = [record.model_dump() for record in self._pending_results]
-        chunks: list[str] = []
-        for record in self._pending_results:
-            chunk_lines = [f"Execution {record.execution_id} [{record.status}]"]
-            if record.stdout:
-                chunk_lines.append(record.stdout.rstrip())
-            if record.error:
-                chunk_lines.append(f"ERROR: {record.error}")
-            if record.persistence_failures:
-                chunk_lines.append(
-                    "Persistence warnings: "
-                    + ", ".join(
-                        f"{item['name']} ({item['error']})"
-                        for item in record.persistence_failures
-                    )
-                )
-            if record.artifacts:
-                chunk_lines.append(f"Artifacts: {', '.join(record.artifacts)}")
-            chunks.append("\n".join(chunk_lines).strip())
-
-        response = {
-            "status": "ok",
-            "summary": f"Returned {len(self._pending_results)} buffered execution result(s).",
-            "session_id": self.session_id,
-            "started_at": self.started_at,
-            "workspace_root": str(VIRTUAL_WORKSPACE_ROOT),
-            "executions": executions,
-            "combined_output": "\n\n".join(chunks),
-        }
-        self._pending_results = []
-        return response
+        return record.model_dump()

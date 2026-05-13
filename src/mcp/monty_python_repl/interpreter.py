@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import asyncio
 import inspect
-import keyword
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
@@ -14,6 +13,8 @@ from typing import Any
 import pydantic_monty
 
 from src.rlm.types import CodeExecutionError
+
+from .core.registry.base import RegisteredFunction
 
 
 class _TopLevelNameCollector:
@@ -31,6 +32,8 @@ class _TopLevelNameCollector:
         safe_call_names: set[str],
     ) -> tuple[list[str], list[str]]:
         """Parse code and return top-level assigned and deleted names."""
+        self.assigned_names = set()
+        self.deleted_names = set()
         module = ast.parse(code)
         for statement in module.body:
             self._visit_statement(statement, safe_call_names=safe_call_names)
@@ -82,6 +85,12 @@ class _TopLevelNameCollector:
         if isinstance(statement, ast.Delete):
             for target in statement.targets:
                 self._record_target(target, assigned=False)
+            return
+        if isinstance(
+            statement,
+            (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef),
+        ):
+            return
 
     def _visit_block(
         self, statements: list[ast.stmt], *, safe_call_names: set[str]
@@ -176,29 +185,43 @@ class InterpreterRunResult:
 
 
 class MontyReplInterpreter:
-    """Monty interpreter with automatic variable persistence."""
+    """Monty interpreter backed by a persistent ``MontyRepl`` snapshot."""
 
-    _persist_tool_name = "__monty_repl_persist__"
-    _delete_tool_name = "__monty_repl_delete__"
-    _persist_error_tool_name = "__monty_repl_persist_error__"
+    _persist_tool_name = "monty_repl_persist"
+    _delete_tool_name = "monty_repl_delete"
+    _persist_error_tool_name = "monty_repl_persist_error"
+    _legacy_persist_tool_name = "__monty_repl_persist__"
+    _legacy_delete_tool_name = "__monty_repl_delete__"
+    _legacy_persist_error_tool_name = "__monty_repl_persist_error__"
 
     def __init__(
         self,
         *,
         tools: Mapping[str, Callable[..., Any]] | None = None,
+        tool_entries: Mapping[str, RegisteredFunction] | None = None,
         type_check: bool = False,
         type_check_stubs: str | None = None,
         limits: pydantic_monty.ResourceLimits | None = None,
         os_access: pydantic_monty.AbstractOS | None = None,
     ) -> None:
         """Initialize the interpreter."""
-        self._tools: dict[str, Callable[..., Any]] = dict(tools) if tools else {}
+        self._tool_entries: dict[str, RegisteredFunction] = (
+            dict(tool_entries) if tool_entries else {}
+        )
+        self._tools: dict[str, Callable[..., Any]] = (
+            {name: entry.func for name, entry in self._tool_entries.items()}
+            if self._tool_entries
+            else dict(tools) if tools else {}
+        )
         self._type_check = type_check
         self._type_check_stubs = type_check_stubs
         self._limits = limits
         self._os_access = os_access
         self._state: dict[str, Any] = {}
+        self._state_names: set[str] = set()
         self._name_collector = _TopLevelNameCollector()
+        self._has_executed = False
+        self._repl = self._create_repl()
 
     @staticmethod
     def _matches_monty_exception(
@@ -246,24 +269,36 @@ class MontyReplInterpreter:
 
     @property
     def state(self) -> dict[str, Any]:
-        """Return a shallow copy of the persisted interpreter state."""
+        """Return a shallow copy of host-visible REPL variable values."""
         return dict(self._state)
 
-    def _build_type_check_stubs(
-        self,
-        tool_names: list[str],
-        awaited_tool_names: set[str],
-    ) -> str | None:
-        """Build Monty type-check stubs for injected tools."""
+    def _create_repl(self) -> pydantic_monty.MontyRepl:
+        """Create a fresh Monty REPL with registry-derived type stubs.
+
+        Returns:
+            pydantic_monty.MontyRepl: A clean persistent interpreter instance.
+        """
+        return pydantic_monty.MontyRepl(
+            limits=self._limits,
+            type_check=self._type_check,
+            type_check_stubs=self._build_type_check_stubs(),
+        )
+
+    def _build_type_check_stubs(self) -> str | None:
+        """Build Monty type-check stubs for injected registry tools."""
         stub_lines: list[str] = []
-        if tool_names:
-            stub_lines.append("from typing import Any")
-            for tool_name in tool_names:
-                if tool_name.isidentifier() and not keyword.iskeyword(tool_name):
-                    prefix = "async def" if tool_name in awaited_tool_names else "def"
-                    stub_lines.append(
-                        f"{prefix} {tool_name}(*args: Any, **kwargs: Any) -> Any: ..."
-                    )
+        stub_lines.append("from typing import Any")
+        for tool_name, func in self._tools.items():
+            stub = self._render_tool_stub(tool_name, func)
+            if stub:
+                stub_lines.append(stub)
+        stub_lines.extend(
+            (
+                f"def {self._persist_tool_name}(name: str, value: Any) -> None: ...",
+                f"def {self._delete_tool_name}(name: str) -> None: ...",
+                f"def {self._persist_error_tool_name}(name: str, error: str) -> None: ...",
+            )
+        )
 
         if self._type_check_stubs:
             if stub_lines:
@@ -272,24 +307,25 @@ class MontyReplInterpreter:
 
         return "\n".join(stub_lines) if stub_lines else None
 
-    def _find_awaited_tool_names(self, code: str, tool_names: set[str]) -> set[str]:
-        """Return tool names used in ``await tool(...)`` expressions."""
-        try:
-            tree = ast.parse(code)
-        except SyntaxError:
-            return set()
+    def _render_tool_stub(self, name: str, func: Callable[..., Any]) -> str | None:
+        """Render one callable stub for Monty's type checker.
 
-        awaited_tool_names: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Await):
-                awaited_value = node.value
-                if isinstance(awaited_value, ast.Call) and isinstance(
-                    awaited_value.func, ast.Name
-                ):
-                    tool_name = awaited_value.func.id
-                    if tool_name in tool_names:
-                        awaited_tool_names.add(tool_name)
-        return awaited_tool_names
+        Args:
+            name: Exported sandbox helper name.
+            func: Host callable exposed under ``name``.
+
+        Returns:
+            A Python stub line, or ``None`` when the name cannot be rendered as a
+            Python function definition.
+        """
+        if not name.isidentifier():
+            return None
+
+        prefix = "async def" if inspect.iscoroutinefunction(func) else "def"
+        entry = self._tool_entries.get(name)
+        if entry is not None:
+            return f"{prefix} {entry.render_signature(multiline=False)}: ..."
+        return f"{prefix} {name}(*args: Any, **kwargs: Any) -> Any: ..."
 
     def _wrap_code(
         self,
@@ -297,7 +333,13 @@ class MontyReplInterpreter:
         assigned_names: list[str],
         deleted_names: list[str],
     ) -> str:
-        """Append hidden persistence calls after user code."""
+        """Append hidden host-state capture calls after user code.
+
+        Monty's own REPL keeps executable state such as imports and function
+        definitions. These hidden calls maintain the host-side ``state`` mapping
+        used by tests and diagnostic helpers without replaying variables into a
+        fresh interpreter.
+        """
         wrapped_lines = [code.rstrip(), ""]
         for name in assigned_names:
             wrapped_lines.extend(
@@ -305,8 +347,7 @@ class MontyReplInterpreter:
                     "try:",
                     f"    {self._persist_tool_name}({name!r}, {name})",
                     "except Exception as exc:",
-                    "    error_message = str(exc).strip() or exc.__class__.__name__",
-                    f"    {self._persist_error_tool_name}({name!r}, error_message)",
+                    f"    {self._persist_error_tool_name}({name!r}, str(exc).strip() or exc.__class__.__name__)",
                     "",
                 ]
             )
@@ -318,9 +359,10 @@ class MontyReplInterpreter:
 
     def _start_monty(
         self,
-        monty: pydantic_monty.Monty,
-        merged_vars: dict[str, Any],
+        code: str,
         print_callback: Callable[[str, str], None],
+        *,
+        tools: Mapping[str, Callable[..., Any]] | None = None,
     ) -> (
         pydantic_monty.FunctionSnapshot
         | pydantic_monty.NameLookupSnapshot
@@ -328,22 +370,23 @@ class MontyReplInterpreter:
         | pydantic_monty.MontyComplete
     ):
         """Start Monty execution across nearby API versions."""
+        external_tools = dict(tools) if tools is not None else self._tools
         start_kwargs: dict[str, Any] = {
-            "inputs": merged_vars or None,
-            "limits": self._limits,
+            "inputs": external_tools or None,
             "print_callback": print_callback,
+            "skip_type_check": self._type_check and self._has_executed,
         }
         if self._os_access is not None:
             start_kwargs["os"] = self._os_access
 
         try:
-            return monty.start(**start_kwargs)
+            return self._repl.feed_start(code, **start_kwargs)
         except TypeError as exc:
             if self._os_access is None or "os" not in str(exc):
                 raise
             start_kwargs.pop("os", None)
             try:
-                return monty.start(**start_kwargs)
+                return self._repl.feed_start(code, **start_kwargs)
             except Exception as retry_exc:
                 self._raise_known_monty_error(retry_exc, retry_exc.__traceback__)
                 raise
@@ -383,18 +426,44 @@ class MontyReplInterpreter:
             self._raise_known_monty_error(exc, exc.__traceback__)
             raise
 
+    def _resume_future_snapshot(
+        self,
+        snapshot: pydantic_monty.FutureSnapshot,
+        results: dict[int, pydantic_monty.ExternalResult],
+    ) -> (
+        pydantic_monty.FunctionSnapshot
+        | pydantic_monty.NameLookupSnapshot
+        | pydantic_monty.FutureSnapshot
+        | pydantic_monty.MontyComplete
+    ):
+        """Resume a future snapshot across old and new Monty APIs."""
+        resume_kwargs: dict[str, Any] = {}
+        if self._os_access is not None:
+            resume_kwargs["os"] = self._os_access
+
+        try:
+            return snapshot.resume(results, **resume_kwargs)
+        except Exception as exc:
+            self._raise_known_monty_error(exc, exc.__traceback__)
+            raise
+
     async def execute(self, code: str) -> InterpreterRunResult:
-        """Execute code and persist supported top-level variables."""
+        """Execute code in the persistent Monty REPL.
+
+        Args:
+            code: Python source to run in the sandbox.
+
+        Returns:
+            InterpreterRunResult: Captured stdout and top-level names assigned by
+            the completed snippet.
+        """
         assigned_names, deleted_names = self._name_collector.collect(
             code,
             safe_call_names=set(self._tools),
         )
-        wrapped_code = self._wrap_code(code, assigned_names, deleted_names)
-
         captured_state: dict[str, Any] = {}
         deleted_state_names: set[str] = set()
         persistence_failures: list[dict[str, str]] = []
-        all_tools = dict(self._tools)
 
         def _persist_variable(name: str, value: Any) -> None:
             captured_state[name] = value
@@ -405,52 +474,38 @@ class MontyReplInterpreter:
         def _record_persist_failure(name: str, error: str) -> None:
             persistence_failures.append({"name": name, "error": error})
 
-        all_tools[self._persist_tool_name] = _persist_variable
-        all_tools[self._delete_tool_name] = _delete_variable
-        all_tools[self._persist_error_tool_name] = _record_persist_failure
+        _persist_variable.__name__ = self._persist_tool_name
+        _delete_variable.__name__ = self._delete_tool_name
+        _record_persist_failure.__name__ = self._persist_error_tool_name
 
-        merged_vars = dict(self._state)
-        awaited_tool_names = self._find_awaited_tool_names(wrapped_code, set(all_tools))
-        type_check_stubs = self._build_type_check_stubs(
-            list(all_tools),
-            awaited_tool_names,
-        )
-
-        try:
-            monty = pydantic_monty.Monty(
-                wrapped_code,
-                inputs=list(merged_vars) if merged_vars else [],
-                type_check=self._type_check,
-                type_check_stubs=type_check_stubs,
-            )
-        except Exception as exc:
-            self._raise_known_monty_error(exc, exc.__traceback__)
-            raise
+        external_tools = dict(self._tools)
+        external_tools[self._persist_tool_name] = _persist_variable
+        external_tools[self._delete_tool_name] = _delete_variable
+        external_tools[self._persist_error_tool_name] = _record_persist_failure
+        external_tools[self._legacy_persist_tool_name] = _persist_variable
+        external_tools[self._legacy_delete_tool_name] = _delete_variable
+        external_tools[self._legacy_persist_error_tool_name] = _record_persist_failure
+        wrapped_code = self._wrap_code(code, assigned_names, deleted_names)
 
         stdout_parts: list[str] = []
 
         def _capture_print(_stream: str, text: str) -> None:
             stdout_parts.append(text)
 
-        progress = self._start_monty(monty, merged_vars, _capture_print)
+        progress = self._start_monty(wrapped_code, _capture_print, tools=external_tools)
 
-        pending_tasks: dict[
-            int, asyncio.Task[tuple[int, pydantic_monty.ExternalResult]]
-        ] = {}
+        pending_tasks: dict[int, asyncio.Task[pydantic_monty.ExternalResult]] = {}
 
-        async def _resolve_async_tool(
-            call_id: int,
-            result: Any,
-        ) -> tuple[int, pydantic_monty.ExternalResult]:
+        async def _resolve_async_tool(result: Any) -> pydantic_monty.ExternalResult:
             try:
-                return call_id, {"return_value": await result}
+                return {"return_value": await result}
             except Exception as exc:  # pragma: no cover
-                return call_id, {"exception": exc}
+                return {"exception": exc}
 
         try:
             while not isinstance(progress, pydantic_monty.MontyComplete):
                 if isinstance(progress, pydantic_monty.NameLookupSnapshot):
-                    resolved_name = all_tools.get(progress.variable_name)
+                    resolved_name = external_tools.get(progress.variable_name)
                     if resolved_name is not None:
                         progress = progress.resume(value=resolved_name)
                     else:
@@ -480,28 +535,36 @@ class MontyReplInterpreter:
                         )
                         continue
 
-                    func = all_tools.get(progress.function_name)
+                    func = external_tools.get(progress.function_name)
                     if func is None:
-                        raise CodeExecutionError(
-                            f"Unknown function: {progress.function_name}"
+                        progress = self._resume_function_snapshot(
+                            progress,
+                            {
+                                "exception": NameError(
+                                    f"Unknown function: {progress.function_name}"
+                                )
+                            },
                         )
+                        continue
+
                     try:
                         result = func(*progress.args, **progress.kwargs)
-                        if inspect.iscoroutine(result):
-                            if progress.function_name in awaited_tool_names:
-                                pending_tasks[progress.call_id] = asyncio.create_task(
-                                    _resolve_async_tool(progress.call_id, result)
-                                )
-                                progress = self._resume_function_snapshot(
-                                    progress,
-                                    {"future": ...},
-                                )
-                                continue
-                            result = await result
                     except Exception as exc:
-                        raise CodeExecutionError(
-                            f"Tool {progress.function_name} failed: {exc}"
-                        ) from exc
+                        progress = self._resume_function_snapshot(
+                            progress,
+                            {"exception": exc},
+                        )
+                        continue
+
+                    if inspect.iscoroutine(result):
+                        pending_tasks[progress.call_id] = asyncio.create_task(
+                            _resolve_async_tool(result)
+                        )
+                        progress = self._resume_function_snapshot(
+                            progress,
+                            {"future": ...},
+                        )
+                        continue
 
                     progress = self._resume_function_snapshot(
                         progress,
@@ -510,21 +573,40 @@ class MontyReplInterpreter:
                     continue
 
                 if isinstance(progress, pydantic_monty.FutureSnapshot):
-                    current_tasks = [
-                        pending_tasks[call_id]
+                    results: dict[int, pydantic_monty.ExternalResult] = {}
+                    gather_ids = [
+                        call_id
                         for call_id in progress.pending_call_ids
                         if call_id in pending_tasks
                     ]
-                    done, _ = await asyncio.wait(
-                        current_tasks,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    results: dict[int, pydantic_monty.ExternalResult] = {}
-                    for task in done:
-                        call_id, ext_result = task.result()
-                        results[call_id] = ext_result
-                        pending_tasks.pop(call_id, None)
-                    progress = progress.resume(results)
+                    missing_ids = [
+                        call_id
+                        for call_id in progress.pending_call_ids
+                        if call_id not in pending_tasks
+                    ]
+                    for call_id in missing_ids:
+                        results[call_id] = {
+                            "exception": RuntimeError(
+                                f"No pending async tool result for call id {call_id}."
+                            )
+                        }
+
+                    if gather_ids:
+                        settled = await asyncio.gather(
+                            *(pending_tasks[call_id] for call_id in gather_ids),
+                            return_exceptions=True,
+                        )
+                        for call_id in gather_ids:
+                            pending_tasks.pop(call_id, None)
+                        for call_id, outcome in zip(gather_ids, settled):
+                            if isinstance(outcome, Exception):
+                                results[call_id] = {"exception": outcome}
+                            elif isinstance(outcome, BaseException):  # pragma: no cover
+                                raise outcome
+                            else:
+                                results[call_id] = outcome
+
+                    progress = self._resume_future_snapshot(progress, results)
                     continue
 
                 raise CodeExecutionError(
@@ -541,9 +623,13 @@ class MontyReplInterpreter:
             if pending_tasks:
                 await asyncio.gather(*pending_tasks.values(), return_exceptions=True)
 
+        self._state_names.update(assigned_names)
+        for deleted_name in deleted_names:
+            self._state_names.discard(deleted_name)
         self._state.update(captured_state)
         for deleted_name in deleted_state_names:
             self._state.pop(deleted_name, None)
+        self._has_executed = True
 
         return InterpreterRunResult(
             stdout="".join(stdout_parts),

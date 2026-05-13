@@ -31,7 +31,52 @@ from src.mcp.monty_python_repl.support import metrics as metrics_support
 
 def run_execute(repl: MontyPythonREPL, code: str) -> dict[str, object]:
     """Execute sandbox code inside a synchronous pytest test."""
-    return asyncio.run(repl.execute(code))
+    execution = asyncio.run(repl.execute(code))
+    records = getattr(repl, "_test_execution_records", [])
+    records.append(execution)
+    setattr(repl, "_test_execution_records", records)
+    return execution
+
+
+def drain_results(repl: MontyPythonREPL) -> dict[str, object]:
+    """Drain direct execute payloads into the legacy test assertion shape."""
+    records = getattr(repl, "_test_execution_records", [])
+    if not records:
+        return {
+            "status": "empty",
+            "summary": "No new execution output since the last drain.",
+        }
+
+    chunks: list[str] = []
+    for record in records:
+        chunk_lines = [f"Execution {record['execution_id']} [{record['status']}]"]
+        stdout = str(record.get("stdout") or "")
+        if stdout:
+            chunk_lines.append(stdout.rstrip())
+        error = record.get("error")
+        if error:
+            chunk_lines.append(f"ERROR: {error}")
+        persistence_failures = record.get("persistence_failures") or []
+        if persistence_failures:
+            chunk_lines.append(
+                "Persistence warnings: "
+                + ", ".join(
+                    f"{item['name']} ({item['error']})"
+                    for item in persistence_failures
+                )
+            )
+        artifacts = record.get("artifacts") or []
+        if artifacts:
+            chunk_lines.append(f"Artifacts: {', '.join(artifacts)}")
+        chunks.append("\n".join(chunk_lines).strip())
+
+    setattr(repl, "_test_execution_records", [])
+    return {
+        "status": "ok",
+        "summary": f"Returned {len(records)} direct execution result(s).",
+        "executions": records,
+        "combined_output": "\n\n".join(chunks),
+    }
 
 
 def test_help_lists_default_collections_and_repl_notes(tmp_path: Path) -> None:
@@ -62,7 +107,7 @@ def test_help_lists_default_collections_and_repl_notes(tmp_path: Path) -> None:
     assert "Tools: load_csv, load_excel, save_csv, save_excel" in payload
     assert "Tools: dataframe_columns, dataframe_describe, dataframe_dtypes" in payload
     assert "Tools: create_metric_scorer, create_ppv_scorer" in payload
-    assert "results() returns and clears accumulated outputs" in payload
+    assert "execute(...) returns stdout, artifacts, errors" in payload
     assert "Call help() to explore collections." in payload
     assert 'Call help("<collection>") to see available tools.' in payload
     assert 'Call help("<tool>") before writing execute(...) code.' in payload
@@ -275,7 +320,7 @@ def test_registry_can_register_decorated_collections(tmp_path: Path) -> None:
     repl = MontyPythonREPL(workspace_root=tmp_path, registry=registry)
     payload = repl.help("math")
     execution = run_execute(repl, "print(scale_value(3, factor=4))")
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert "Collection: math" in payload
     assert "scale_value(value: int, factor: int = 2) -> int" in payload
@@ -442,8 +487,8 @@ def test_execute_persists_assigned_state_and_results_are_drained(
 
     first = run_execute(repl, "answer = 41\nprint('saved')")
     second = run_execute(repl, "print(answer + 1)")
-    buffered = repl.results()
-    drained = repl.results()
+    buffered = drain_results(repl)
+    drained = drain_results(repl)
 
     assert first["status"] == "success"
     assert second["status"] == "success"
@@ -481,7 +526,7 @@ def test_execute_reports_persistence_failures_without_hiding_success(
         repl,
         "bad_value = 123",
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert execution["status"] == "success"
     assert execution["persisted_variables"] == []
@@ -514,7 +559,7 @@ def test_execute_enforces_workspace_paths_and_tracks_artifacts(tmp_path: Path) -
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert success["status"] == "success"
     assert "/workspace/notes.txt" in success["artifacts"]
@@ -547,7 +592,7 @@ def test_workspace_file_helpers_can_read_and_write_text_and_json(
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert result["status"] == "success"
     assert "/workspace/docs/notes.md" in result["artifacts"]
@@ -597,7 +642,7 @@ def test_default_eda_helpers_can_generate_artifacts(tmp_path: Path) -> None:
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert first["status"] == "success"
     assert second["status"] == "success"
@@ -637,7 +682,7 @@ def test_data_io_helpers_can_load_excel_workbooks(tmp_path: Path) -> None:
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert result["status"] == "success"
     assert "df_handle" in result["persisted_variables"]
@@ -688,7 +733,7 @@ def test_freeform_dataframe_tool_can_create_a_new_dataframe_handle(
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     source_handle = str(repl.interpreter.state["source_handle"])
     result_payload = repl.interpreter.state["result"]
@@ -914,7 +959,7 @@ def test_freeform_dataframe_tool_blocks_dunder_lookup_via_builtin_helpers(
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert seed["status"] == "success"
     assert failure["status"] == "error"
@@ -1042,7 +1087,7 @@ def test_freeform_dataframe_tool_surfaces_validation_errors(tmp_path: Path) -> N
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert seed["status"] == "success"
     assert failure["status"] == "error"
@@ -1067,7 +1112,7 @@ def test_freeform_dataframe_tool_surfaces_runtime_errors(tmp_path: Path) -> None
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     assert seed["status"] == "success"
     assert failure["status"] == "error"
@@ -1283,7 +1328,7 @@ def test_preprocessing_helpers_can_fit_transform_and_persist_artifacts(
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     state = repl.interpreter.state
     onehot_prep_handle = state["onehot_prep"]
@@ -1439,7 +1484,7 @@ def test_feature_engineering_helpers_can_fit_transform_and_compose(
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     state = repl.interpreter.state
     fe_handle = state["fe_handle"]
@@ -1567,7 +1612,7 @@ def test_feature_selection_helpers_can_generate_reports_and_metrics(
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     state = repl.interpreter.state
     summary_handle = state["summary_handle"]
@@ -1706,7 +1751,7 @@ def test_visualizations_collection_can_plot_feature_importance_from_supported_ha
         repl,
         f"plot_feature_importance('{unsupported_handle}', '/workspace/output/unsupported.png')",
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     report_plot = repl.interpreter.state["report_plot"]
     tuned_plot = repl.interpreter.state["tuned_plot"]
@@ -1765,7 +1810,7 @@ def test_metrics_and_splitting_helpers_create_reusable_handles(
             ]
         ),
     )
-    buffered = repl.results()
+    buffered = drain_results(repl)
 
     state = repl.interpreter.state
     ppv_handle = state["ppv_handle"]
@@ -1859,7 +1904,7 @@ def test_hpo_can_consume_metric_and_splitter_handles(
             ]
         ),
     )
-    repl.results()
+    drain_results(repl)
 
     state = repl.interpreter.state
     fs_eval_handle = state["fs_eval"]
@@ -1941,7 +1986,7 @@ def test_hpo_inspection_exposes_sklearn_params_and_accepts_sklearn_search_space(
             ]
         ),
     )
-    repl.results()
+    drain_results(repl)
 
     inspection = repl.interpreter.state["inspection"]
     study_handle = repl.interpreter.state["study_handle"]
@@ -2046,7 +2091,7 @@ def test_hpo_helpers_can_run_iterative_tuning_and_save_artifacts(
             ]
         ),
     )
-    second = repl.results()
+    second = drain_results(repl)
 
     state = repl.interpreter.state
     study_handle = state["study_handle"]

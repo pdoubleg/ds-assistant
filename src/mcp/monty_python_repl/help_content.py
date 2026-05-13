@@ -58,7 +58,7 @@ OVERVIEW_KEY_NOTES: tuple[str, ...] = (
     "Tools operate on dataframe handles, not raw dataframes",
     "Use run_dataframe_code for broader pandas/sklearn/lightgbm/optuna workflows",
     "Add print() statements inside execute(...) or freeform helpers for diagnostics",
-    "results() returns and clears accumulated outputs",
+    "execute(...) returns stdout, artifacts, errors, and persisted variable names directly",
 )
 SUPPORTED_NATIVE_IMPORTS: tuple[str, ...] = (
     "dataclasses",
@@ -82,14 +82,14 @@ HANDLE_ARGUMENT_GUIDANCE = (
 )
 USAGE_EXAMPLE_GUIDANCE = (
     "Start from the usage example, then adapt the variable names and paths to the "
-    "current session."
+    "current REPL."
 )
 
 SANDBOX_OVERVIEW_SENTENCE = (
     "A Monty-sandboxed Python REPL. Use `execute` to run code in a persistent "
-    "interpreter-like session, `help` to explore collections or inspect a "
-    "specific collection/tool by name, and `results` to retrieve stdout, "
-    "warnings, and errors accumulated since the last results call."
+    "interpreter-like REPL, `help` to explore collections or inspect a "
+    "specific collection/tool by name. Each `execute` call returns stdout, "
+    "warnings, errors, artifacts, and persisted variable names directly."
 )
 WORKSPACE_AND_IMPORTS_SENTENCE = (
     "Keep files in `/workspace`. Native imports inside `execute(...)` are "
@@ -170,7 +170,7 @@ def build_execute_tool_description() -> str:
 
     return " ".join(
         (
-            "Run Python code in a persistent interpreter-like session.",
+            "Run Python code in a persistent interpreter-like REPL.",
             "Keep all files and outputs in `/workspace`.",
             WORKSPACE_AND_IMPORTS_SENTENCE,
             FREEFORM_RUNTIME_SENTENCE,
@@ -367,7 +367,7 @@ COLLECTION_HELP_CONTENT: dict[str, CollectionHelpContent] = {
     ),
     "handles": CollectionHelpContent(
         when_to_use=(
-            "Listing active dataframe or figure handles in the current session",
+            "Listing active dataframe or figure handles in the current REPL",
             "Inspecting what a previously returned handle refers to",
         ),
         workflow=(

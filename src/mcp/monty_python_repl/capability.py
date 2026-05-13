@@ -25,25 +25,11 @@ CAPABILITY_SYSTEM_PROMPT = build_shared_runtime_guidance()
 HELP_TOOL_DESCRIPTION = build_help_tool_description()
 EXECUTE_TOOL_DESCRIPTION = build_execute_tool_description()
 
-RESULTS_TOOL_DESCRIPTION = (
-    "Retrieve stdout, warnings, and errors accumulated since the last results call. "
-    "The results will be returned to you. "
-    "Keep all files and outputs in `/workspace`. "
-)
 
-
-_repl: MontyPythonREPL | None = None
-
-
-def get_repl() -> MontyPythonREPL:
-    """Return the lazily initialized module-level REPL service."""
-    global _repl
-    if _repl is None:
-        _repl = MontyPythonREPL()
-    return _repl
-
-
-def _create_toolset(console: Console | None = None) -> FunctionToolset[Any]:
+def _create_toolset(
+    repl: MontyPythonREPL,
+    console: Console | None = None,
+) -> FunctionToolset[Any]:
     toolset: FunctionToolset[Any] = FunctionToolset()
 
     @toolset.tool_plain(name="help", description=HELP_TOOL_DESCRIPTION)
@@ -59,7 +45,7 @@ def _create_toolset(console: Console | None = None) -> FunctionToolset[Any]:
         ] = None,
     ) -> str:
         """Describe available sandbox functions."""
-        return get_repl().help(name=name)
+        return repl.help(name=name)
 
     @toolset.tool_plain(name="execute", description=EXECUTE_TOOL_DESCRIPTION)
     async def execute(
@@ -69,12 +55,7 @@ def _create_toolset(console: Console | None = None) -> FunctionToolset[Any]:
         ],
     ) -> dict[str, Any]:
         """Execute Python code inside the Monty sandbox."""
-        return await get_repl().execute(code)
-
-    @toolset.tool_plain(name="results", description=RESULTS_TOOL_DESCRIPTION)
-    async def results() -> dict[str, Any]:
-        """Return and clear buffered execution output."""
-        return get_repl().results()
+        return await repl.execute(code)
 
     if console is not None:
         toolset = LoggingToolset(wrapped=toolset, console=console)
@@ -87,10 +68,12 @@ class MontyPythonCapability(AbstractCapability[Any]):
     """A Monty-sandboxed Python REPL capability."""
 
     console: Console | None = None
+    _repl: MontyPythonREPL | None = None
     _toolset: FunctionToolset[Any] | None = None
 
     def __post_init__(self) -> None:
-        self._toolset = _create_toolset(console=self.console)
+        self._repl = MontyPythonREPL()
+        self._toolset = _create_toolset(self._repl, console=self.console)
 
     @classmethod
     def get_serialization_name(cls) -> str:

@@ -18,20 +18,11 @@ mcp = FastMCP(
     name="monty_python_repl",
     instructions=build_shared_runtime_guidance(),
 )
-_repl: MontyPythonREPL | None = None
-
-RESULTS_TOOL_DESCRIPTION = (
-    "Retrieve stdout, warnings, and errors accumulated since the last results call. "
-    "The results will be returned to you. "
-    "Keep all files and outputs in `/workspace`. "
-)
+_repl = MontyPythonREPL()
 
 
 def get_repl() -> MontyPythonREPL:
-    """Return the lazily initialized module-level REPL service."""
-    global _repl
-    if _repl is None:
-        _repl = MontyPythonREPL()
+    """Return the persistent REPL service for this agent process."""
     return _repl
 
 
@@ -59,9 +50,3 @@ async def help(
 ) -> str:
     """Describe available sandbox functions."""
     return get_repl().help(name=name)
-
-
-@mcp.tool(name="results", description=RESULTS_TOOL_DESCRIPTION)
-async def results() -> dict[str, Any]:
-    """Return and clear buffered execution output."""
-    return get_repl().results()
